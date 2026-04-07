@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import config
-from app import tool_authoring
+from src.core.config import config
+from src.domain.plugin_system.tool_authoring import tool_authoring
 
 from tools.agent.core.tool_factory._tool_factory_common import (
     backup_extra_tool_before_write,
@@ -355,7 +355,7 @@ TOOLS: list[dict[str, Any]] = [
                 "Handler signature: def my_tool(arguments: dict) -> str returning json.dumps(...). "
                 "Never set `source` to words like module_name — use codegen without source instead. "
                 "`source_content` accepted like `source` (markdown ``` ok). "
-                "Inside plugins: from app.plugin_invoke import invoke_registered_tool — "
+                "Inside plugins: from src.plugin_invoke import invoke_registered_tool — "
                 'invoke_registered_tool returns a JSON string (use json.loads), not a list: '
                 'raw = invoke_registered_tool(\"openweather_forecast\", {\"location\": \"...\"}). '
                 "Related: list_tools, read_tool, replace_tool, rename_tool."

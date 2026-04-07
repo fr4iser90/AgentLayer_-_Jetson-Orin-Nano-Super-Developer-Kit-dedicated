@@ -17,14 +17,14 @@ from typing import Any
 
 import httpx
 
-from app import db
-from app.agent import chat_completion
+from src.infrastructure.db import db
+from src.domain.agent import chat_completion
 
 logger = logging.getLogger(__name__)
 
 __version__ = "1.0.0"
 
-RUN_ON_STARTUP = False
+RUN_ON_STARTUP = True  # True / False
 RUN_EVERY_MINUTES = 360 # every 6 hours
 
 # Add your RSS feeds here

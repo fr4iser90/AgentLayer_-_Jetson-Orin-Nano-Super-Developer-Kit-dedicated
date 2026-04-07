@@ -17,5 +17,5 @@ modules under ``domains/fishing/``).
 (reflected in ``tools_meta``), (4) later: embedding search over tool TOOL_DESCRIPTIONs or capability
 indexes — not implemented in the HTTP core yet.
 
-Extra tools under ``AGENT_TOOLS_EXTRA_DIR`` may mirror the same shape (e.g. ``extra_tools/domains/...``).
+Extra tools under ``AGENT_TOOLS_EXTRA_DIR`` may mirror the same shape (e.g. ``tools/agent/agent_created/domains/...``).
 """

@@ -10,8 +10,8 @@ from urllib.parse import quote
 
 import httpx
 
-from app import db
-from app import identity
+from src.infrastructure.db import db
+from src.domain.identity import get_identity
 
 __version__ = "1.0.0"
 TOOL_ID = "github"
@@ -56,7 +56,7 @@ def _parse_user_pat(raw: str) -> str:
 
 
 def _token() -> str | None:
-    _tid, uid = identity.get_identity()
+    _tid, uid = get_identity()
     raw = db.user_secret_get_plaintext(uid, USER_SECRET_KEY)
     if raw:
         t = _parse_user_pat(raw)

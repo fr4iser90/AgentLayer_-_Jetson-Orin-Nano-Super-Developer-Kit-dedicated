@@ -10,8 +10,8 @@ from email.header import decode_header
 from email.message import Message
 from typing import Any, Callable
 
-from app import db
-from app import identity
+from src.infrastructure import db
+from src.domain.identity import get_identity
 
 __version__ = "1.0.1"
 TOOL_ID = "gmail"
@@ -78,7 +78,7 @@ def _parse_gmail_secret(raw: str | None) -> dict[str, str] | None:
 
 
 def _creds_for_user() -> dict[str, str] | str:
-    _tid, uid = identity.get_identity()
+    _tid, uid = get_identity()
     raw = db.user_secret_get_plaintext(uid, SECRET_SERVICE_KEY)
     if not raw:
         return (

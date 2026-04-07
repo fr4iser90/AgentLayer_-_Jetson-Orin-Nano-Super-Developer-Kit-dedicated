@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import db
+from src.infrastructure.db import db
 
 __version__ = "1.1.1"
 TOOL_ID = "todos"

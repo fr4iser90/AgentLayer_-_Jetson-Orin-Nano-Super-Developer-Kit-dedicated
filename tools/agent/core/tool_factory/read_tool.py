@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import config
+from src.core.config import config
 
 from tools.agent.core.tool_factory._tool_factory_common import (
     coalesce_tool_file_target,

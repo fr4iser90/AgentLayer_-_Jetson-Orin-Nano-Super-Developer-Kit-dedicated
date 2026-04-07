@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import config
-from app import db
-from app import identity
-from app import secret_otp_bundle
+from src.core.config import config
+from src.infrastructure.db import db
+from src.domain.identity import get_identity
+from src.infrastructure.secret_otp_bundle import secret_otp_bundle
 
 __version__ = "1.0.0"
 TOOL_ID = "secrets_help"
@@ -28,7 +28,7 @@ def secrets_help(arguments: dict[str, Any]) -> str:
         config.USER_SUB_HEADERS[0] if config.USER_SUB_HEADERS else "X-OpenWebUI-User-Id"
     )
 
-    _tid, uid = identity.get_identity()
+    _tid, uid = get_identity()
     resolved_sub = db.user_external_sub(uid)
     user_value = resolved_sub if resolved_sub is not None else "DEINE_WEBUI_USER_ID"
 

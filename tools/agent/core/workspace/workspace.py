@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from app import config
+from src.core.config import config
 
 __version__ = "1.0.0"
 TOOL_ID = "workspace"

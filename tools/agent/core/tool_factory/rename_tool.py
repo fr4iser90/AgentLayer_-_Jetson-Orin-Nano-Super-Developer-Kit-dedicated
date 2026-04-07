@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import tool_authoring
+from src.domain.plugin_system.tool_authoring import tool_authoring
 
 from tools.agent.core.tool_factory._tool_factory_common import (
     digest_reload_response,

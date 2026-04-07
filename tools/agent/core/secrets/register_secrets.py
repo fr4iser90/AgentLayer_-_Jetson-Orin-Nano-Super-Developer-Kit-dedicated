@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import config
-from app import secret_otp_bundle
+from src.core.config import config
+from src.infrastructure.secret_otp_bundle import secret_otp_bundle
 
 __version__ = "1.0.0"
 TOOL_ID = "register_secrets"

@@ -11,8 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from app import db
-from app.agent import chat_completion
+from src.infrastructure.db import db
+from src.domain.agent import chat_completion
 
 logger = logging.getLogger(__name__)
 

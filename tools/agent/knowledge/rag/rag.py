@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from app import config
-from app import rag as rag_service
+from src.core.config import config
+from src.infrastructure.rag import rag as rag_service
 
 __version__ = "1.0.0"
 TOOL_ID = "rag"

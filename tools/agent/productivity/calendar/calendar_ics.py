@@ -14,10 +14,10 @@ from urllib.parse import urlparse
 import httpx
 from icalendar import Calendar
 
-from app import config
-from app import db
-from app import identity
-from app import secret_otp_bundle
+from src.core.config import config
+from src.infrastructure.db import db
+from src.domain.identity import get_identity
+from src.infrastructure.secret_otp_bundle import secret_otp_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def _parse_secret(raw: str | None) -> str | None:
 
 
 def _ics_url_for_user() -> str | dict[str, Any]:
-    _tid, uid = identity.get_identity()
+    _tid, uid = get_identity()
     url: str | None = None
     for sk in SECRET_KEYS_TRY_ORDER:
         raw = db.user_secret_get_plaintext(uid, sk)

@@ -13,10 +13,10 @@ from typing import Any
 
 import httpx
 
-from app import config
-from app import tool_authoring
-from app.registry import get_registry, reload_registry
-from app.tool_name_hints import suggest_tool_names
+from src.core.config import config
+from src.domain.plugin_system.tool_authoring import tool_authoring
+from src.domain.plugin_system.registry import get_registry, reload_registry
+from src.domain.plugin_system.tool_name_hints import suggest_tool_names
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def extra_root_or_error() -> tuple[Path | None, str | None]:
                 "ok": False,
                 "error": (
                     "tool factory is disabled. Set AGENT_CREATE_TOOL_ENABLED=true "
-                    "and mount a writable directory (e.g. ./extra_tools:/data/tools:rw)."
+                    "and mount a writable directory (e.g. ./tools/agent/agent_created:/data/tools:rw)."
                 ),
             },
             ensure_ascii=False,
@@ -332,7 +332,7 @@ def digest_reload_response(
     if extra:
         out.update(extra)
     if test_tool_name:
-        from app.tools import run_tool
+        from src.tools import run_tool
 
         probe = run_tool(test_tool_name, test_arguments or {})
         out["test_tool"] = {"name": test_tool_name, "result": probe}
