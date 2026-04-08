@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -41,7 +40,12 @@ from src.infrastructure.operator_settings import (
     apply_update as operator_settings_apply,
     interface_hints_public,
     public_dict as operator_settings_public,
-    stored_openwebui_bearer,
+)
+from src.api.optional_http_access import (
+    is_optional_connection_route,
+    middleware_path_is_public,
+    optional_connection_allows,
+    public_http_auth_policy,
 )
 from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed, claim_admin_user
 from src.domain.agent import chat_completion
@@ -234,6 +238,12 @@ async def put_interface_hints(request: Request, body: InterfaceHintsPayload):
     return interface_hints_public()
 
 
+@app.get("/auth/policy")
+def http_auth_policy():
+    """Public JSON: path classes, optional connection key behavior, admin routes."""
+    return public_http_auth_policy()
+
+
 # interfaces/ lives at repo root (sibling of src/), not under src/
 _control_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static"
 if _control_dir.is_dir():
@@ -257,59 +267,21 @@ app.add_middleware(
 )
 
 
-_OPENWEBUI_OPTIONAL_BEARER_PATHS: frozenset[tuple[str, str]] = frozenset(
-    {("/v1/chat/completions", "POST"), ("/tools/run", "POST")}
-)
-
-
-def _openwebui_bearer_allows_request(request: Request) -> bool:
-    """
-    If no shared secret is configured, the client does not need to send Bearer.
-    If a secret is configured, require Authorization: Bearer <exact match> (constant-time).
-    """
-    expected = stored_openwebui_bearer()
-    auth = request.headers.get("authorization") or ""
-    token = auth.removeprefix("Bearer ").strip()
-    if expected is None:
-        return True
-    if not token:
-        return False
-    try:
-        return secrets.compare_digest(token, expected)
-    except (TypeError, ValueError):
-        return False
-
-
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
     # CORS preflight must not require Bearer auth (browser sends no Authorization).
-    if request.method == "OPTIONS":
+    if (request.method or "").upper() == "OPTIONS":
         return await call_next(request)
 
-    # Public endpoints no auth required
-    public_paths = [
-        "/health",
-        "/v1/models",
-        "/auth/login",
-        "/auth/refresh",
-        "/auth/claim",
-        "/auth/setup-status",
-        "/favicon.ico",
-        "/"
-    ]
-
-    if any(path == p or path.startswith("/control/") for p in public_paths):
+    # See src/api/optional_http_access.py and GET /auth/policy
+    if middleware_path_is_public(path, request.method):
         return await call_next(request)
 
-    # Allow OTP register endpoint
-    if request.method == "POST" and path == "/v1/user/secrets/register-with-otp":
-        return await call_next(request)
-
-    # Open WebUI chat + tool runner: no Bearer unless a shared secret is stored; then Bearer must match
-    if (path, request.method) in _OPENWEBUI_OPTIONAL_BEARER_PATHS:
-        if _openwebui_bearer_allows_request(request):
+    # Selected routes: optional operator connection key or JWT/API key
+    if is_optional_connection_route(path, request.method):
+        if await optional_connection_allows(request):
             return await call_next(request)
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 

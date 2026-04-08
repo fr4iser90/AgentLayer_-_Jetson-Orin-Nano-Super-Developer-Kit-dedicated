@@ -26,7 +26,7 @@ def _fetch_row() -> dict[str, Any]:
                 """
                 SELECT require_user_sub_header, user_sub_header_csv, tenant_id_header,
                        discord_application_id, integration_notes,
-                       openwebui_bearer
+                       optional_connection_key
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -38,7 +38,7 @@ def _fetch_row() -> dict[str, Any]:
             "tenant_id_header": None,
             "discord_application_id": None,
             "integration_notes": None,
-            "openwebui_bearer": None,
+            "optional_connection_key": None,
         }
     return {
         "require_user_sub_header": bool(row[0]),
@@ -46,7 +46,7 @@ def _fetch_row() -> dict[str, Any]:
         "tenant_id_header": row[2],
         "discord_application_id": row[3],
         "integration_notes": row[4],
-        "openwebui_bearer": row[5],
+        "optional_connection_key": row[5],
     }
 
 
@@ -80,9 +80,9 @@ def require_user_sub_header() -> bool:
     return bool(_cached_row().get("require_user_sub_header"))
 
 
-def stored_openwebui_bearer() -> str | None:
-    """Stored shared secret, or None if those routes must not require a Bearer token."""
-    v = (_cached_row().get("openwebui_bearer") or "").strip()
+def stored_optional_connection_key() -> str | None:
+    """Optional value for selected HTTP routes; None means no Authorization required there."""
+    v = (_cached_row().get("optional_connection_key") or "").strip()
     return v if v else None
 
 
@@ -114,21 +114,21 @@ class OperatorSettingsPayload(BaseModel):
 def interface_hints_public() -> dict[str, Any]:
     r = _fetch_row()
     return {
-        "openwebui_bearer": r.get("openwebui_bearer") or "",
+        "optional_connection_key": r.get("optional_connection_key") or "",
         "discord_application_id": r.get("discord_application_id") or "",
     }
 
 
 class InterfaceHintsPayload(BaseModel):
-    """Open WebUI shared secret + Discord application ID. Empty openwebui_bearer on save clears the secret so chat/tools/run need no Bearer."""
+    """Optional HTTP connection key + Discord application ID. Empty key on save clears it."""
 
-    openwebui_bearer: str = Field(default="", max_length=8000)
+    optional_connection_key: str = Field(default="", max_length=8000)
     discord_application_id: str = Field(default="", max_length=128)
 
 
 def apply_interface_hints(body: InterfaceHintsPayload) -> None:
-    br_new = body.openwebui_bearer.strip()
-    br_v = br_new if br_new else None
+    key_new = body.optional_connection_key.strip()
+    key_v = key_new if key_new else None
     disc_v = body.discord_application_id.strip() or None
 
     with db.pool().connection() as conn:
@@ -136,12 +136,12 @@ def apply_interface_hints(body: InterfaceHintsPayload) -> None:
             cur.execute(
                 """
                 UPDATE operator_settings SET
-                  openwebui_bearer = %s,
+                  optional_connection_key = %s,
                   discord_application_id = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
-                (br_v, disc_v),
+                (key_v, disc_v),
             )
         conn.commit()
     _invalidate()

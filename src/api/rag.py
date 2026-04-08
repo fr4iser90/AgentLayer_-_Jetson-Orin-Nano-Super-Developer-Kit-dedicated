@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import uuid
 from typing import Any
 
 from src.core.config import config
@@ -57,7 +58,7 @@ def ollama_embed_one(text: str) -> list[float]:
 
 def ingest_for_user(
     tenant_id: int,
-    user_id: int,
+    user_id: uuid.UUID,
     domain: str,
     title: str,
     text: str,
@@ -108,5 +109,7 @@ def search_for_identity(
         return []
     emb = ollama_embed_one(q)
     tenant_id, user_id = get_identity()
+    if user_id is None:
+        return []
     lim = limit if limit is not None else config.AGENT_RAG_TOP_K
     return db.rag_vector_search(tenant_id, user_id, emb, domain, int(lim))

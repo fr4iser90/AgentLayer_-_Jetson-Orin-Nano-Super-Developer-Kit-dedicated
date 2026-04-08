@@ -72,15 +72,15 @@
 
   <div id="admin-gate" style="display:none;"></div>
 
-  <section id="openwebui-section">
-    <h2>Open WebUI</h2>
-    <p class="hint" style="margin-top:0;">In Open WebUI, set the OpenAI-compatible <strong>API base URL</strong> to this Agent Layer, e.g. <span class="mono" id="suggestedBaseUrl"></span> (not Open WebUI’s URL).</p>
-    <p class="hint"><strong>If the field below is empty and you save:</strong> <span class="mono">POST /v1/chat/completions</span> and <span class="mono">POST /tools/run</span> need <em>no</em> <span class="mono">Authorization</span> header (Open WebUI can leave the API key blank). <strong>If you set a secret and save:</strong> Open WebUI must use that exact value as the API key (<span class="mono">Bearer …</span>). The same value is shown here after save.</p>
-    <label for="bearer">Open WebUI shared secret (optional)</label>
-    <input type="text" id="bearer" class="mono" placeholder="Empty + Save = no Bearer required for chat/tools/run above" autocomplete="off" spellcheck="false" disabled />
-    <p class="hint">Plain text so you can verify it. Treat it like a password.</p>
+  <section id="external-clients-section">
+    <h2>External clients</h2>
+    <p class="hint" style="margin-top:0;">Point any OpenAI-compatible client at this Agent Layer base URL, e.g. <span class="mono" id="suggestedBaseUrl"></span>. Full HTTP auth rules: <a href="/auth/policy" style="color:var(--accent);">GET /auth/policy</a></p>
+    <p class="hint"><strong>Optional connection key:</strong> If empty and you save, selected routes (chat, tools list, OpenAPI, <span class="mono">/tools/run</span>) need no <span class="mono">Authorization</span> header. If you set a value and save, clients must send that value as <span class="mono">Authorization: Bearer …</span>, or use a normal login JWT / API key. Same value is shown below after save.</p>
+    <label for="optionalConnectionKey">Optional connection key</label>
+    <input type="text" id="optionalConnectionKey" class="mono" placeholder="Empty + Save = no key required on those routes" autocomplete="off" spellcheck="false" disabled />
+    <p class="hint">Shown in plain text so you can verify it. Treat it like a password.</p>
     <div class="row-btns">
-      <button type="button" id="btnCopy" disabled>Copy API key</button>
+      <button type="button" id="btnCopy" disabled>Copy</button>
     </div>
     <div id="copy-status"></div>
   </section>
@@ -123,7 +123,7 @@
     }
 
     function setFormEnabled(on) {
-      $("bearer").disabled = !on;
+      $("optionalConnectionKey").disabled = !on;
       $("discordAppId").disabled = !on;
       $("btnCopy").disabled = !on;
       $("btnSave").disabled = !on;
@@ -134,7 +134,7 @@
       const u = typeof getCurrentUser === "function" ? getCurrentUser() : null;
       if (!u || u.role !== "admin") {
         gate.style.display = "block";
-        gate.textContent = "Interfaces: admin only. Log in as admin to edit the Open WebUI API key and Discord application ID.";
+        gate.textContent = "Interfaces: admin only. Log in as admin to edit connection key and Discord application ID.";
         setFormEnabled(false);
         return;
       }
@@ -147,7 +147,7 @@
           showSave(false, data.detail || "HTTP " + res.status);
           return;
         }
-        $("bearer").value = data.openwebui_bearer || "";
+        $("optionalConnectionKey").value = data.optional_connection_key || "";
         $("discordAppId").value = data.discord_application_id || "";
         $("save-status").style.display = "none";
       } catch (e) {
@@ -156,9 +156,9 @@
     }
 
     $("btnCopy").onclick = async () => {
-      const v = $("bearer").value;
+      const v = $("optionalConnectionKey").value;
       if (!v) {
-        showCopy(false, "No API key to copy.");
+        showCopy(false, "Nothing to copy.");
         return;
       }
       try {
@@ -172,7 +172,7 @@
     $("btnSave").onclick = async () => {
       $("save-status").style.display = "none";
       const body = {
-        openwebui_bearer: $("bearer").value,
+        optional_connection_key: $("optionalConnectionKey").value,
         discord_application_id: $("discordAppId").value.trim(),
       };
       try {
@@ -185,7 +185,7 @@
           showSave(false, data.detail || "HTTP " + res.status);
           return;
         }
-        $("bearer").value = data.openwebui_bearer || "";
+        $("optionalConnectionKey").value = data.optional_connection_key || "";
         $("discordAppId").value = data.discord_application_id || "";
         showSave(true, "Saved.");
       } catch (e) {

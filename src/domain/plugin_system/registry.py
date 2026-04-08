@@ -267,7 +267,6 @@ class ToolRegistry:
             "version": ver,
             "source": source,
             "tools": tool_names,
-            "module": mod,
         }
         if file_sha256 is not None:
             entry["sha256"] = file_sha256

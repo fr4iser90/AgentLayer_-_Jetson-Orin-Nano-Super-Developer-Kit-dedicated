@@ -209,7 +209,7 @@ def require_permission(action: str, resource_type: Optional[str] = None) -> Call
                 return await func(request, *args, **kwargs, user=user)
 
             # Set identity context for downstream code
-            id_token = set_identity(1, int(user.id.int % (2**31)))
+            id_token = set_identity(1, user.id)
 
             try:
                 return await func(request, *args, **kwargs, user=user)

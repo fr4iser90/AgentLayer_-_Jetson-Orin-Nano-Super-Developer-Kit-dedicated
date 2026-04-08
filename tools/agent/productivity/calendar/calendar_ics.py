@@ -88,6 +88,11 @@ def _parse_secret(raw: str | None) -> str | None:
 
 def _ics_url_for_user() -> str | dict[str, Any]:
     _tid, uid = get_identity()
+    if uid is None:
+        return {
+            "ok": False,
+            "error": "No user identity in this request (need chat/user headers for per-user calendar secrets).",
+        }
     url: str | None = None
     for sk in SECRET_KEYS_TRY_ORDER:
         raw = db.user_secret_get_plaintext(uid, sk)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -54,7 +55,7 @@ def close_pool() -> None:
         _pool = None
 
 
-def ensure_user_external(external_sub: str, tenant_id: int) -> tuple[int, int]:
+def ensure_user_external(external_sub: str, tenant_id: int) -> tuple[uuid.UUID, int]:
     """
     Resolve or create ``users`` row. ``external_sub`` is a stable id from the client
     (e.g. OIDC sub or WebUI user id string). Returns ``(user_id, tenant_id)``.
@@ -74,7 +75,9 @@ def ensure_user_external(external_sub: str, tenant_id: int) -> tuple[int, int]:
             )
             row = cur.fetchone()
             if row:
-                uid = int(row[0])
+                uid = row[0]
+                if not isinstance(uid, uuid.UUID):
+                    uid = uuid.UUID(str(uid))
             else:
                 cur.execute(
                     """
@@ -84,12 +87,13 @@ def ensure_user_external(external_sub: str, tenant_id: int) -> tuple[int, int]:
                     """,
                     (tid, sub),
                 )
-                uid = int(cur.fetchone()[0])
+                raw = cur.fetchone()[0]
+                uid = raw if isinstance(raw, uuid.UUID) else uuid.UUID(str(raw))
         conn.commit()
     return uid, tid
 
 
-def user_external_sub(user_id: int) -> str | None:
+def user_external_sub(user_id: uuid.UUID) -> str | None:
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -103,8 +107,17 @@ def user_external_sub(user_id: int) -> str | None:
     return str(row[0]) if row[0] is not None else None
 
 
-def todo_create(title: str) -> int:
+def _require_user_uuid() -> tuple[int, uuid.UUID]:
     tenant_id, user_id = get_identity()
+    if user_id is None:
+        raise ValueError(
+            "no user identity in this context (chat/tool requests need user/tenant headers)"
+        )
+    return tenant_id, user_id
+
+
+def todo_create(title: str) -> int:
+    tenant_id, user_id = _require_user_uuid()
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -122,7 +135,7 @@ def todo_create(title: str) -> int:
 
 
 def todo_list(limit: int = 100) -> list[dict[str, Any]]:
-    tenant_id, user_id = get_identity()
+    tenant_id, user_id = _require_user_uuid()
     with pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -141,7 +154,7 @@ def todo_list(limit: int = 100) -> list[dict[str, Any]]:
 
 
 def todo_set_status(todo_id: int, status: str) -> bool:
-    tenant_id, user_id = get_identity()
+    tenant_id, user_id = _require_user_uuid()
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -165,6 +178,8 @@ def log_tool_invocation(
 ) -> None:
     excerpt = (result_text or "")[:4000]
     tenant_id, user_id = get_identity()
+    if user_id is None:
+        return
     args_for_db: Any = args
     if isinstance(args, dict):
         redact = config.tool_log_redact_keys()
@@ -193,6 +208,8 @@ def log_tool_invocation(
 
 def recent_tool_invocations(limit: int = 50) -> list[dict[str, Any]]:
     tenant_id, user_id = get_identity()
+    if user_id is None:
+        return []
     with pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -211,7 +228,7 @@ def recent_tool_invocations(limit: int = 50) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def user_secret_upsert(user_id: int, service_key: str, plaintext: str) -> None:
+def user_secret_upsert(user_id: uuid.UUID, service_key: str, plaintext: str) -> None:
     from src.infrastructure.crypto_secrets import crypto_secrets
 
     ct = crypto_secrets.encrypt_secret(plaintext)
@@ -230,7 +247,7 @@ def user_secret_upsert(user_id: int, service_key: str, plaintext: str) -> None:
         conn.commit()
 
 
-def user_secret_get_plaintext(user_id: int, service_key: str) -> str | None:
+def user_secret_get_plaintext(user_id: uuid.UUID, service_key: str) -> str | None:
     """Server-side only — never return this to LLM tool JSON."""
     from src.infrastructure.crypto_secrets import crypto_secrets
 
@@ -250,7 +267,7 @@ def user_secret_get_plaintext(user_id: int, service_key: str) -> str | None:
     return crypto_secrets.decrypt_secret(bytes(row[0]))
 
 
-def user_secret_delete(user_id: int, service_key: str) -> bool:
+def user_secret_delete(user_id: uuid.UUID, service_key: str) -> bool:
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -265,7 +282,7 @@ def user_secret_delete(user_id: int, service_key: str) -> bool:
     return n > 0
 
 
-def user_secret_list_service_keys(user_id: int) -> list[str]:
+def user_secret_list_service_keys(user_id: uuid.UUID) -> list[str]:
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -281,7 +298,7 @@ def user_secret_list_service_keys(user_id: int) -> list[str]:
     return [str(r[0]) for r in rows]
 
 
-def secret_upload_otp_create(user_id: int, ttl_seconds: int = 600) -> str:
+def secret_upload_otp_create(user_id: uuid.UUID, ttl_seconds: int = 600) -> str:
     """Insert a one-time registration token; return plaintext OTP (show once)."""
     raw = secrets.token_urlsafe(18)
     otp_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -326,7 +343,9 @@ def user_secret_register_with_otp(
                 raise ValueError(
                     "unknown otp — check copy/paste (no spaces/line breaks), or mint a new one with register_secrets"
                 )
-            uid = int(row[0])
+            uid = row[0]
+            if not isinstance(uid, uuid.UUID):
+                uid = uuid.UUID(str(uid))
             used_at = row[1]
             expires_at = row[2]
             if used_at is not None:
@@ -363,7 +382,7 @@ def user_secret_register_with_otp(
 
 
 def kb_note_append(title: str, body: str) -> int:
-    tenant_id, user_id = get_identity()
+    tenant_id, user_id = _require_user_uuid()
     title = (title or "").strip()
     body = (body or "").strip()
     if not body:
@@ -390,7 +409,7 @@ def _ilike_contains(s: str) -> str:
 
 
 def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
-    tenant_id, user_id = get_identity()
+    tenant_id, user_id = _require_user_uuid()
     q = (query or "").strip()
     if not q:
         return []
@@ -453,7 +472,7 @@ def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 def kb_note_get(note_id: int, max_body_chars: int = 12000) -> dict[str, Any] | None:
-    tenant_id, user_id = get_identity()
+    tenant_id, user_id = _require_user_uuid()
     max_body_chars = max(500, min(int(max_body_chars or 12000), 100_000))
     with pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
@@ -487,7 +506,7 @@ def _vector_literal(vec: list[float]) -> str:
 
 def rag_document_and_chunks_insert(
     tenant_id: int,
-    user_id: int,
+    user_id: uuid.UUID,
     domain: str,
     title: str,
     source_uri: str | None,
@@ -530,7 +549,7 @@ def rag_document_and_chunks_insert(
 
 def rag_vector_search(
     tenant_id: int,
-    user_id: int,
+    user_id: uuid.UUID,
     query_embedding: list[float],
     domain: str | None,
     limit: int,

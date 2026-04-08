@@ -37,8 +37,12 @@ def build_otp_curl_payload(service_key: str, ttl_seconds: int = 600) -> dict[str
     """
     raw_svc = normalize_service_key(service_key)
     ttl = ttl_seconds
-    _tid, uid = get_identity()
-    otp = db.secret_upload_otp_create(uid, ttl_seconds=ttl)
+    _tenant_id, user_id = get_identity()
+    if user_id is None:
+        raise ValueError(
+            "no user identity — use chat with user headers so register_secrets can bind the OTP"
+        )
+    otp = db.secret_upload_otp_create(user_id, ttl_seconds=ttl)
     base = config.PUBLIC_BASE_URL or f"http://127.0.0.1:{config.HTTP_EXAMPLE_PORT}"
     if raw_svc == "gmail":
         secret_blob = '{"email":"du@gmail.com","app_password":"DEIN_APP_PASSWORT"}'

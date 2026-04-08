@@ -79,6 +79,8 @@ def _parse_gmail_secret(raw: str | None) -> dict[str, str] | None:
 
 def _creds_for_user() -> dict[str, str] | str:
     _tid, uid = get_identity()
+    if uid is None:
+        return "No user identity in this request (need chat/user headers for per-user Gmail secrets)."
     raw = db.user_secret_get_plaintext(uid, SECRET_SERVICE_KEY)
     if not raw:
         return (

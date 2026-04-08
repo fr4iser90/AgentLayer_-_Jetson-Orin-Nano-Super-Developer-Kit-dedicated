@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import Request
 
 from src.core.config import config
 from src.infrastructure.db import db
 
 
-def resolve_user_tenant(request: Request) -> tuple[int, int]:
+def resolve_user_tenant(request: Request) -> tuple[uuid.UUID, int]:
     """Return ``(user_id, tenant_id)`` from WebUI / custom headers."""
     external_sub = config.DEFAULT_EXTERNAL_SUB
     for h in config.USER_SUB_HEADERS:

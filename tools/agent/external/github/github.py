@@ -57,11 +57,12 @@ def _parse_user_pat(raw: str) -> str:
 
 def _token() -> str | None:
     _tid, uid = get_identity()
-    raw = db.user_secret_get_plaintext(uid, USER_SECRET_KEY)
-    if raw:
-        t = _parse_user_pat(raw)
-        if t:
-            return t
+    if uid is not None:
+        raw = db.user_secret_get_plaintext(uid, USER_SECRET_KEY)
+        if raw:
+            t = _parse_user_pat(raw)
+            if t:
+                return t
     env_t = os.environ.get("GITHUB_TOKEN", "").strip()
     return env_t or None
 

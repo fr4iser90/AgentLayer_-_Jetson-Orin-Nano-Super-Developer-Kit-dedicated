@@ -29,7 +29,7 @@ def secrets_help(arguments: dict[str, Any]) -> str:
     )
 
     _tid, uid = get_identity()
-    resolved_sub = db.user_external_sub(uid)
+    resolved_sub = db.user_external_sub(uid) if uid is not None else None
     user_value = resolved_sub if resolved_sub is not None else "DEINE_WEBUI_USER_ID"
 
     hints: list[str] = [
