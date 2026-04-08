@@ -51,22 +51,55 @@ def _cron_worker() -> None:
         now = time.time()
 
         for job in cron_jobs:
-            if job['run_on_start'] and job['last_run'] == 0:
-                pass
-            elif now - job['last_run'] < job['interval_seconds']:
+            name = job["name"]
+            last_run = job["last_run"]
+            interval = job["interval_seconds"]
+            run_on_start = job["run_on_start"]
+
+            # last_run == 0 means "never run". Interval check must not use 0 as epoch
+            # (would be now - 0 ≈ huge → always run). Respect RUN_ON_STARTUP on first tick.
+            if last_run == 0:
+                if run_on_start:
+                    logger.info("Executing cron job (RUN_ON_STARTUP): %s", name)
+                else:
+                    job["last_run"] = now
+                    logger.info(
+                        "Cron job %s: deferred first run (RUN_ON_STARTUP=false); "
+                        "next run after %.0f min",
+                        name,
+                        interval / 60.0,
+                    )
+                    continue
+
+                try:
+                    result = job["handler"]({})
+                    if asyncio.iscoroutine(result):
+                        result = asyncio.run(result)
+                    logger.debug(
+                        "Cron job %s completed: %s", name, str(result)[:120]
+                    )
+                except Exception:
+                    logger.exception("Cron job %s failed", name)
+
+                job["last_run"] = now
                 continue
 
-            logger.info(f"Executing cron job: {job['name']}")
+            if now - last_run < interval:
+                continue
+
+            logger.info("Executing cron job: %s", name)
 
             try:
-                result = job['handler']({})
+                result = job["handler"]({})
                 if asyncio.iscoroutine(result):
                     result = asyncio.run(result)
-                logger.debug(f"Cron job {job['name']} completed: {str(result)[:120]}")
-            except Exception as e:
-                logger.exception(f"Cron job {job['name']} failed")
+                logger.debug(
+                    "Cron job %s completed: %s", name, str(result)[:120]
+                )
+            except Exception:
+                logger.exception("Cron job %s failed", name)
 
-            job['last_run'] = now
+            job["last_run"] = now
 
         # Sleep 10 seconds between checks
         _stop_event.wait(timeout=10)

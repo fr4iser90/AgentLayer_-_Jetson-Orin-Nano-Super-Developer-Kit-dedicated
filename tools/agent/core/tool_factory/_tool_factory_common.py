@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 
 from src.core.config import config
+from src.infrastructure.ollama_gate import ollama_post_json
 from src.domain.plugin_system.tool_authoring import tool_authoring
 from src.domain.plugin_system.registry import get_registry, reload_registry
 from src.domain.plugin_system.tool_name_hints import suggest_tool_names
@@ -480,10 +481,12 @@ def ollama_generate_module(
         "temperature": 0.2,
     }
     try:
-        with httpx.Client(timeout=float(config.CREATE_TOOL_CODEGEN_TIMEOUT)) as client:
-            resp = client.post(url, json=payload, headers={"Content-Type": "application/json"})
-            resp.raise_for_status()
-            data = resp.json()
+        data = ollama_post_json(
+            url,
+            payload,
+            headers={"Content-Type": "application/json"},
+            timeout=float(config.CREATE_TOOL_CODEGEN_TIMEOUT),
+        )
     except httpx.HTTPStatusError as e:
         return None, f"codegen HTTP {e.response.status_code}: {e.response.text[:2000]}"
     except Exception as e:

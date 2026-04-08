@@ -6,9 +6,8 @@ import hashlib
 import logging
 from typing import Any
 
-import httpx
-
 from src.core.config import config
+from src.infrastructure.ollama_gate import ollama_post_json
 from src.infrastructure.db import db
 from src.domain.identity import get_identity
 
@@ -38,10 +37,11 @@ def ollama_embed_one(text: str) -> list[float]:
     """Single string → one embedding (Ollama ``/api/embeddings``)."""
     url = f"{config.OLLAMA_BASE_URL}/api/embeddings"
     body = {"model": config.AGENT_RAG_OLLAMA_MODEL, "input": text}
-    with httpx.Client(timeout=float(config.AGENT_RAG_EMBED_TIMEOUT)) as client:
-        r = client.post(url, json=body)
-        r.raise_for_status()
-        data = r.json()
+    data = ollama_post_json(
+        url,
+        body,
+        timeout=float(config.AGENT_RAG_EMBED_TIMEOUT),
+    )
     emb = data.get("embedding")
     if not isinstance(emb, list):
         raise ValueError("Ollama embeddings response missing embedding[]")

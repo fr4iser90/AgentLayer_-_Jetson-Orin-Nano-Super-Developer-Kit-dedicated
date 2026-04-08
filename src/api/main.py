@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -17,10 +18,12 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.core.config import config
+from src.infrastructure.ollama_gate import ollama_get_json
 from src.infrastructure.db import db
 from src.infrastructure.auth import get_current_user, require_permission, LoginRequest, create_access_token, create_refresh_token, verify_password, get_user_by_email, validate_refresh_token
 from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_user_tenant
+from src.domain.identity import reset_identity, set_identity
 from src.domain.plugin_system.tools_api import router as tools_router
 from src.api.rag_api import router as rag_router
 from src.domain.plugin_system.registry import get_registry
@@ -62,7 +65,6 @@ async def login(request: Request, login_data: LoginRequest):
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-from src.domain.identity import reset_identity, set_identity
                 INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
                 VALUES (%s, %s, NOW() + INTERVAL '7 days')
             """, (user.id, refresh_token_hash))
@@ -145,6 +147,7 @@ async def auth_middleware(request: Request, call_next):
         "/health",
         "/v1/models",
         "/auth/login",
+        "/auth/refresh",
         "/auth/claim",
         "/"
     ]
@@ -195,14 +198,11 @@ def health():
 @app.get("/v1/models")
 async def models_proxy():
     """Passthrough so UIs can list Ollama models."""
-    import httpx
-
     url = f"{config.OLLAMA_BASE_URL}/v1/models"
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.get(url)
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-        return r.json()
+    status, text, data = await asyncio.to_thread(ollama_get_json, url, timeout=60.0)
+    if status != 200:
+        raise HTTPException(status_code=status, detail=text)
+    return data
 
 
 def _completion_to_sse_lines(completion: dict[str, Any]) -> bytes:

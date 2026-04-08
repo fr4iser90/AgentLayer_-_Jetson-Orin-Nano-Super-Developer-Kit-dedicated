@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -12,6 +13,7 @@ from typing import Any
 import httpx
 
 from src.core.config import config
+from src.infrastructure.ollama_gate import ollama_post_json
 from src.domain.plugin_system.registry import get_registry
 from src.domain.plugin_system.tool_routing import (
     TOOL_INTROSPECTION,
@@ -796,87 +798,92 @@ async def chat_completion(
     url = f"{config.OLLAMA_BASE_URL}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
 
-    async with httpx.AsyncClient(timeout=600.0) as client:
-        for round_i in range(config.MAX_TOOL_ROUNDS):
-            tools_for_round = list(tools_for_request)
-            allowed_names = _names_from_tool_list(tools_for_round)
+    for round_i in range(config.MAX_TOOL_ROUNDS):
+        tools_for_round = list(tools_for_request)
+        allowed_names = _names_from_tool_list(tools_for_round)
 
-            payload: dict[str, Any] = {
-                "model": model,
-                "messages": messages,
-                "stream": False,
-                **options,
-            }
-            if tools_for_round:
-                payload["tools"] = tools_for_round
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            **options,
+        }
+        if tools_for_round:
+            payload["tools"] = tools_for_round
 
-            resp = await client.post(url, json=payload, headers=headers)
-            if resp.is_error:
-                err_body = (resp.text or "")[:4000]
-                logger.error(
-                    "Ollama chat/completions failed: status=%s model=%s body=%s",
-                    resp.status_code,
-                    model,
-                    err_body or "(empty)",
-                )
-            resp.raise_for_status()
-            data = resp.json()
-
-            choice0 = (data.get("choices") or [{}])[0]
-            raw_msg = choice0.get("message")
-            if not isinstance(raw_msg, dict):
-                raw_msg = {}
-            msg = dict(raw_msg)
-            raw_tc = msg.get("tool_calls")
-            had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
-            tool_calls = raw_tc if had_native_tool_calls else None
-            if not tool_calls:
-                tool_calls = _synthetic_tool_calls_from_message(
-                    msg, choice0, allowed_tool_names=allowed_names
-                )
-                if tool_calls:
-                    msg["tool_calls"] = tool_calls
-                    choice0["message"] = msg
-
-            _log_ollama_round(
-                round_i=round_i,
-                model=model,
-                messages=messages,
-                tools_for_round=tools_for_round,
-                msg=msg,
-                choice0=choice0 if isinstance(choice0, dict) else {},
-                tool_calls=tool_calls if isinstance(tool_calls, list) else None,
-                had_native_tool_calls=had_native_tool_calls,
+        try:
+            data = await asyncio.to_thread(
+                ollama_post_json,
+                url,
+                payload,
+                headers=headers,
+                timeout=600.0,
             )
+        except httpx.HTTPStatusError as e:
+            err_body = (e.response.text or "")[:4000]
+            logger.error(
+                "Ollama chat/completions failed: status=%s model=%s body=%s",
+                e.response.status_code,
+                model,
+                err_body or "(empty)",
+            )
+            raise
 
-            if not tool_calls:
-                return data
+        choice0 = (data.get("choices") or [{}])[0]
+        raw_msg = choice0.get("message")
+        if not isinstance(raw_msg, dict):
+            raw_msg = {}
+        msg = dict(raw_msg)
+        raw_tc = msg.get("tool_calls")
+        had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
+        tool_calls = raw_tc if had_native_tool_calls else None
+        if not tool_calls:
+            tool_calls = _synthetic_tool_calls_from_message(
+                msg, choice0, allowed_tool_names=allowed_names
+            )
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+                choice0["message"] = msg
 
-            # Append assistant message (includes tool_calls, and content if any)
-            messages.append(msg)
-
-            for tc in tool_calls:
-                fn = tc.get("function") or {}
-                name = fn.get("name") or ""
-                args = _parse_tool_arguments(fn.get("arguments"))
-                tool_call_id = tc.get("id") or ""
-                logger.info("tool round %s: %s(%s)", round_i + 1, name, args)
-                result = run_tool(name, args)
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": result,
-                    }
-                )
-                recovery = _http_error_recovery_hint(name, result)
-                if recovery:
-                    messages.append({"role": "system", "content": recovery})
-
-        logger.warning(
-            "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
-            config.MAX_TOOL_ROUNDS,
-            len(messages),
-            _approx_text_chars_in_messages(messages),
+        _log_ollama_round(
+            round_i=round_i,
+            model=model,
+            messages=messages,
+            tools_for_round=tools_for_round,
+            msg=msg,
+            choice0=choice0 if isinstance(choice0, dict) else {},
+            tool_calls=tool_calls if isinstance(tool_calls, list) else None,
+            had_native_tool_calls=had_native_tool_calls,
         )
-        return data
+
+        if not tool_calls:
+            return data
+
+        # Append assistant message (includes tool_calls, and content if any)
+        messages.append(msg)
+
+        for tc in tool_calls:
+            fn = tc.get("function") or {}
+            name = fn.get("name") or ""
+            args = _parse_tool_arguments(fn.get("arguments"))
+            tool_call_id = tc.get("id") or ""
+            logger.info("tool round %s: %s(%s)", round_i + 1, name, args)
+            result = run_tool(name, args)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": result,
+                }
+            )
+            recovery = _http_error_recovery_hint(name, result)
+            if recovery:
+                messages.append({"role": "system", "content": recovery})
+
+    logger.warning(
+        "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
+        config.MAX_TOOL_ROUNDS,
+        len(messages),
+        _approx_text_chars_in_messages(messages),
+    )
+    return data
