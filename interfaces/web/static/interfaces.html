@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interfaces — Agent Layer</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #5b9fd4;
+      --err: #e07070;
+      --ok: #7bc96f;
+    }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .page-header { margin-bottom: 1.25rem; }
+    .page-header h1 { font-size: 1.35rem; font-weight: 600; margin-bottom: 0.35rem; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.15rem;
+      margin-bottom: 1rem;
+      max-width: 40rem;
+    }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: var(--accent); }
+    label { display: block; font-size: 0.82rem; color: var(--muted); margin: 0.65rem 0 0.25rem; }
+    input[type="text"] {
+      width: 100%; max-width: 36rem;
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.88rem;
+      box-sizing: border-box;
+    }
+    .row-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; align-items: center; }
+    button {
+      background: var(--accent);
+      color: #0a0e14;
+      border: none;
+      padding: 0.45rem 0.9rem;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button.secondary { background: var(--border); color: var(--text); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+    #save-status, #copy-status { margin-top: 0.5rem; font-size: 0.85rem; display: none; }
+    #save-status.ok, #copy-status.ok { color: var(--ok); display: block; }
+    #save-status.err, #copy-status.err { color: var(--err); display: block; }
+    #admin-gate { color: var(--muted); font-size: 0.9rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem; max-width: 40rem; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+    p.client { margin: 0; font-size: 0.88rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>Interfaces</h1>
+  </div>
+
+  <div id="admin-gate" style="display:none;"></div>
+
+  <section id="openwebui-section">
+    <h2>Open WebUI</h2>
+    <p class="hint" style="margin-top:0;">In Open WebUI, set the OpenAI-compatible <strong>API base URL</strong> to this Agent Layer, e.g. <span class="mono" id="suggestedBaseUrl"></span> (not Open WebUI’s URL).</p>
+    <p class="hint"><strong>If the field below is empty and you save:</strong> <span class="mono">POST /v1/chat/completions</span> and <span class="mono">POST /tools/run</span> need <em>no</em> <span class="mono">Authorization</span> header (Open WebUI can leave the API key blank). <strong>If you set a secret and save:</strong> Open WebUI must use that exact value as the API key (<span class="mono">Bearer …</span>). The same value is shown here after save.</p>
+    <label for="bearer">Open WebUI shared secret (optional)</label>
+    <input type="text" id="bearer" class="mono" placeholder="Empty + Save = no Bearer required for chat/tools/run above" autocomplete="off" spellcheck="false" disabled />
+    <p class="hint">Plain text so you can verify it. Treat it like a password.</p>
+    <div class="row-btns">
+      <button type="button" id="btnCopy" disabled>Copy API key</button>
+    </div>
+    <div id="copy-status"></div>
+  </section>
+
+  <section id="discord-section">
+    <h2>Discord</h2>
+    <label for="discordAppId">Discord application ID</label>
+    <input type="text" id="discordAppId" class="mono" placeholder="Numeric application ID" autocomplete="off" spellcheck="false" inputmode="numeric" disabled />
+    <p class="client" style="margin-top:0.75rem;">In the bot, set <span class="mono">Authorization: Bearer …</span> (env or code). Per request add <span class="mono">X-Agent-User-Sub: discord:&lt;snowflake&gt;</span> for the message author.</p>
+  </section>
+
+  <section style="border-style: dashed;">
+    <div class="row-btns" style="margin-top:0;">
+      <button type="button" id="btnSave" disabled>Save</button>
+    </div>
+    <div id="save-status"></div>
+  </section>
+
+  <script src="js/auth.js"></script>
+  <script src="js/layout.js"></script>
+  <script>
+    initControlPanel("interfaces");
+
+    const $ = (id) => document.getElementById(id);
+
+    $("suggestedBaseUrl").textContent =
+      (window.location.origin || "") + "/v1";
+
+    function showSave(ok, msg) {
+      const el = $("save-status");
+      el.className = ok ? "ok" : "err";
+      el.style.display = "block";
+      el.textContent = msg;
+    }
+    function showCopy(ok, msg) {
+      const el = $("copy-status");
+      el.className = ok ? "ok" : "err";
+      el.style.display = "block";
+      el.textContent = msg;
+    }
+
+    function setFormEnabled(on) {
+      $("bearer").disabled = !on;
+      $("discordAppId").disabled = !on;
+      $("btnCopy").disabled = !on;
+      $("btnSave").disabled = !on;
+    }
+
+    async function loadInterfaces() {
+      const gate = $("admin-gate");
+      const u = typeof getCurrentUser === "function" ? getCurrentUser() : null;
+      if (!u || u.role !== "admin") {
+        gate.style.display = "block";
+        gate.textContent = "Interfaces: admin only. Log in as admin to edit the Open WebUI API key and Discord application ID.";
+        setFormEnabled(false);
+        return;
+      }
+      gate.style.display = "none";
+      setFormEnabled(true);
+      try {
+        const res = await apiRequest("v1/admin/interfaces");
+        const data = await res.json();
+        if (!res.ok) {
+          showSave(false, data.detail || "HTTP " + res.status);
+          return;
+        }
+        $("bearer").value = data.openwebui_bearer || "";
+        $("discordAppId").value = data.discord_application_id || "";
+        $("save-status").style.display = "none";
+      } catch (e) {
+        showSave(false, String(e && e.message));
+      }
+    }
+
+    $("btnCopy").onclick = async () => {
+      const v = $("bearer").value;
+      if (!v) {
+        showCopy(false, "No API key to copy.");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(v);
+        showCopy(true, "Copied.");
+      } catch (e) {
+        showCopy(false, "Copy failed — select and copy manually.");
+      }
+    };
+
+    $("btnSave").onclick = async () => {
+      $("save-status").style.display = "none";
+      const body = {
+        openwebui_bearer: $("bearer").value,
+        discord_application_id: $("discordAppId").value.trim(),
+      };
+      try {
+        const res = await apiRequest("v1/admin/interfaces", {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showSave(false, data.detail || "HTTP " + res.status);
+          return;
+        }
+        $("bearer").value = data.openwebui_bearer || "";
+        $("discordAppId").value = data.discord_application_id || "";
+        showSave(true, "Saved.");
+      } catch (e) {
+        showSave(false, String(e && e.message));
+      }
+    };
+
+    loadInterfaces();
+  </script>
+</body>
+</html>

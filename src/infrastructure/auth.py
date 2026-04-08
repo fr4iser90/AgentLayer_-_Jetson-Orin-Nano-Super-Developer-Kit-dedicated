@@ -5,16 +5,15 @@ JWT Access + Refresh Tokens, BCrypt Password Hashing, Permission System
 from __future__ import annotations
 
 import os
-import time
 import bcrypt
 import jwt
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Optional, Callable, Any
 
 from fastapi import Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.infrastructure.db import db
 from src.domain.identity import set_identity, reset_identity
@@ -32,6 +31,7 @@ class User(BaseModel):
     email: str
     role: str
     created_at: datetime
+    password_hash: str | None = Field(default=None, exclude=True)
 
     class Config:
         from_attributes = True
@@ -54,12 +54,13 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(user_id: uuid.UUID, role: str) -> str:
     """Create short-lived JWT access token"""
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
         "role": role,
         "exp": expire,
-        "iat": datetime.utcnow()
+        "iat": now,
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
@@ -78,8 +79,7 @@ def validate_refresh_token(token: str) -> Optional[User]:
             cur.execute("""
                 SELECT user_id, token_hash, expires_at
                 FROM refresh_tokens
-                WHERE revoked_at IS NULL
-                AND expires_at > NOW()
+                WHERE expires_at > NOW()
             """)
             
             for row in cur.fetchall():
@@ -104,7 +104,7 @@ def get_user_by_email(email: str) -> Optional[User]:
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, email, role, created_at
+                SELECT id, email, role, created_at, password_hash
                 FROM users
                 WHERE email = %s
             """, (email,))
@@ -115,7 +115,8 @@ def get_user_by_email(email: str) -> Optional[User]:
                 id=row[0],
                 email=row[1],
                 role=row[2],
-                created_at=row[3]
+                created_at=row[3],
+                password_hash=row[4],
             )
 
 
@@ -184,6 +185,13 @@ async def get_current_user(request: Request) -> User:
 
 
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+async def require_admin(request: Request) -> User:
+    user = await get_current_user(request)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="admin required")
+    return user
 
 
 def require_permission(action: str, resource_type: Optional[str] = None) -> Callable:

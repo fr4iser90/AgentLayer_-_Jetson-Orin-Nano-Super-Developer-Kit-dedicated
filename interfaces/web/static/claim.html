@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Erst-Setup — Admin</title>
+  <title>First setup — Admin</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -79,23 +79,23 @@
 </head>
 <body>
   <div class="box">
-    <h1>Erst-Setup</h1>
-    <p class="subtitle">Ersten Admin anlegen (einmalig)</p>
+    <h1>First setup</h1>
+    <p class="subtitle">Create the first admin account (one time)</p>
     <div class="warn">
-      Den <strong>OTP</strong> findest du in den <strong>Container-Logs</strong> beim ersten Start (oder in <span style="font-family:ui-monospace,monospace">AGENT_ADMIN_CLAIM_OTP</span> nach dem Start). Ohne gültigen OTP kein Zugang — auch im Internet.
+      Find the <strong>OTP</strong> in <strong>container logs</strong> on first start (or set <span style="font-family:ui-monospace,monospace">AGENT_ADMIN_CLAIM_OTP</span> before start). Without a valid OTP there is no access — including on the public internet.
     </div>
-    <label for="otp">Bootstrap-OTP</label>
+    <label for="otp">Bootstrap OTP</label>
     <input type="password" id="otp" autocomplete="off" />
-    <label for="email">E-Mail</label>
+    <label for="email">Email</label>
     <input type="email" id="email" autocomplete="email" />
-    <label for="password">Passwort (min. 8 Zeichen)</label>
+    <label for="password">Password (min. 8 characters)</label>
     <input type="password" id="password" autocomplete="new-password" />
-    <label for="password2">Passwort wiederholen</label>
+    <label for="password2">Confirm password</label>
     <input type="password" id="password2" autocomplete="new-password" />
-    <button type="button" id="btn">Admin erstellen &amp; anmelden</button>
+    <button type="button" id="btn">Create admin and sign in</button>
     <div id="status" class="status"></div>
     <p style="margin-top:1rem;text-align:center;font-size:0.85rem;color:var(--muted);">
-      <a href="/control/login.html">Zum Login</a> (wenn Setup schon erledigt)
+      <a href="/control/login.html">Go to login</a> (if setup is already done)
     </p>
   </div>
   <script src="js/auth.js"></script>
@@ -112,11 +112,11 @@
       const password = $("password").value;
       const password2 = $("password2").value;
       if (!otp || !email || password.length < 8) {
-        show(false, "OTP, E-Mail und Passwort (≥8) ausfüllen.");
+        show(false, "Fill in OTP, email, and password (≥8).");
         return;
       }
       if (password !== password2) {
-        show(false, "Passwörter stimmen nicht überein.");
+        show(false, "Passwords do not match.");
         return;
       }
       $("btn").disabled = true;
@@ -128,7 +128,7 @@
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok) {
-          show(false, data.detail || data.error || ("Fehler " + r.status));
+          show(false, data.detail || data.error || ("Error " + r.status));
           $("btn").disabled = false;
           return;
         }
@@ -137,10 +137,10 @@
           if (data.refresh_token) localStorage.setItem("agent_refresh_token", data.refresh_token);
           if (data.user) localStorage.setItem("agent_user", JSON.stringify(data.user));
         }
-        show(true, "Admin angelegt. Weiter zum Dashboard …");
+        show(true, "Admin created. Redirecting to dashboard…");
         setTimeout(() => { window.location.href = "/control/dashboard.html"; }, 600);
       } catch (e) {
-        show(false, "Netzwerkfehler: " + (e && e.message));
+        show(false, "Network error: " + (e && e.message));
         $("btn").disabled = false;
       }
     };

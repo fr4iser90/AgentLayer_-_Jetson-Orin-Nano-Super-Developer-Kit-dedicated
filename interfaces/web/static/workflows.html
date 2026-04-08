@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -85,18 +85,18 @@
 <body>
 
   <div class="page-header">
-    <h1>Workflow Verwaltung</h1>
-    <p>Automatisierungen & geplante Tasks</p>
+    <h1>Workflows</h1>
+    <p>Automations and scheduled tasks</p>
   </div>
 
   <div class="toolbar">
-    <button onclick="loadWorkflows()">🔄 Aktualisieren</button>
-    <button class="secondary">➕ Neuer Workflow</button>
+    <button onclick="loadWorkflows()">🔄 Refresh</button>
+    <button class="secondary">➕ New workflow</button>
   </div>
 
   <div id="workflows-list">
     <div style="text-align: center; color: var(--muted); padding: 2rem;">
-      Lade Workflows...
+      Loading workflows…
     </div>
   </div>
 
@@ -108,11 +108,11 @@
     async function loadWorkflows() {
       const listEl = document.getElementById("workflows-list");
       
-      // TODO: Sobald Backend Route existiert hier API Call einfügen
+      // TODO: add API call when backend route exists
       // const res = await apiRequest("v1/workflows");
       // const workflows = await res.json();
 
-      // Demo Ansicht bis Backend implementiert ist
+      // Demo until backend is implemented
       listEl.innerHTML = `
         <div class="workflow-card">
           <div class="workflow-header">
@@ -122,8 +122,8 @@
             </div>
             <div class="workflow-actions">
               <span class="status idle">Idle</span>
-              <button>▶ Ausführen</button>
-              <button class="secondary">⚙️ Bearbeiten</button>
+              <button>▶ Run</button>
+              <button class="secondary">⚙️ Edit</button>
             </div>
           </div>
         </div>

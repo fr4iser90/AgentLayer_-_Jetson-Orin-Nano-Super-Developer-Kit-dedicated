@@ -1,6 +1,5 @@
 /**
- * Gemeinsame Authentifizierungs Logik für alle Control Panel Seiten
- * Wird auf jeder Seite geladen
+ * Shared authentication helpers for control panel pages.
  */
 
 const AUTH_KEYS = {
@@ -15,19 +14,16 @@ let authState = {
   user: JSON.parse(localStorage.getItem(AUTH_KEYS.USER) || "null")
 };
 
-// Prüfe ob Benutzer eingeloggt ist
 function isLoggedIn() {
   return !!authState.accessToken && !!authState.user;
 }
 
-// Automatische Weiterleitung zu Login wenn nicht eingeloggt
 function requireAuth() {
   if (!isLoggedIn()) {
     window.location.href = "/control/login.html";
   }
 }
 
-// API Request Wrapper mit automatischem Token Refresh
 async function apiRequest(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -43,7 +39,6 @@ async function apiRequest(path, options = {}) {
     headers
   });
 
-  // Wenn 401 versuche Token zu refreshen
   if (res.status === 401 && authState.refreshToken) {
     try {
       const refreshRes = await fetch("/auth/refresh", {
@@ -61,15 +56,13 @@ async function apiRequest(path, options = {}) {
       }
     } catch (e) {}
 
-    // Refresh fehlgeschlagen
     logout();
-    throw new Error("Session abgelaufen");
+    throw new Error("Session expired");
   }
 
   return res;
 }
 
-// Login Funktion
 async function login(email, password) {
   const res = await fetch("/auth/login", {
     method: "POST",
@@ -78,7 +71,7 @@ async function login(email, password) {
   });
 
   if (!res.ok) {
-    return { ok: false, error: "Ungültige Email oder Passwort" };
+    return { ok: false, error: "Invalid email or password" };
   }
 
   const data = await res.json();
@@ -94,7 +87,6 @@ async function login(email, password) {
   return { ok: true };
 }
 
-// Logout Funktion
 function logout() {
   authState.accessToken = null;
   authState.refreshToken = null;
@@ -107,7 +99,6 @@ function logout() {
   window.location.href = "/control/login.html";
 }
 
-// Aktuellen Benutzer holen
 function getCurrentUser() {
   return authState.user;
 }

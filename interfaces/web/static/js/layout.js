@@ -1,6 +1,5 @@
 /**
- * Gemeinsames Sidebar Layout für alle Control Panel Seiten
- * Wird auf allen geschützten Seiten eingebunden
+ * Shared sidebar layout for all control panel pages.
  */
 
 function initControlPanel(currentPage) {
@@ -21,7 +20,7 @@ function initControlPanel(currentPage) {
 function _initControlPanelAfterSetup(currentPage) {
     requireAuth();
 
-    // Injecte Styles
+    // Inject layout styles
     if (!document.getElementById('layout-styles')) {
         document.head.insertAdjacentHTML('beforeend', `
         <style id="layout-styles">
@@ -119,7 +118,7 @@ function _initControlPanelAfterSetup(currentPage) {
 
     const user = getCurrentUser();
 
-    // Injecte Sidebar
+    // Inject sidebar
     document.body.insertAdjacentHTML('afterbegin', `
     <div class="sidebar">
         <div class="sidebar-header">
@@ -128,10 +127,10 @@ function _initControlPanelAfterSetup(currentPage) {
 
         <nav class="sidebar-nav">
             <a href="dashboard.html" ${currentPage === 'dashboard' ? 'class="active"' : ''}>📊 Dashboard</a>
-            <a href="agents.html" ${currentPage === 'agents' ? 'class="active"' : ''}>🤖 Agents</a>
+            <a href="interfaces.html" ${currentPage === 'interfaces' ? 'class="active"' : ''}>🌐 Interfaces</a>
             <a href="workflows.html" ${currentPage === 'workflows' ? 'class="active"' : ''}>⚡ Workflows</a>
             <a href="tools.html" ${currentPage === 'tools' ? 'class="active"' : ''}>🔧 Tools</a>
-            <a href="users.html" ${currentPage === 'users' ? 'class="active"' : ''}>👤 Benutzer</a>
+            <a href="users.html" ${currentPage === 'users' ? 'class="active"' : ''}>👤 Users</a>
         </nav>
 
         <div class="sidebar-footer">
@@ -139,7 +138,7 @@ function _initControlPanelAfterSetup(currentPage) {
                 <strong>${user.email}</strong><br>
                 <span style="color: var(--muted); font-size: 0.8rem;">${user.role}</span>
             </div>
-            <button class="logout-btn" onclick="logout()">Abmelden</button>
+            <button class="logout-btn" onclick="logout()">Log out</button>
         </div>
     </div>
     `);

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -24,6 +25,7 @@ from src.infrastructure.ollama_gate import ollama_get_json
 from src.infrastructure.db import db
 from src.infrastructure.auth import (
     get_current_user,
+    require_admin,
     require_permission,
     LoginRequest,
     create_access_token,
@@ -31,6 +33,15 @@ from src.infrastructure.auth import (
     verify_password,
     get_user_by_email,
     validate_refresh_token,
+)
+from src.infrastructure.operator_settings import (
+    InterfaceHintsPayload,
+    OperatorSettingsPayload,
+    apply_interface_hints,
+    apply_update as operator_settings_apply,
+    interface_hints_public,
+    public_dict as operator_settings_public,
+    stored_openwebui_bearer,
 )
 from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed, claim_admin_user
 from src.domain.agent import chat_completion
@@ -68,7 +79,7 @@ async def lifespan(_app: FastAPI):
     db.close_pool()
 
 
-app = FastAPI(title="agent-layer", version="0.7.1", lifespan=lifespan)
+app = FastAPI(title="agent-layer", version="0.7.2", lifespan=lifespan)
 app.include_router(user_secrets_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
@@ -196,6 +207,33 @@ async def get_current_user_info(request: Request, user):
         "created_at": user.created_at.isoformat()
     }
 
+
+@app.get("/v1/admin/operator-settings")
+async def get_operator_settings(request: Request):
+    await require_admin(request)
+    return operator_settings_public()
+
+
+@app.put("/v1/admin/operator-settings")
+async def put_operator_settings(request: Request, body: OperatorSettingsPayload):
+    await require_admin(request)
+    operator_settings_apply(body)
+    return operator_settings_public()
+
+
+@app.get("/v1/admin/interfaces")
+async def get_interface_hints(request: Request):
+    await require_admin(request)
+    return interface_hints_public()
+
+
+@app.put("/v1/admin/interfaces")
+async def put_interface_hints(request: Request, body: InterfaceHintsPayload):
+    await require_admin(request)
+    apply_interface_hints(body)
+    return interface_hints_public()
+
+
 # interfaces/ lives at repo root (sibling of src/), not under src/
 _control_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static"
 if _control_dir.is_dir():
@@ -217,6 +255,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+_OPENWEBUI_OPTIONAL_BEARER_PATHS: frozenset[tuple[str, str]] = frozenset(
+    {("/v1/chat/completions", "POST"), ("/tools/run", "POST")}
+)
+
+
+def _openwebui_bearer_allows_request(request: Request) -> bool:
+    """
+    If no shared secret is configured, the client does not need to send Bearer.
+    If a secret is configured, require Authorization: Bearer <exact match> (constant-time).
+    """
+    expected = stored_openwebui_bearer()
+    auth = request.headers.get("authorization") or ""
+    token = auth.removeprefix("Bearer ").strip()
+    if expected is None:
+        return True
+    if not token:
+        return False
+    try:
+        return secrets.compare_digest(token, expected)
+    except (TypeError, ValueError):
+        return False
 
 
 @app.middleware("http")
@@ -245,6 +306,12 @@ async def auth_middleware(request: Request, call_next):
     # Allow OTP register endpoint
     if request.method == "POST" and path == "/v1/user/secrets/register-with-otp":
         return await call_next(request)
+
+    # Open WebUI chat + tool runner: no Bearer unless a shared secret is stored; then Bearer must match
+    if (path, request.method) in _OPENWEBUI_OPTIONAL_BEARER_PATHS:
+        if _openwebui_bearer_allows_request(request):
+            return await call_next(request)
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     # All other endpoints require valid auth
     try:

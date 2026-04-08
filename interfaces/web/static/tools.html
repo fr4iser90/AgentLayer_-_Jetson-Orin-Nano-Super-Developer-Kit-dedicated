@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -80,25 +80,25 @@
 
   <div class="page-header">
     <h1>Tool Registry</h1>
-    <p>Alle registrierten MCP Tools & Funktionen</p>
+    <p>All registered MCP tools and functions</p>
   </div>
 
   <div class="toolbar">
-    <button onclick="loadTools()">🔄 Tools neu laden</button>
-    <button class="secondary" onclick="reloadRegistry()">🔄 Registry neu einlesen</button>
+    <button onclick="loadTools()">🔄 Reload tools</button>
+    <button class="secondary" onclick="reloadRegistry()">🔄 Reload registry</button>
   </div>
 
   <table>
     <thead>
       <tr>
         <th>Name</th>
-        <th>Beschreibung</th>
+        <th>Description</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="tool-table">
       <tr>
-        <td colspan="3" style="text-align: center; color: var(--muted);">Lade Tools...</td>
+        <td colspan="3" style="text-align: center; color: var(--muted);">Loading tools…</td>
       </tr>
     </tbody>
   </table>
@@ -121,7 +121,7 @@
           tr.innerHTML = `
             <td class="mono">${escapeHtml(fn.name || "-")}</td>
             <td>${escapeHtml(fn.description || fn.TOOL_DESCRIPTION || "")}</td>
-            <td><button class="secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Testen</button></td>
+            <td><button class="secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Test</button></td>
           `;
           tbody.appendChild(tr);
         });
@@ -137,11 +137,11 @@
     }
 
     function escapeHtml(s) {
-      return s
-        .replace(/&/g, "&")
-        .replace(/</g, "<")
-        .replace(/>/g, ">")
-        .replace(/"/g, """);
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     }
 
     loadTools();

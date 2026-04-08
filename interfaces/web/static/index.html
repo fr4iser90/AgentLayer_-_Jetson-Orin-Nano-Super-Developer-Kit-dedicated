@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -100,36 +100,36 @@
   </script>
   <h1>Agent layer — Tool-Control</h1>
   <p class="hint">
-    Diese Seite lädt ohne API-Key. Alle Aufrufe unter <span class="mono">/v1/</span> erfordern gültige Authentifizierung.
-    Nur im vertrauenswürdigen Netz bereitstellen.
+    This page loads without an API key. All calls under <span class="mono">/v1/</span> require valid authentication.
+    Serve only on a trusted network.
   </p>
 
   <section>
-    <h2>Verbindung</h2>
+    <h2>Connection</h2>
     <div class="row">
       <div>
-        <TOOL_LABEL for="baseUrl">Basis-URL (leer = diese Origin)</TOOL_LABEL>
+        <TOOL_LABEL for="baseUrl">Base URL (empty = this origin)</TOOL_LABEL>
         <input type="text" id="baseUrl" placeholder="http://127.0.0.1:8088" autocomplete="off" />
       </div>
       <div>
-        <TOOL_LABEL for="apiKey">API Key</TOOL_LABEL>
-        <input type="password" id="apiKey" placeholder="Bearer-Token" autocomplete="off" />
+        <TOOL_LABEL for="apiKey">API key</TOOL_LABEL>
+        <input type="password" id="apiKey" placeholder="Bearer token" autocomplete="off" />
       </div>
     </div>
     <div class="toolbar">
-      <button type="button" id="btnSaveKey">Key merken (Session)</button>
-      <button type="button" class="secondary" id="btnClearKey">Key löschen</button>
+      <button type="button" id="btnSaveKey">Save key (session)</button>
+      <button type="button" class="secondary" id="btnClearKey">Clear key</button>
     </div>
   </section>
 
   <section>
-    <h2>Router (Tools ein-/ausblenden)</h2>
+    <h2>Router (show/hide tools)</h2>
     <p class="hint" style="margin-top:-0.25rem;">
-      <strong>Stufenweise Erkundung:</strong> In <span class="mono">tools[]</span> ist immer nur der <strong>Katalog</strong> (kurz). Volles Parameter-Schema kommt nur aus der Antwort von <span class="mono">get_tool_help(tool_name)</span> — nach <span class="mono">list_tool_categories</span> → <span class="mono">list_tools_in_category</span>.
-      <strong>Router</strong> begrenzt nur, <em>welche</em> Tools in der Liste sind (letzte User-Nachricht + Trigger); ohne Treffer = alle Tools, ebenfalls nur Katalog.
+      <strong>Progressive discovery:</strong> In <span class="mono">tools[]</span> you always get only the <strong>catalog</strong> (short). Full parameter schemas come only from <span class="mono">get_tool_help(tool_name)</span> — after <span class="mono">list_tool_categories</span> → <span class="mono">list_tools_in_category</span>.
+      The <strong>router</strong> only limits <em>which</em> tools appear in the list (last user message + trigger); no match = all tools, still catalog-only.
     </p>
     <p class="hint">
-      Zusätzliche Kategorien nur <strong>explizit</strong>: Header <span class="mono">X-Agent-Router-Categories: tool_factory</span> (Proxy/Client) oder JSON <span class="mono">"agent_router_categories": ["tool_factory"]</span> im Chat-Body, falls der Client durchreicht. Open WebUI setzt solche Header meist nicht.
+      Extra categories only <strong>explicitly</strong>: header <span class="mono">X-Agent-Router-Categories: tool_factory</span> (proxy/client) or JSON <span class="mono">"agent_router_categories": ["tool_factory"]</span> in the chat body if the client forwards it. Open WebUI usually does not set such headers.
     </p>
     <div class="toolbar">
       <button type="button" class="secondary" id="btnRouterCats">GET /v1/router/categories</button>
@@ -140,13 +140,13 @@
   <section>
     <h2>Registry</h2>
     <div class="toolbar">
-      <button type="button" id="btnLoadTools">Tools laden</button>
-      <button type="button" class="secondary" id="btnReload">Registry neu laden</button>
+      <button type="button" id="btnLoadTools">Load tools</button>
+      <button type="button" class="secondary" id="btnReload">Reload registry</button>
     </div>
     <div id="status" class="mono" style="display:none;"></div>
     <div id="toolTableWrap" style="margin-top:0.75rem; display:none;">
       <table>
-        <thead><tr><th>Name</th><th>Kurzbeschreibung</th></tr></thead>
+        <thead><tr><th>Name</th><th>Short description</th></tr></thead>
         <tbody id="toolRows"></tbody>
       </table>
     </div>
@@ -159,20 +159,20 @@
   <section>
     <h2>Tool factory (<span class="mono">create_tool</span>)</h2>
     <p class="hint" style="margin-top:-0.25rem;">
-      Codegen: <span class="mono">tool_name</span> oder <span class="mono">filename</span> + <span class="mono">TOOL_DESCRIPTION</span> — <span class="mono">source</span> leer lassen.
-      Paste: vollständiges Python-Modul in <span class="mono">source</span> + <span class="mono">filename</span>.
+      Codegen: <span class="mono">tool_name</span> or <span class="mono">filename</span> + <span class="mono">TOOL_DESCRIPTION</span> — leave <span class="mono">source</span> empty.
+      Paste: full Python module in <span class="mono">source</span> + <span class="mono">filename</span>.
     </p>
-    <TOOL_LABEL for="ctToolName">tool_name (Codegen-Hinweis, z. B. fishingIndex)</TOOL_LABEL>
+    <TOOL_LABEL for="ctToolName">tool_name (codegen hint, e.g. fishingIndex)</TOOL_LABEL>
     <input type="text" id="ctToolName" autocomplete="off" />
-    <TOOL_LABEL for="ctFilename">filename (z. B. my_tool.py)</TOOL_LABEL>
+    <TOOL_LABEL for="ctFilename">filename (e.g. my_tool.py)</TOOL_LABEL>
     <input type="text" id="ctFilename" placeholder="optional.py" autocomplete="off" />
     <TOOL_LABEL for="ctTOOL_DESCRIPTION">TOOL_DESCRIPTION</TOOL_LABEL>
-    <textarea id="ctTOOL_DESCRIPTION" rows="3" placeholder="Domain-Hinweise für Codegen…"></textarea>
-    <TOOL_LABEL for="ctSource">source (volles Modul; leer = Codegen)</TOOL_LABEL>
-    <textarea id="ctSource" rows="8" placeholder="# leer lassen für Ollama-Codegen"></textarea>
-    <TOOL_LABEL for="ctTestArgs">test_arguments (JSON-Objekt)</TOOL_LABEL>
+    <textarea id="ctTOOL_DESCRIPTION" rows="3" placeholder="Domain hints for codegen…"></textarea>
+    <TOOL_LABEL for="ctSource">source (full module; empty = codegen)</TOOL_LABEL>
+    <textarea id="ctSource" rows="8" placeholder="# leave empty for Ollama codegen"></textarea>
+    <TOOL_LABEL for="ctTestArgs">test_arguments (JSON object)</TOOL_LABEL>
     <textarea id="ctTestArgs" rows="2" placeholder='{}'></textarea>
-    <TOOL_LABEL class="check"><input type="checkbox" id="ctOverwrite" /> overwrite (bestehende Datei ersetzen)</TOOL_LABEL>
+    <TOOL_LABEL class="check"><input type="checkbox" id="ctOverwrite" /> overwrite (replace existing file)</TOOL_LABEL>
     <button type="button" id="btnCreateTool">POST /v1/admin/create-tool</button>
     <pre id="createResult" class="mono" style="margin-top:0.75rem; display:none; max-height:320px; overflow:auto;"></pre>
   </section>
@@ -216,12 +216,12 @@
 
   document.getElementById("btnSaveKey").onclick = function () {
     sessionStorage.setItem(KEY_STORE, keyEl.value.trim());
-    showStatus(true, "Key in sessionStorage gespeichert.");
+    showStatus(true, "Key saved in sessionStorage.");
   };
   document.getElementById("btnClearKey").onclick = function () {
     sessionStorage.removeItem(KEY_STORE);
     keyEl.value = "";
-    showStatus(true, "Key entfernt.");
+    showStatus(true, "Key cleared.");
   };
 
   document.getElementById("btnRouterCats").onclick = async function () {
@@ -240,7 +240,7 @@
         routerCatsEl.textContent = t;
       }
       routerCatsEl.style.display = "block";
-      showStatus(true, "Router-Kategorien geladen — ids in .env oder Header verwenden.");
+      showStatus(true, "Router categories loaded — use ids in .env or headers.");
     } catch (e) {
       showStatus(false, String(e));
     }
@@ -271,7 +271,7 @@
       });
       toolTableWrap.style.display = "block";
       toolsMetaEl.textContent = JSON.stringify(data.tools_meta || [], null, 2);
-      showStatus(true, tools.length + " Tool(s) geladen.");
+      showStatus(true, tools.length + " tool(s) loaded.");
     } catch (e) {
       showStatus(false, String(e));
     }
@@ -313,16 +313,16 @@
       try {
         body.test_arguments = JSON.parse(ta);
         if (typeof body.test_arguments !== "object" || body.test_arguments === null || Array.isArray(body.test_arguments)) {
-          showStatus(false, "test_arguments muss ein JSON-Objekt sein.");
+          showStatus(false, "test_arguments must be a JSON object.");
           return;
         }
       } catch (e) {
-        showStatus(false, "test_arguments: ungültiges JSON — " + e);
+        showStatus(false, "test_arguments: invalid JSON — " + e);
         return;
       }
     }
     if (!src && !tn && !fn) {
-      showStatus(false, "Für Codegen mindestens tool_name oder filename setzen.");
+      showStatus(false, "For codegen set at least tool_name or filename.");
       return;
     }
     hideStatus();
@@ -342,7 +342,7 @@
       createResult.textContent = pretty;
       createResult.style.display = "block";
       if (!r.ok) showStatus(false, "HTTP " + r.status);
-      else showStatus(true, "Antwort unten (ok prüfen).");
+      else showStatus(true, "Response below (verify ok).");
     } catch (e) {
       showStatus(false, String(e));
     }

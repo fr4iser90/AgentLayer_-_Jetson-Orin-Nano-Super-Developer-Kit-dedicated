@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Benutzer — Agent Layer Control Panel</title>
+  <title>Users — Agent Layer Control Panel</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -94,27 +94,27 @@
 <body>
 
   <div class="page-header">
-    <h1>Benutzer Verwaltung</h1>
-    <p>System Benutzer, Rollen & API Keys</p>
+    <h1>User management</h1>
+    <p>System users, roles, and API keys</p>
   </div>
 
   <div class="toolbar">
-    <button onclick="loadUsers()">🔄 Aktualisieren</button>
-    <button class="secondary">➕ Neuen Benutzer erstellen</button>
+    <button onclick="loadUsers()">🔄 Refresh</button>
+    <button class="secondary">➕ Create user</button>
   </div>
 
   <table>
     <thead>
       <tr>
         <th>Email</th>
-        <th>Rolle</th>
-        <th>Erstellt am</th>
+        <th>Role</th>
+        <th>Created</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="users-table">
       <tr>
-        <td colspan="4" style="text-align: center; color: var(--muted);">Lade Benutzer...</td>
+        <td colspan="4" style="text-align: center; color: var(--muted);">Loading users…</td>
       </tr>
     </tbody>
   </table>
@@ -127,19 +127,19 @@
     async function loadUsers() {
       const tbody = document.getElementById("users-table");
       
-      // TODO: Sobald Backend Route existiert hier API Call einfügen
+      // TODO: add API call when backend route exists
       // const res = await apiRequest("v1/users");
       // const users = await res.json();
 
-      // Demo Ansicht
+      // Demo view
       const user = getCurrentUser();
       tbody.innerHTML = `
         <tr>
           <td>${user.email}</td>
           <td><span class="role-admin">admin</span></td>
-          <td>${new Date(user.created_at).toLocaleDateString('de-DE')}</td>
+          <td>${new Date(user.created_at).toLocaleDateString('en-US')}</td>
           <td>
-            <button class="secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Passwort ändern</button>
+            <button class="secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">Change password</button>
             <button class="secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">API Keys</button>
           </td>
         </tr>

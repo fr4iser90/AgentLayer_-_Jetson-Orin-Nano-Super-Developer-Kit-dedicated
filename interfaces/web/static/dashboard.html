@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -53,38 +53,37 @@
 
   <div class="page-header">
     <h1>Dashboard</h1>
-    <p>System Übersicht & Status</p>
+    <p>System overview and status</p>
   </div>
 
   <div class="cards">
     <div class="card">
       <div class="value">-</div>
-      <div class="label">Aktive Agents</div>
+      <div class="label">Client interfaces (est.)</div>
     </div>
     <div class="card">
       <div class="value">-</div>
-      <div class="label">Laufende Workflows</div>
+      <div class="label">Running workflows</div>
     </div>
     <div class="card">
       <div class="value">-</div>
-      <div class="label">Registrierte Tools</div>
+      <div class="label">Registered tools</div>
     </div>
     <div class="card">
       <div class="value">-</div>
-      <div class="label">System Benutzer</div>
+      <div class="label">System users</div>
     </div>
   </div>
 
   <script src="js/auth.js"></script>
   <script src="js/layout.js"></script>
   <script>
-    // Initialisiere Layout und Auth Check
     initControlPanel("dashboard");
 
-    // TODO: Lade echte Daten sobald API Endpunkte vorhanden sind
+    // TODO: load real data when API endpoints exist
     async function loadDashboardData() {
       try {
-        // Hier kommen später die API Aufrufe
+        // API calls go here later
       } catch (e) {
         console.error("Failed to load dashboard data", e);
       }
