@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
@@ -20,7 +22,17 @@ from fastapi.staticfiles import StaticFiles
 from src.core.config import config
 from src.infrastructure.ollama_gate import ollama_get_json
 from src.infrastructure.db import db
-from src.infrastructure.auth import get_current_user, require_permission, LoginRequest, create_access_token, create_refresh_token, verify_password, get_user_by_email, validate_refresh_token
+from src.infrastructure.auth import (
+    get_current_user,
+    require_permission,
+    LoginRequest,
+    create_access_token,
+    create_refresh_token,
+    verify_password,
+    get_user_by_email,
+    validate_refresh_token,
+)
+from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed, claim_admin_user
 from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_user_tenant
 from src.domain.identity import reset_identity, set_identity
@@ -38,6 +50,17 @@ from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_pool()
+    try:
+        setup_admin_claim_if_needed()
+    except Exception:
+        logger.exception(
+            "First-admin bootstrap failed (run DB migrations; need 0011_admin_claim_otp?)"
+        )
+    if (os.environ.get("AGENT_CORS_ORIGINS") or "*").strip() == "*":
+        logger.warning(
+            "AGENT_CORS_ORIGINS is '*'. For a public host, set explicit origins "
+            "(e.g. https://openwebui.example) so browsers do not send creds to arbitrary sites."
+        )
     get_registry()
     start_cron_scheduler()
     yield
@@ -45,7 +68,7 @@ async def lifespan(_app: FastAPI):
     db.close_pool()
 
 
-app = FastAPI(title="agent-layer", version="0.7.0", lifespan=lifespan)
+app = FastAPI(title="agent-layer", version="0.7.1", lifespan=lifespan)
 app.include_router(user_secrets_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
@@ -106,6 +129,63 @@ async def refresh_token(request: Request):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
+class ClaimRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    password: str = Field(..., min_length=8, max_length=512)
+    otp: str = Field(..., min_length=8, max_length=512)
+
+
+@app.get("/auth/setup-status")
+async def auth_setup_status():
+    """True when no admin user exists yet (browser may show claim form)."""
+    return {"needs_setup": is_first_start()}
+
+
+@app.post("/auth/claim")
+async def auth_claim(claim: ClaimRequest):
+    """
+    One-time first admin creation. Requires OTP from server logs (startup) or
+    AGENT_ADMIN_CLAIM_OTP env after bootstrap (same value as printed once).
+    """
+    if not is_first_start():
+        raise HTTPException(status_code=403, detail="setup already completed")
+
+    if not claim_admin_user(claim.email.strip(), claim.password, claim.otp.strip()):
+        raise HTTPException(
+            status_code=401,
+            detail="invalid or expired otp",
+        )
+
+    user = get_user_by_email(claim.email.strip())
+    if not user:
+        raise HTTPException(status_code=500, detail="user creation failed")
+
+    access_token = create_access_token(user.id, user.role)
+    refresh_token, refresh_token_hash = create_refresh_token(user.id)
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
+                VALUES (%s, %s, NOW() + INTERVAL '7 days')
+                """,
+                (user.id, refresh_token_hash),
+            )
+            conn.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": 900,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "role": user.role,
+        },
+    }
+
+
 @app.get("/auth/me")
 @require_permission("read", "user")
 async def get_current_user_info(request: Request, user):
@@ -116,7 +196,8 @@ async def get_current_user_info(request: Request, user):
         "created_at": user.created_at.isoformat()
     }
 
-_control_dir = Path(__file__).resolve().parent.parent / "interfaces" / "web" / "static"
+# interfaces/ lives at repo root (sibling of src/), not under src/
+_control_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static"
 if _control_dir.is_dir():
     app.mount(
         "/control",
@@ -142,6 +223,10 @@ app.add_middleware(
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
 
+    # CORS preflight must not require Bearer auth (browser sends no Authorization).
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     # Public endpoints no auth required
     public_paths = [
         "/health",
@@ -149,6 +234,8 @@ async def auth_middleware(request: Request, call_next):
         "/auth/login",
         "/auth/refresh",
         "/auth/claim",
+        "/auth/setup-status",
+        "/favicon.ico",
         "/"
     ]
 

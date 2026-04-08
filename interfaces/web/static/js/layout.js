@@ -4,7 +4,21 @@
  */
 
 function initControlPanel(currentPage) {
-    // Zuerst Auth prüfen
+    fetch("/auth/setup-status")
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+            if (j && j.needs_setup === true) {
+                window.location.replace("/control/claim.html");
+                return;
+            }
+            _initControlPanelAfterSetup(currentPage);
+        })
+        .catch(function () {
+            _initControlPanelAfterSetup(currentPage);
+        });
+}
+
+function _initControlPanelAfterSetup(currentPage) {
     requireAuth();
 
     // Injecte Styles

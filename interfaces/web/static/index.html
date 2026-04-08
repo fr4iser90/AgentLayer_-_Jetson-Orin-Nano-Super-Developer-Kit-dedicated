@@ -79,7 +79,25 @@
     .check { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.65rem; font-size: 0.875rem; }
   </style>
 </head>
-<body>
+<body id="tool-control-page" style="visibility:hidden">
+  <script>
+    (function () {
+      fetch("/auth/setup-status")
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (j && j.needs_setup === true) {
+            window.location.replace("/control/claim.html");
+            return;
+          }
+          var el = document.getElementById("tool-control-page");
+          if (el) el.style.visibility = "visible";
+        })
+        .catch(function () {
+          var el = document.getElementById("tool-control-page");
+          if (el) el.style.visibility = "visible";
+        });
+    })();
+  </script>
   <h1>Agent layer — Tool-Control</h1>
   <p class="hint">
     Diese Seite lädt ohne API-Key. Alle Aufrufe unter <span class="mono">/v1/</span> erfordern gültige Authentifizierung.

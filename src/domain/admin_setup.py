@@ -7,10 +7,10 @@ from __future__ import annotations
 import os
 import secrets
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.infrastructure.db import db
-from src.infrastructure.auth import create_user, hash_password
+from src.infrastructure.auth import create_user, hash_password, insert_user_with_cursor, verify_password
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def generate_admin_claim_otp() -> str:
                 VALUES (%s, %s)
             """, (
                 hash_password(otp),
-                datetime.utcnow() + timedelta(hours=24)
+                datetime.now(timezone.utc) + timedelta(hours=24)
             ))
             conn.commit()
 
@@ -47,7 +47,7 @@ def generate_admin_claim_otp() -> str:
     logger.info("")
     logger.info(f"  Admin Claim OTP: {otp}")
     logger.info("")
-    logger.info("  Besuche /control/claim um den ersten Admin User zu erstellen")
+    logger.info("  Öffne /control/claim.html und trage OTP + E-Mail + Passwort ein")
     logger.info("  Dieser OTP ist 24 Stunden gültig")
     logger.info("=" * 80)
     logger.info("")
@@ -60,42 +60,55 @@ def generate_admin_claim_otp() -> str:
 
 def claim_admin_user(email: str, password: str, otp: str) -> bool:
     """
-    Claim ersten Admin User mit OTP
+    Claim ersten Admin User mit OTP.
+    Uses one DB transaction + advisory lock so parallel claims cannot create two admins.
     """
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute("SELECT pg_advisory_xact_lock(872814001)")
+            cur.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+            if cur.fetchone()[0] > 0:
+                conn.rollback()
+                return False
+
+            cur.execute(
+                """
                 SELECT otp_hash, expires_at
                 FROM admin_claim_otp
                 WHERE used_at IS NULL
                 ORDER BY created_at DESC
                 LIMIT 1
-            """)
+                FOR UPDATE
+                """
+            )
             row = cur.fetchone()
 
             if not row:
+                conn.rollback()
                 return False
 
             otp_hash, expires_at = row
 
-            # Prüfe OTP Gültigkeit
-            from src.infrastructure.auth import verify_password
             if not verify_password(otp, otp_hash):
+                conn.rollback()
                 return False
 
-            if datetime.utcnow() > expires_at:
+            now_utc = datetime.now(timezone.utc)
+            if now_utc > expires_at:
+                conn.rollback()
                 return False
 
-            # Erstelle Admin User
-            user = create_user(email, password, role="admin")
+            user = insert_user_with_cursor(cur, email, password, role="admin")
 
-            # Markiere OTP als benutzt
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE admin_claim_otp
                 SET used_at = NOW(), claimed_by_user_id = %s
                 WHERE otp_hash = %s
-            """, (user.id, otp_hash))
-            conn.commit()
+                """,
+                (user.id, otp_hash),
+            )
+        conn.commit()
 
     logger.info("✅ Admin User erfolgreich erstellt: %s", email)
     return True
@@ -123,27 +136,27 @@ def setup_admin_claim_if_needed() -> None:
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) != 3:
-        print("Benutzung: python -m app.admin_setup <email> <passwort>")
-        print("Erstellt oder aktualisiert Admin User direkt über Kommandozeile")
+        print("Benutzung: PYTHONPATH=/app python -m src.domain.admin_setup <email> <passwort>")
+        print("Erstellt oder aktualisiert Admin User direkt über Kommandozeile (Container-DB).")
         sys.exit(1)
-    
+
     email = sys.argv[1]
     password = sys.argv[2]
-    
+
     db.init_pool()
 
     from src.infrastructure.auth import get_user_by_email, update_user_password
-    
+
     existing = get_user_by_email(email)
-    
+
     if existing:
         update_user_password(existing.id, password)
-        print(f"ℹ️  Admin User existiert bereits: {email}")
-        print(f"ℹ️  Passwort wurde aktualisiert")
+        print(f"ℹ️  User existiert bereits: {email}")
+        print("ℹ️  Passwort wurde aktualisiert")
     else:
-        user = create_user(email, password, role="admin")
+        create_user(email, password, role="admin")
         print(f"✅ Admin User erfolgreich erstellt: {email}")
 
-    print(f"✅ Du kannst dich jetzt anmelden unter /control/")
+    print("✅ Anmeldung: /control/login.html")

@@ -35,7 +35,22 @@ This document is the **stable integration surface** for front ends (e.g. Open We
 **200:** `{ "access_token", "token_type": "bearer", "expires_in": 900 }`  
 **401:** invalid or expired refresh token
 
-### 2.3 Protected routes
+### 2.3 First admin (one-time bootstrap)
+
+When no user with `role = admin` exists, startup logs print a **single-use OTP** (24 h). Use it once with the control panel **`/control/claim.html`** or:
+
+`GET /auth/setup-status`  
+**Auth:** none  
+**200:** `{ "needs_setup": true | false }`
+
+`POST /auth/claim`  
+**Auth:** none  
+**Body:** `{ "email": string, "password": string, "otp": string }`  
+**200:** same shape as `/auth/login` (tokens + `user`)  
+**401:** invalid or expired OTP  
+**403:** setup already completed (an admin exists)
+
+### 2.4 Protected routes
 
 Almost all routes require **`Authorization: Bearer <token>`** where `<token>` is either:
 
@@ -44,7 +59,7 @@ Almost all routes require **`Authorization: Bearer <token>`** where `<token>` is
 
 If the header is missing or invalid, the API returns **401** with body `{"error":"unauthorized"}`.
 
-### 2.4 Public routes (no `Authorization`)
+### 2.5 Public routes (no `Authorization`)
 
 Exact paths (see `auth_middleware` in `src/api/main.py`):
 
@@ -52,7 +67,8 @@ Exact paths (see `auth_middleware` in `src/api/main.py`):
 - `GET /v1/models` (Ollama passthrough for model lists)
 - `POST /auth/login`
 - `POST /auth/refresh`
-- `POST /auth/claim` (if implemented / reserved)
+- `GET /auth/setup-status`
+- `POST /auth/claim`
 - `GET /` (redirect or JSON hint)
 - Paths under `/control/` (static control panel when shipped)
 

@@ -212,28 +212,30 @@ def require_permission(action: str, resource_type: Optional[str] = None) -> Call
     return decorator
 
 
-def create_user(email: str, password: str, role: str = "user") -> User:
-    """Create new user"""
+def insert_user_with_cursor(cur, email: str, password: str, role: str = "user") -> User:
+    """Insert a user row using an existing cursor (same transaction as caller)."""
     user_id = uuid.uuid4()
     password_hash = hash_password(password)
     external_sub = f"manual:{email}"
+    cur.execute(
+        """
+        INSERT INTO users (id, email, password_hash, role, tenant_id, external_sub)
+        VALUES (%s, %s, %s, %s, 1, %s)
+        RETURNING created_at
+        """,
+        (user_id, email, password_hash, role, external_sub),
+    )
+    created_at = cur.fetchone()[0]
+    return User(id=user_id, email=email, role=role, created_at=created_at)
 
+
+def create_user(email: str, password: str, role: str = "user") -> User:
+    """Create new user"""
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO users (id, email, password_hash, role, tenant_id, external_sub)
-                VALUES (%s, %s, %s, %s, 1, %s)
-                RETURNING created_at
-            """, (user_id, email, password_hash, role, external_sub))
-            created_at = cur.fetchone()[0]
+            user = insert_user_with_cursor(cur, email, password, role)
             conn.commit()
-
-    return User(
-        id=user_id,
-        email=email,
-        role=role,
-        created_at=created_at
-    )
+    return user
 
 
 def update_user_password(user_id: uuid.UUID, password: str) -> None:
