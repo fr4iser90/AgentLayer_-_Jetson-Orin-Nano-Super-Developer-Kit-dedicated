@@ -24,6 +24,7 @@ from src.infrastructure.ollama_gate import ollama_get_json
 from src.infrastructure.db import db
 from src.infrastructure.auth import (
     get_current_user,
+    get_user_for_bearer_token,
     require_admin,
     require_permission,
     LoginRequest,
@@ -52,12 +53,23 @@ from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_user_tenant
 from src.domain.identity import reset_identity, set_identity
 from src.domain.plugin_system.tools_api import router as tools_router
+from src.api.chat_websocket import router as chat_ws_router
+from src.api.studio_api import router as studio_router
 from src.api.rag_api import router as rag_router
 from src.domain.plugin_system.registry import get_registry
 from src.infrastructure.user_secrets_api import router as user_secrets_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+
+def _bearer_user_role_from_request(request: Request) -> str | None:
+    auth = request.headers.get("authorization") or ""
+    token = auth.removeprefix("Bearer ").strip()
+    if not token:
+        return None
+    user = get_user_for_bearer_token(token)
+    return user.role.lower() if user else None
 
 
 from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
@@ -83,10 +95,12 @@ async def lifespan(_app: FastAPI):
     db.close_pool()
 
 
-app = FastAPI(title="agent-layer", version="0.7.2", lifespan=lifespan)
+app = FastAPI(title="agent-layer", version="0.7.3", lifespan=lifespan)
 app.include_router(user_secrets_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
+app.include_router(chat_ws_router)
+app.include_router(studio_router)
 
 
 # Auth Endpoints
@@ -301,7 +315,7 @@ def root():
         return RedirectResponse(url="/control/", status_code=307)
     return {
         "service": "agent-layer",
-        "hint": "OpenAI API under /v1/ (e.g. POST /v1/chat/completions); GET /health; GET /v1/tools",
+        "hint": "OpenAI API under /v1/ (e.g. POST /v1/chat/completions); WebSocket /ws/v1/chat; GET /health; GET /v1/tools",
     }
 
 
@@ -590,12 +604,17 @@ async def chat_completions(request: Request):
 
     router_hdr = (request.headers.get("X-Agent-Router-Categories") or "").strip() or None
     tool_dom_hdr = (request.headers.get("X-Agent-Tool-Domain") or "").strip() or None
+    model_prof = (request.headers.get("X-Agent-Model-Profile") or "").strip() or None
+    model_ovr = (request.headers.get("X-Agent-Model-Override") or "").strip() or None
 
     try:
         result = await chat_completion(
             work,
             router_categories_header=router_hdr,
             tool_domain_header=tool_dom_hdr,
+            model_profile_header=model_prof,
+            model_override_header=model_ovr,
+            bearer_user_role=_bearer_user_role_from_request(request),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

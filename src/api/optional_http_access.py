@@ -53,6 +53,12 @@ def is_optional_connection_route(path: str, method: str) -> bool:
         return True
     if m == "GET" and path == "/v1/router/categories":
         return True
+    if m == "GET" and path == "/v1/studio/catalog":
+        return True
+    if m == "GET" and path == "/v1/studio/comfy/checkpoints":
+        return True
+    if m == "POST" and path == "/v1/studio/jobs":
+        return True
     if m == "GET" and (
         path == "/openapi.json"
         or path == "/openapi/domains"
@@ -107,10 +113,14 @@ def public_http_auth_policy() -> dict[str, Any]:
                     "or a valid JWT / API key."
                 ),
                 "routes": [
+                    {"method": "WebSocket", "path": "/ws/v1/chat"},
                     {"method": "POST", "path": "/v1/chat/completions"},
                     {"method": "POST", "path": "/tools/run"},
                     {"method": "GET", "path": "/v1/tools"},
                     {"method": "GET", "path": "/v1/router/categories"},
+                    {"method": "GET", "path": "/v1/studio/catalog"},
+                    {"method": "GET", "path": "/v1/studio/comfy/checkpoints"},
+                    {"method": "POST", "path": "/v1/studio/jobs"},
                     {"method": "GET", "path": "/openapi.json"},
                     {"method": "GET", "path": "/openapi/domains"},
                     {"method": "GET", "path_prefix": "/openapi/"},

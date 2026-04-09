@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from json import JSONDecoder
 from typing import Any
 
@@ -23,8 +25,26 @@ from src.domain.plugin_system.tool_routing import (
     last_user_text,
 )
 from src.domain.plugin_system.tools import run_tool
+from src.domain.model_routing import resolve_effective_model
 
 logger = logging.getLogger(__name__)
+
+
+class AgentChatCancelled(Exception):
+    """Client aborted in-flight chat (e.g. WebSocket ``{"type":"cancel"}``)."""
+
+
+def _registry_tool_spec_by_registered_name(name: str) -> dict[str, Any] | None:
+    n = (name or "").strip()
+    if not n:
+        return None
+    for spec in get_registry().chat_tool_specs:
+        if not isinstance(spec, dict):
+            continue
+        fn = spec.get("function")
+        if isinstance(fn, dict) and fn.get("name") == n:
+            return copy.deepcopy(spec)
+    return None
 
 
 def _http_error_recovery_hint(tool_name: str, result: str) -> str | None:
@@ -72,8 +92,26 @@ def _http_error_recovery_hint(tool_name: str, result: str) -> str | None:
 
 # Client-only keys: never forward to Ollama (not in upstream Chat Completions request schema).
 _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
-    {"tool_prefetch", "agent_router_categories", "TOOL_DOMAIN"}
+    {
+        "tool_prefetch",
+        "agent_router_categories",
+        "TOOL_DOMAIN",
+        "agent_pause_between_rounds",
+    }
 )
+
+
+def _coerce_body_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return value != 0
+    s = str(value).strip().lower()
+    if not s:
+        return default
+    return s in ("1", "true", "yes", "on")
 
 
 def _parse_router_category_tokens(raw: str | None) -> frozenset[str]:
@@ -712,6 +750,12 @@ async def chat_completion(
     *,
     router_categories_header: str | None = None,
     tool_domain_header: str | None = None,
+    model_profile_header: str | None = None,
+    model_override_header: str | None = None,
+    bearer_user_role: str | None = None,
+    event_emit: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    control_queue: asyncio.Queue | None = None,
+    cancel_event: asyncio.Event | None = None,
 ) -> dict[str, Any]:
     # stream flag is ignored here; Ollama always gets stream=false. Caller may wrap JSON as SSE.
     body.pop("agent_tool_mode", None)
@@ -727,13 +771,18 @@ async def chat_completion(
     hdr_tool_dom = (tool_domain_header or "").strip().lower()
     tool_domain = hdr_tool_dom or body_tool_dom or None
 
-    from src.core.config import OLLAMA_DEFAULT_MODEL
-    model = body.get("model", OLLAMA_DEFAULT_MODEL)
-
     messages = _inject_system_prompt(list(body.get("messages") or []))
     pf = body.get("tool_prefetch")
     if isinstance(pf, dict):
         _apply_tool_prefetch(messages, pf)
+
+    model, model_reason = resolve_effective_model(
+        messages=messages,
+        body_model=body.get("model"),
+        profile_header=model_profile_header,
+        override_header=model_override_header,
+        bearer_user_role=bearer_user_role,
+    )
 
     merged_tools = _merge_tools(body.get("tools"))
     routed_category: str | None = None
@@ -789,18 +838,148 @@ async def chat_completion(
             names,
         )
     _log_tools_request_estimate("chat_completions", tools_for_request)
+    pause_between_rounds = _coerce_body_bool(body.get("agent_pause_between_rounds"), False)
+    if pause_between_rounds and control_queue is None:
+        pause_between_rounds = False
+
     options = {
         k: v
         for k, v in body.items()
         if k not in ("messages", "model", "tools", "stream", *_BODY_KEYS_STRIP_FROM_OLLAMA)
     }
 
+    def merge_add_tools_from_message(names: list[Any]) -> None:
+        existing = {
+            x for x in (_tool_spec_name(s) for s in tools_for_request) if x
+        }
+        for raw in names:
+            nn = str(raw).strip()
+            if not nn or nn in existing:
+                continue
+            if nn in config.AGENT_TOOLS_DENYLIST:
+                continue
+            sp = _registry_tool_spec_by_registered_name(nn)
+            if not sp:
+                continue
+            slim = _tools_for_chat_request([sp])
+            if slim:
+                tools_for_request.append(slim[0])
+                existing.add(nn)
+
+    def handle_control_dict(m: dict[str, Any]) -> bool:
+        """Apply cancel/add_tools. Returns True if cancel was requested."""
+        t = m.get("type")
+        if t == "cancel" and cancel_event is not None:
+            cancel_event.set()
+            return True
+        if t == "add_tools":
+            raw_names = m.get("names")
+            nlist = raw_names if isinstance(raw_names, list) else []
+            merge_add_tools_from_message(nlist)
+        return False
+
+    async def drain_control_queue() -> None:
+        if control_queue is None:
+            return
+        while True:
+            try:
+                m = control_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if not isinstance(m, dict):
+                continue
+            if m.get("type") == "continue_step":
+                logger.debug("discarding stray continue_step (not in agent.step_wait)")
+                continue
+            handle_control_dict(m)
+
+    async def wait_for_continue_step_after_round(completed_round: int) -> None:
+        if control_queue is None:
+            return
+        if event_emit:
+            await event_emit(
+                {
+                    "type": "agent.step_wait",
+                    "after_round": completed_round,
+                    "next_round": completed_round + 1,
+                    "max_rounds": config.MAX_TOOL_ROUNDS,
+                    "detail": (
+                        "Send a frame {\"type\":\"continue_step\"} to start the next LLM round. "
+                        "You may send {\"type\":\"add_tools\",\"names\":[\"...\"]} before that."
+                    ),
+                }
+            )
+        while True:
+            m = await control_queue.get()
+            if not isinstance(m, dict):
+                continue
+            if m.get("type") == "continue_step":
+                await drain_control_queue()
+                if cancel_event is not None and cancel_event.is_set():
+                    if event_emit:
+                        await event_emit(
+                            {
+                                "type": "agent.cancelled",
+                                "phase": "step_wait",
+                                "round": completed_round + 1,
+                            }
+                        )
+                    raise AgentChatCancelled()
+                return
+            if handle_control_dict(m):
+                if event_emit:
+                    await event_emit(
+                        {
+                            "type": "agent.cancelled",
+                            "phase": "step_wait",
+                            "round": completed_round + 1,
+                        }
+                    )
+                raise AgentChatCancelled()
+
+    forwarded_preview = [n for t in tools_for_request if (n := _tool_spec_name(t)) is not None]
+    if event_emit:
+        await event_emit(
+            {
+                "type": "agent.session",
+                "routed_category": routed_category,
+                "router_categories": sorted(cats),
+                "forwarded_tools": forwarded_preview,
+                "effective_model": model,
+                "model_resolution": model_reason,
+            }
+        )
+
     url = f"{config.OLLAMA_BASE_URL}/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
 
     for round_i in range(config.MAX_TOOL_ROUNDS):
+        await drain_control_queue()
+        if cancel_event is not None and cancel_event.is_set():
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.cancelled",
+                        "phase": "before_llm",
+                        "round": round_i + 1,
+                    }
+                )
+            raise AgentChatCancelled()
+
         tools_for_round = list(tools_for_request)
         allowed_names = _names_from_tool_list(tools_for_round)
+
+        if event_emit:
+            await event_emit(
+                {
+                    "type": "agent.llm_round_start",
+                    "round": round_i + 1,
+                    "max_rounds": config.MAX_TOOL_ROUNDS,
+                    "forwarded_tool_names": [
+                        n for t in tools_for_round if (n := _tool_spec_name(t)) is not None
+                    ],
+                }
+            )
 
         payload: dict[str, Any] = {
             "model": model,
@@ -856,7 +1035,35 @@ async def chat_completion(
             had_native_tool_calls=had_native_tool_calls,
         )
 
+        if event_emit:
+            tc_names = [
+                (tc.get("function") or {}).get("name")
+                for tc in (tool_calls or [])
+                if isinstance(tc, dict)
+            ]
+            await event_emit(
+                {
+                    "type": "agent.llm_round",
+                    "round": round_i + 1,
+                    "tool_calls": [str(x) for x in tc_names if x],
+                    "had_native_tool_calls": had_native_tool_calls,
+                    "content_excerpt": (
+                        (msg.get("content") or "")[:400]
+                        if isinstance(msg.get("content"), str)
+                        else ""
+                    ),
+                }
+            )
+
         if not tool_calls:
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.done",
+                        "kind": "final_text",
+                        "round": round_i + 1,
+                    }
+                )
             return data
 
         # Append assistant message (includes tool_calls, and content if any)
@@ -868,7 +1075,24 @@ async def chat_completion(
             args = _parse_tool_arguments(fn.get("arguments"))
             tool_call_id = tc.get("id") or ""
             logger.info("tool round %s: %s(%s)", round_i + 1, name, args)
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.tool_start",
+                        "round": round_i + 1,
+                        "name": name,
+                    }
+                )
             result = run_tool(name, args)
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.tool_done",
+                        "round": round_i + 1,
+                        "name": name,
+                        "result_chars": len(result or ""),
+                    }
+                )
             messages.append(
                 {
                     "role": "tool",
@@ -880,10 +1104,25 @@ async def chat_completion(
             if recovery:
                 messages.append({"role": "system", "content": recovery})
 
+        if (
+            pause_between_rounds
+            and control_queue is not None
+            and round_i + 1 < config.MAX_TOOL_ROUNDS
+        ):
+            await wait_for_continue_step_after_round(round_i + 1)
+
     logger.warning(
         "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
         config.MAX_TOOL_ROUNDS,
         len(messages),
         _approx_text_chars_in_messages(messages),
     )
+    if event_emit:
+        await event_emit(
+            {
+                "type": "agent.done",
+                "kind": "max_tool_rounds",
+                "round": config.MAX_TOOL_ROUNDS,
+            }
+        )
     return data

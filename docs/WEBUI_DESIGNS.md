@@ -120,7 +120,7 @@ Capabilities im Workspace können steuern: **Badge/Panel ein- oder ausblenden**,
 
 **MVP-Navigation (fix, damit es keine Diskussion mehr ist):**
 
-- **Sidebar/Hauptnavigation (Open WebUI):** genau **1** Eintrag: **Agent**
+TOP WA- **Sidebar/Hauptnavigation (Open WebUI):** genau **1** Eintrag: **Agent**
 - **Agent-Bereich:** Tabs, die als **echte URLs** funktionieren:
   - **`/agent/chat`** (Default)
   - **`/agent/images`** (Studio; kann anfangs „coming soon“ sein)
@@ -239,9 +239,11 @@ UI-States:
 
 ### 10.4 Agent-Chat: Nachricht senden
 
-Beim Senden:
+**Empfohlen für den Agent-Chat:** `WebSocket /ws/v1/chat` (Duplex), damit die UI **Runden, Tool-Läufe und optional „Schritt für Schritt“** aus Server-Events bauen kann — siehe **`docs/WEBUI_CONTRACT.md` §4.3** (`agent.session`, `agent.llm_round_*`, `agent.tool_*`, `agent.step_wait`, `continue_step`, Toggle **`agent_pause_between_rounds`** im `chat.body`). Modellwahl: **Hybrid-Routing** (Profile/Auto-VLM/Override) und Header **`X-Agent-Model-Profile`** / **`X-Agent-Model-Override`** bzw. gleichnamige Felder am `chat`-Frame — Details im Contract-Abschnitt *Hybrid model routing*.
 
-- `POST {AGENT_BASE}/v1/chat/completions`
+Alternativ oder parallel für einfache Clients:
+
+- `POST {AGENT_BASE}/v1/chat/completions` (kein Pausieren zwischen internen Runden möglich)
 - Optional (wenn Nutzer toggled):
   - Header `X-Agent-Router-Categories: cat1,cat2`
   - oder `X-Agent-Tool-Domain: domain`

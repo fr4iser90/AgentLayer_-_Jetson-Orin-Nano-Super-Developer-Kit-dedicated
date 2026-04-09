@@ -30,6 +30,23 @@ def _env_int(key: str, default: int) -> int:
 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434").rstrip("/")
 OLLAMA_DEFAULT_MODEL = (os.environ.get("OLLAMA_DEFAULT_MODEL") or "nemotron-3-nano:4b").strip()
+
+# Hybrid model routing: per-profile defaults (empty = fall back to OLLAMA_DEFAULT_MODEL).
+AGENT_MODEL_PROFILE_DEFAULT = (os.environ.get("AGENT_MODEL_PROFILE_DEFAULT") or "").strip() or None
+AGENT_MODEL_PROFILE_VLM = (os.environ.get("AGENT_MODEL_PROFILE_VLM") or "").strip() or None
+AGENT_MODEL_PROFILE_AGENT = (os.environ.get("AGENT_MODEL_PROFILE_AGENT") or "").strip() or None
+AGENT_MODEL_PROFILE_CODING = (os.environ.get("AGENT_MODEL_PROFILE_CODING") or "").strip() or None
+# If false, client ``model`` and X-Agent-Model-Override are ignored (profiles / auto-VLM only).
+AGENT_ALLOW_MODEL_OVERRIDE = _env_bool("AGENT_ALLOW_MODEL_OVERRIDE", True)
+# Comma-separated roles (e.g. admin) allowed to override; empty = any authenticated user (Bearer → DB user).
+AGENT_MODEL_OVERRIDE_ROLES = frozenset(
+    x.strip().lower()
+    for x in (os.environ.get("AGENT_MODEL_OVERRIDE_ROLES") or "").split(",")
+    if x.strip()
+)
+# If true, unauthenticated optional-route callers may still set model / override header.
+AGENT_MODEL_OVERRIDE_ANONYMOUS = _env_bool("AGENT_MODEL_OVERRIDE_ANONYMOUS", False)
+
 MAX_TOOL_ROUNDS = _env_int("AGENT_MAX_TOOL_ROUNDS", 8)
 DATA_DIR = os.environ.get("AGENT_DATA_DIR", "/data")
 # Before replace_tool / update_tool / create_tool overwrite, copy prior .py here (UTC timestamp prefix).

@@ -156,35 +156,46 @@ async def get_current_user(request: Request) -> User:
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # 1. Try JWT Access Token
-    payload = decode_access_token(token)
-    if payload:
-        user = get_user_by_id(uuid.UUID(payload["sub"]))
-        if user:
-            return user
+    user = get_user_for_bearer_token(token)
+    if user:
+        return user
 
-    # 2. Try API Key
+    raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def get_user_for_bearer_token(token: str) -> Optional[User]:
+    """
+    Resolve user from JWT access token or API key string (same rules as ``Authorization: Bearer``).
+    For WebSockets where headers/query carry the token without a full ``Request`` cycle.
+    """
+    raw = (token or "").strip()
+    if not raw:
+        return None
+    payload = decode_access_token(raw)
+    if payload and payload.get("sub"):
+        try:
+            user = get_user_by_id(uuid.UUID(str(payload["sub"])))
+            if user:
+                return user
+        except (ValueError, TypeError):
+            pass
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT user_id FROM api_keys
-                WHERE key_hash = %s
-            """, (token,))
+            cur.execute(
+                "SELECT user_id FROM api_keys WHERE key_hash = %s",
+                (raw,),
+            )
             row = cur.fetchone()
             if row:
                 user = get_user_by_id(row[0])
                 if user:
-                    # Update last used timestamp
-                    cur.execute("""
-                        UPDATE api_keys
-                        SET last_used_at = NOW()
-                        WHERE key_hash = %s
-                    """, (token,))
+                    cur.execute(
+                        "UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = %s",
+                        (raw,),
+                    )
                     conn.commit()
                     return user
-
-
-    raise HTTPException(status_code=401, detail="Unauthorized")
+    return None
 
 
 async def require_admin(request: Request) -> User:
