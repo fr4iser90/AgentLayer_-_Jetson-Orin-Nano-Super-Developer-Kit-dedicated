@@ -1,9 +1,9 @@
 """
 Shipped tool tree: **recursive** scan for ``*.py`` (``TOOLS`` + ``HANDLERS``); see ``app.registry``.
 
-**Layout (2-level sweet spot)** — first directory under ``tools/`` is the **layer** (stored as
-``tools_meta[].layer`` for operators / future filtering). Go deeper only when it helps (e.g. many
-modules under ``domains/fishing/``).
+**Layout** — thematic folders under ``tools/agent/`` for humans only; admin UI buckets come from
+``config/tool_admin_registry.json`` (``tools_meta[].admin_bucket`` / ``admin_tags``), not from path names.
+Go deeper only when it helps (e.g. many modules under ``domains/fishing/``).
 
 - ``core/`` — introspection, secrets, workspace, **tool_factory** (dynamic plugins).
 - ``knowledge/`` — KB, RAG, long-term notes / vectors.

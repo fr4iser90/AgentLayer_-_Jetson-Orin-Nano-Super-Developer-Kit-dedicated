@@ -1,13 +1,11 @@
 """
-Three-axis tool metadata (manifest constants + normalization).
+Tool manifest helpers (normalization only).
 
-1. **execution_context** — *where* code runs (orthogonal to “category”):
+1. **execution_context** — *where* code is intended to run (policy/UI):
    ``host`` | ``container`` | ``remote`` | ``browser``
-2. **capability_group** — *what kind* of capability (UI grouping / policy buckets):
-   execution, core, filesystem, external, knowledge, communication, identity, media, environment, domain, other
-3. **domain** (existing ``TOOL_DOMAIN``) — *why* / product domain (fishing, survival, …).
+2. **domain** (``TOOL_DOMAIN`` on modules) — router / product category; see registry.
 
-Default execution is **container** so agents stay sandboxed unless a module opts into ``host``.
+Default execution is **container** unless a module sets ``TOOL_EXECUTION_CONTEXT``.
 """
 
 from __future__ import annotations
@@ -20,22 +18,6 @@ logger = logging.getLogger(__name__)
 EXECUTION_CONTEXTS = frozenset({"host", "container", "remote", "browser"})
 DEFAULT_EXECUTION_CONTEXT = "container"
 
-CAPABILITY_GROUPS = frozenset(
-    {
-        "execution",
-        "core",
-        "filesystem",
-        "external",
-        "knowledge",
-        "communication",
-        "identity",
-        "media",
-        "environment",
-        "domain",
-        "other",
-    }
-)
-
 OS_SUPPORT_VALUES = frozenset({"linux", "windows", "macos", "nixos", "any"})
 
 
@@ -46,15 +28,6 @@ def normalize_execution_context(raw: str | None) -> str:
     if raw and raw.strip():
         logger.warning("unknown TOOL_EXECUTION_CONTEXT %r — using %s", raw, DEFAULT_EXECUTION_CONTEXT)
     return DEFAULT_EXECUTION_CONTEXT
-
-
-def normalize_capability_group(raw: str | None) -> str:
-    s = (raw or "").strip().lower()
-    if s in CAPABILITY_GROUPS:
-        return s
-    if raw and str(raw).strip():
-        logger.warning("unknown TOOL_CAPABILITY_GROUP %r — using other", raw)
-    return "other"
 
 
 def parse_os_support(mod: Any) -> list[str] | None:

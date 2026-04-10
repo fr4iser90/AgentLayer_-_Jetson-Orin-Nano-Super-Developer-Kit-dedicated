@@ -46,8 +46,17 @@ def effective_execution_context(
     pid = str(meta_entry.get("id") or "").strip()
     ov = _pick_execution_context_policy(pmap, pid, tool_fn_name) if pid else None
     if ov is not None:
-        return ov
-    return manifest_execution_context(meta_entry, tool_fn_name)
+        ctx = ov
+    else:
+        ctx = manifest_execution_context(meta_entry, tool_fn_name)
+    try:
+        from src.infrastructure.operator_settings import resolved_agent_mode
+
+        if resolved_agent_mode() == "sandbox":
+            return "container"
+    except Exception:
+        pass
+    return ctx
 
 
 def effective_flags(

@@ -5,6 +5,9 @@ import { apiFetch } from "../../lib/api";
 type InterfaceHints = {
   optional_connection_key: string;
   discord_application_id: string;
+  agent_mode?: "" | "sandbox" | "host";
+  agent_mode_effective?: "sandbox" | "host";
+  agent_mode_env?: "sandbox" | "host";
 };
 
 function detailMessage(data: unknown): string {
@@ -20,6 +23,9 @@ export function AdminInterfaces() {
   const auth = useAuth();
   const [optionalConnectionKey, setOptionalConnectionKey] = useState("");
   const [discordAppId, setDiscordAppId] = useState("");
+  const [agentMode, setAgentMode] = useState<"env" | "sandbox" | "host">("env");
+  const [agentModeEnv, setAgentModeEnv] = useState<string>("sandbox");
+  const [agentModeEffective, setAgentModeEffective] = useState<string>("sandbox");
   const [loading, setLoading] = useState(true);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -39,6 +45,10 @@ export function AdminInterfaces() {
       const row = data as InterfaceHints;
       setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
+      const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
+      setAgentMode(am);
+      setAgentModeEnv(row.agent_mode_env ?? "sandbox");
+      setAgentModeEffective(row.agent_mode_effective ?? row.agent_mode_env ?? "sandbox");
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -58,6 +68,7 @@ export function AdminInterfaces() {
         body: JSON.stringify({
           optional_connection_key: optionalConnectionKey,
           discord_application_id: discordAppId.trim(),
+          agent_mode: agentMode === "env" ? "" : agentMode,
         }),
       });
       const data = await res.json();
@@ -68,6 +79,10 @@ export function AdminInterfaces() {
       const row = data as InterfaceHints;
       setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
+      const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
+      setAgentMode(am);
+      setAgentModeEnv(row.agent_mode_env ?? "sandbox");
+      setAgentModeEffective(row.agent_mode_effective ?? row.agent_mode_env ?? "sandbox");
       setSaveMsg({ ok: true, text: "Saved." });
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
@@ -104,6 +119,36 @@ export function AdminInterfaces() {
         <p className="mt-6 text-sm text-surface-muted">Loading…</p>
       ) : (
         <>
+          <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
+            <h2 className="text-sm font-medium text-white">Agent mode</h2>
+            <p className="mt-2 text-xs text-surface-muted">
+              <span className="font-mono text-neutral-400">AGENT_MODE</span> in <span className="font-mono">.env</span>{" "}
+              is the default (<span className="text-neutral-300">sandbox</span> = Docker-bound: tools
+              always run as <span className="font-mono">container</span> for policy;
+              <span className="text-neutral-300"> host</span> = allow host-class overrides per tool
+              policy). Here you can override that for the running deployment (saved in the database).
+              Choose &quot;Use environment&quot; to clear the override.
+            </p>
+            <p className="mt-2 text-xs text-surface-muted">
+              Env: <span className="font-mono text-neutral-300">{agentModeEnv}</span>
+              {" · "}
+              Effective: <span className="font-mono text-neutral-300">{agentModeEffective}</span>
+            </p>
+            <label className="mt-3 block text-xs text-surface-muted" htmlFor="agent-mode">
+              Operator override
+            </label>
+            <select
+              id="agent-mode"
+              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 text-sm text-white"
+              value={agentMode}
+              onChange={(e) => setAgentMode(e.target.value as "env" | "sandbox" | "host")}
+            >
+              <option value="env">Use environment (AGENT_MODE)</option>
+              <option value="sandbox">sandbox (force Docker-bound tool execution)</option>
+              <option value="host">host (allow host-class tool policy)</option>
+            </select>
+          </section>
+
           <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
             <h2 className="text-sm font-medium text-white">External clients</h2>
             <p className="mt-2 text-xs text-surface-muted">

@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY config ./config
 COPY tools ./tools
 COPY interfaces ./interfaces
 COPY --from=agent_ui_builder /build/interfaces/web/static/app ./interfaces/web/static/app

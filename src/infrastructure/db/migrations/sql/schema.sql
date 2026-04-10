@@ -278,6 +278,7 @@ CREATE TABLE operator_settings (
   discord_application_id TEXT,
   integration_notes TEXT,
   optional_connection_key TEXT,
+  agent_mode TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

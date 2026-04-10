@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ def _fetch_row() -> dict[str, Any]:
                 """
                 SELECT require_user_sub_header, user_sub_header_csv, tenant_id_header,
                        discord_application_id, integration_notes,
-                       optional_connection_key
+                       optional_connection_key, agent_mode
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -39,6 +39,7 @@ def _fetch_row() -> dict[str, Any]:
             "discord_application_id": None,
             "integration_notes": None,
             "optional_connection_key": None,
+            "agent_mode": None,
         }
     return {
         "require_user_sub_header": bool(row[0]),
@@ -47,6 +48,7 @@ def _fetch_row() -> dict[str, Any]:
         "discord_application_id": row[3],
         "integration_notes": row[4],
         "optional_connection_key": row[5],
+        "agent_mode": row[6],
     }
 
 
@@ -58,6 +60,18 @@ def _cached_row() -> dict[str, Any]:
     row = _fetch_row()
     _CACHE = (now, row)
     return dict(row)
+
+
+def resolved_agent_mode() -> Literal["sandbox", "host"]:
+    """DB ``agent_mode`` wins when set; else :envvar:`AGENT_MODE` (default ``sandbox``)."""
+    r = _cached_row()
+    v = r.get("agent_mode")
+    if isinstance(v, str) and v.strip().lower() in ("sandbox", "host"):
+        return v.strip().lower()  # type: ignore[return-value]
+    em = getattr(config, "AGENT_MODE", "sandbox")
+    if isinstance(em, str) and em.strip().lower() in ("sandbox", "host"):
+        return em.strip().lower()  # type: ignore[return-value]
+    return "sandbox"
 
 
 def effective_user_sub_headers() -> list[str]:
@@ -98,6 +112,9 @@ def public_dict() -> dict[str, Any]:
         "integration_notes": r["integration_notes"] or "",
         "env_fallback_user_sub_headers": list(config.USER_SUB_HEADERS),
         "env_fallback_tenant_id_header": config.TENANT_ID_HEADER,
+        "agent_mode": (r.get("agent_mode") or "") if isinstance(r.get("agent_mode"), str) else "",
+        "agent_mode_effective": resolved_agent_mode(),
+        "agent_mode_env": getattr(config, "AGENT_MODE", "sandbox"),
     }
 
 
@@ -113,23 +130,31 @@ class OperatorSettingsPayload(BaseModel):
 
 def interface_hints_public() -> dict[str, Any]:
     r = _fetch_row()
+    am = r.get("agent_mode")
+    am_s = am.strip().lower() if isinstance(am, str) else ""
     return {
         "optional_connection_key": r.get("optional_connection_key") or "",
         "discord_application_id": r.get("discord_application_id") or "",
+        "agent_mode": am_s if am_s in ("sandbox", "host") else "",
+        "agent_mode_effective": resolved_agent_mode(),
+        "agent_mode_env": getattr(config, "AGENT_MODE", "sandbox"),
     }
 
 
 class InterfaceHintsPayload(BaseModel):
-    """Optional HTTP connection key + Discord application ID. Empty key on save clears it."""
+    """Optional HTTP connection key + Discord application ID + agent execution class."""
 
     optional_connection_key: str = Field(default="", max_length=8000)
     discord_application_id: str = Field(default="", max_length=128)
+    agent_mode: str = Field(default="", max_length=16)
 
 
 def apply_interface_hints(body: InterfaceHintsPayload) -> None:
     key_new = body.optional_connection_key.strip()
     key_v = key_new if key_new else None
     disc_v = body.discord_application_id.strip() or None
+    raw_mode = body.agent_mode.strip().lower()
+    mode_v: str | None = raw_mode if raw_mode in ("sandbox", "host") else None
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -138,10 +163,11 @@ def apply_interface_hints(body: InterfaceHintsPayload) -> None:
                 UPDATE operator_settings SET
                   optional_connection_key = %s,
                   discord_application_id = %s,
+                  agent_mode = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
-                (key_v, disc_v),
+                (key_v, disc_v, mode_v),
             )
         conn.commit()
     _invalidate()

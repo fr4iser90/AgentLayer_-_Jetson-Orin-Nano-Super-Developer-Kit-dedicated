@@ -20,6 +20,19 @@ def _env_bool(key: str, default: bool) -> bool:
     return v in ("1", "true", "yes", "on")
 
 
+def _agent_mode_from_env() -> str:
+    """Deployment class: ``sandbox`` (default) = treat tool execution as container-bound; ``host`` = allow host-class policy."""
+    v = (os.environ.get("AGENT_MODE") or "sandbox").strip().lower()
+    if v in ("sandbox", "host"):
+        return v
+    if v:
+        logger.warning("unknown AGENT_MODE %r — using sandbox", v)
+    return "sandbox"
+
+
+AGENT_MODE = _agent_mode_from_env()
+
+
 def _env_int(key: str, default: int) -> int:
     """Parse integer env; empty or whitespace uses ``default`` (Compose often passes ``VAR=``)."""
     raw = (os.environ.get(key) or "").strip()

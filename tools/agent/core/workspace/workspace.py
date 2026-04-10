@@ -18,8 +18,6 @@ from src.core.config import config
 __version__ = "1.0.0"
 TOOL_ID = "workspace"
 TOOL_DOMAIN = "workspace"
-TOOL_EXECUTION_CONTEXT = "container"
-TOOL_CAPABILITY_GROUP = "filesystem"
 TOOL_OS_SUPPORT = "linux,windows,macos"
 TOOL_RISK_LEVEL = 1
 TOOL_LABEL = "Workspace"

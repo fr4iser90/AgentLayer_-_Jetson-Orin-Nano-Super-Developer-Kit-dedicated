@@ -32,8 +32,6 @@ TOOL_DESCRIPTION = (
 
 TOOL_REQUIRES = ("gmail",)
 TOOL_CAPABILITIES = ("mail.read", "mail.search", "secrets.user")
-TOOL_EXECUTION_CONTEXT = "container"
-TOOL_CAPABILITY_GROUP = "communication"
 TOOL_RISK_LEVEL = 2
 TOOL_DEFAULT_ON = True
 TOOL_USER_CONFIGURABLE = True

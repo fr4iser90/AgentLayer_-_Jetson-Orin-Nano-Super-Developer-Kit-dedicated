@@ -15,9 +15,9 @@ type ToolMeta = {
   user_configurable?: boolean;
   families?: string[];
   domain?: string;
-  layer?: string;
+  admin_bucket?: string;
+  admin_tags?: string[];
   execution_context?: string;
-  capability_group?: string;
   os_support?: string[];
   risk_level?: string;
   tool_effective?: Record<
@@ -30,34 +30,6 @@ type ToolMeta = {
     user_configurable?: boolean | null;
     execution_context?: string | null;
   };
-};
-
-const GROUP_ORDER = [
-  "execution",
-  "filesystem",
-  "core",
-  "external",
-  "knowledge",
-  "communication",
-  "identity",
-  "media",
-  "environment",
-  "domain",
-  "other",
-] as const;
-
-const GROUP_LABELS: Record<string, string> = {
-  execution: "Execution",
-  core: "Core / factory",
-  filesystem: "Filesystem",
-  external: "External / network",
-  knowledge: "Knowledge",
-  communication: "Communication",
-  identity: "Identity",
-  media: "Media",
-  environment: "Environment",
-  domain: "Domain products",
-  other: "Other (uncategorized manifest)",
 };
 
 type PolicyRow = {
@@ -91,44 +63,62 @@ function selectToCtx(t: string): string | null {
   return t;
 }
 
-function capabilityGroupOf(p: ToolMeta): string {
-  const g = (p.capability_group || "other").toLowerCase();
-  return GROUP_ORDER.includes(g as (typeof GROUP_ORDER)[number]) ? g : "other";
+function sortPackagesById(pkgs: ToolMeta[]): ToolMeta[] {
+  return [...pkgs].sort((a, b) =>
+    (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" })
+  );
 }
 
-function sortPackages(pkgs: ToolMeta[]): ToolMeta[] {
-  return [...pkgs].sort((a, b) => {
-    const da = (a.domain || "\uffff").toLowerCase();
-    const db = (b.domain || "\uffff").toLowerCase();
-    if (da !== db) return da.localeCompare(db);
-    const la = (a.layer || "").toLowerCase();
-    const lb = (b.layer || "").toLowerCase();
-    if (la !== lb) return la.localeCompare(lb);
-    return (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" });
-  });
-}
+const ADMIN_BUCKET_ORDER = [
+  "files",
+  "network",
+  "knowledge",
+  "secrets",
+  "comms",
+  "verticals",
+  "meta",
+  "media",
+  "unsorted",
+] as const;
 
-/** Sub-headings by TOOL_DOMAIN when the bucket mixes domains or is the catch-all "other". */
-function shouldSubdivideByDomain(group: string, pkgs: ToolMeta[]): boolean {
-  if (group === "other") return true;
-  const domains = new Set(pkgs.map((p) => (p.domain || "—").toLowerCase()));
-  return domains.size > 1;
+const ADMIN_BUCKET_SET = new Set<string>(ADMIN_BUCKET_ORDER);
+
+const ADMIN_BUCKET_LABELS: Record<string, string> = {
+  files: "Files & workspace",
+  network: "Outbound network",
+  knowledge: "Knowledge & memory",
+  secrets: "Secrets & identity",
+  comms: "Comms & schedule",
+  verticals: "Domain verticals",
+  meta: "Meta & factory",
+  media: "Media",
+  unsorted: "Unsorted (map in config/tool_admin_registry.json)",
+};
+
+function shouldSubdivideByDomain(pkgs: ToolMeta[]): boolean {
+  const keys = new Set(pkgs.map((p) => (p.domain || "").trim().toLowerCase() || "—"));
+  return keys.size > 1;
 }
 
 function partitionByDomain(pkgs: ToolMeta[]): { domain: string; items: ToolMeta[] }[] {
-  const sorted = sortPackages(pkgs);
+  return sectionsByDomain(pkgs).map((s) => ({ domain: s.domain, items: s.items }));
+}
+
+/** One section per ``TOOL_DOMAIN`` (router category), A–Z; missing domain → „—“. */
+function sectionsByDomain(pkgs: ToolMeta[]): { key: string; domain: string; items: ToolMeta[] }[] {
   const map = new Map<string, ToolMeta[]>();
-  for (const p of sorted) {
-    const d = p.domain || "—";
-    const key = d.toLowerCase();
+  for (const p of pkgs) {
+    const raw = (p.domain || "").trim();
+    const key = raw.toLowerCase() || "—";
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(p);
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([domainKey, items]) => ({
-      domain: items[0]?.domain || domainKey,
-      items,
+      key: domainKey,
+      domain: items[0]?.domain?.trim() || (domainKey === "—" ? "—" : domainKey),
+      items: sortPackagesById(items),
     }));
 }
 
@@ -271,11 +261,12 @@ export function AdminTools() {
 
   const groupedPackages = useMemo(() => {
     const buckets: Record<string, ToolMeta[]> = {};
-    for (const g of GROUP_ORDER) buckets[g] = [];
+    for (const b of ADMIN_BUCKET_ORDER) buckets[b] = [];
     for (const p of packages) {
-      const g = capabilityGroupOf(p);
-      if (!buckets[g]) buckets[g] = [];
-      buckets[g].push(p);
+      const raw = (p.admin_bucket || "unsorted").trim().toLowerCase() || "unsorted";
+      const b = ADMIN_BUCKET_SET.has(raw) ? raw : "unsorted";
+      if (!buckets[b]) buckets[b] = [];
+      buckets[b].push(p);
     }
     return buckets;
   }, [packages]);
@@ -324,9 +315,9 @@ export function AdminTools() {
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-mono text-sm font-semibold text-white">{pid}</span>
               {p.version ? <span className="text-[11px] text-surface-muted">v{p.version}</span> : null}
-              {p.layer ? (
+              {p.admin_bucket ? (
                 <span className="rounded bg-emerald-950/60 px-1.5 py-0.5 text-[10px] text-emerald-200/90">
-                  layer:{p.layer}
+                  bucket:{p.admin_bucket}
                 </span>
               ) : null}
               {p.domain ? (
@@ -365,8 +356,14 @@ export function AdminTools() {
               </div>
               {p.tags?.length ? (
                 <div>
-                  <span className="text-surface-muted">Tags:</span>{" "}
+                  <span className="text-surface-muted">Manifest tags:</span>{" "}
                   <span className="text-neutral-300">{p.tags.join(", ")}</span>
+                </div>
+              ) : null}
+              {p.admin_tags?.length ? (
+                <div>
+                  <span className="text-surface-muted">Registry tags:</span>{" "}
+                  <span className="text-neutral-300">{p.admin_tags.join(", ")}</span>
                 </div>
               ) : null}
               {p.capabilities?.length ? (
@@ -456,13 +453,14 @@ export function AdminTools() {
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-surface-muted">
-        Sortierung:{" "}
-        <span className="text-neutral-300">capability_group</span> (Manifest) → in jeder Sektion
-        alphabetisch nach <span className="text-neutral-300">domain</span>, dann{" "}
-        <span className="text-neutral-300">layer</span> (Scan-Pfad), dann Paket-ID. „Other“ ist immer
-        nach Domain unterteilt; andere Sektionen auch, sobald mehrere Domains vorkommen. Kategorien
-        sind standardmäßig <span className="text-neutral-300">eingeklappt</span> — Zeile anklicken zum
-        Öffnen. Operator-Overrides (inkl. execution_context) speichern mit „Save policy“.
+        <strong className="font-medium text-neutral-300">Admin buckets</strong> come from{" "}
+        <span className="font-mono text-neutral-400">config/tool_admin_registry.json</span> (API fields{" "}
+        <span className="font-mono">admin_bucket</span>, <span className="font-mono">admin_tags</span>
+        ). Packages not listed there land in <span className="font-mono">unsorted</span>. Router{" "}
+        <span className="font-mono">domain</span> is unchanged (optional sub-headings when a bucket mixes
+        several domains). Filesystem folders under <span className="font-mono">tools/agent/</span> are for
+        humans only. Override path: env <span className="font-mono">AGENT_TOOL_ADMIN_REGISTRY</span>.
+        Operator policy overrides: <strong>Save policy</strong>.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -499,21 +497,22 @@ export function AdminTools() {
       ) : (
         <div className="mt-6 max-h-[min(72vh,calc(100dvh-11rem))] overflow-y-auto overscroll-contain rounded-lg border border-surface-border bg-black/20 pr-1">
           <div className="flex flex-col divide-y divide-white/10">
-            {GROUP_ORDER.map((group) => {
-              const raw = groupedPackages[group] ?? [];
-              const sectionPkgs = sortPackages(raw);
+            {ADMIN_BUCKET_ORDER.map((bucket) => {
+              const raw = groupedPackages[bucket] ?? [];
+              const sectionPkgs = sortPackagesById(raw);
               if (!sectionPkgs.length) return null;
-              const subdiv = shouldSubdivideByDomain(group, sectionPkgs);
+              const subdiv = shouldSubdivideByDomain(sectionPkgs);
               const blocks = subdiv
                 ? partitionByDomain(sectionPkgs)
                 : [{ domain: "", items: sectionPkgs }];
 
               return (
-                <details key={group} className="group px-2 py-0.5 open:bg-white/[0.03]">
+                <details key={bucket} className="group px-2 py-0.5 open:bg-white/[0.03]">
                   <summary className="cursor-pointer list-none py-2.5 pl-1 [&::-webkit-details-marker]:hidden">
                     <div className="flex flex-wrap items-baseline justify-between gap-2 pr-1">
                       <span className="text-sm font-medium text-neutral-200">
-                        {GROUP_LABELS[group] ?? group}
+                        <span className="font-mono text-neutral-500">{bucket}</span> ·{" "}
+                        {ADMIN_BUCKET_LABELS[bucket] ?? bucket}
                       </span>
                       <span className="font-mono text-xs text-surface-muted">
                         {sectionPkgs.length} packages

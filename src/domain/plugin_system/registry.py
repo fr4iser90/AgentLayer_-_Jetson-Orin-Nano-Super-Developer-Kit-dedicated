@@ -15,16 +15,16 @@ from typing import Any, Callable
 from src.core.config import config
 from src.infrastructure.db import db
 from src.domain.plugin_system.tool_manifest_dimensions import (
-    normalize_capability_group,
     normalize_execution_context,
     normalize_risk_level,
     parse_os_support,
 )
+from src.domain.plugin_system.tool_admin_registry import (
+    apply_admin_metadata,
+    invalidate_cache as invalidate_tool_admin_registry_cache,
+)
 
 logger = logging.getLogger(__name__)
-
-# First path segment under each tool scan root → ``tools_meta[].layer`` (optional).
-KNOWN_TOOL_LAYERS = frozenset({"core", "knowledge", "external", "productivity", "domains"})
 
 
 class _RouterAccum:
@@ -43,14 +43,10 @@ Handler = Callable[[dict[str, Any]], str]
 
 
 def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
-    """Optional module fields: execution/capability axes, capabilities, secrets, defaults, families."""
+    """Optional module fields: execution_context, capabilities, secrets, defaults, families."""
     xctx = getattr(mod, "TOOL_EXECUTION_CONTEXT", None)
     entry["execution_context"] = normalize_execution_context(
         xctx if isinstance(xctx, str) else None
-    )
-    cgrp = getattr(mod, "TOOL_CAPABILITY_GROUP", None)
-    entry["capability_group"] = normalize_capability_group(
-        cgrp if isinstance(cgrp, str) else None
     )
     oss = parse_os_support(mod)
     if oss:
@@ -133,6 +129,7 @@ class ToolRegistry:
 
     def load_all(self) -> None:
         with self._lock:
+            invalidate_tool_admin_registry_cache()
             self._clear_storage()
             self._purge_dynamic_tool_modules()
             acc_h: dict[str, Handler] = {}
@@ -158,15 +155,6 @@ class ToolRegistry:
                     logger.warning("skip missing tool directory: %s", directory)
                     continue
                 for path in _iter_tool_py_files(directory):
-                    try:
-                        rel_to_root = path.resolve().relative_to(directory.resolve())
-                    except (ValueError, OSError):
-                        rel_to_root = Path(path.name)
-                    layer_from_path: str | None = None
-                    if rel_to_root.parts:
-                        cand = rel_to_root.parts[0].lower()
-                        if cand in KNOWN_TOOL_LAYERS:
-                            layer_from_path = cand
                     try:
                         data = path.read_bytes()
                     except OSError:
@@ -210,7 +198,6 @@ class ToolRegistry:
                         meta=acc_meta,
                         file_sha256=digest,
                         router=router,
-                        tool_layer=layer_from_path,
                     )
 
             self._handlers = acc_h
@@ -247,7 +234,6 @@ class ToolRegistry:
         *,
         file_sha256: str | None = None,
         router: _RouterAccum | None = None,
-        tool_layer: str | None = None,
     ) -> None:
         mod_tools = getattr(mod, "TOOLS", None)
         mod_handlers = getattr(mod, "HANDLERS", None)
@@ -317,8 +303,6 @@ class ToolRegistry:
         }
         if file_sha256 is not None:
             entry["sha256"] = file_sha256
-        if tool_layer is not None:
-            entry["layer"] = tool_layer
         tags = getattr(mod, "TOOL_TAGS", None)
         if isinstance(tags, (list, tuple, frozenset, set)):
             tl = [str(x).strip() for x in tags if str(x).strip()]
@@ -368,8 +352,6 @@ class ToolRegistry:
                     row["user_configurable"] = v["user_configurable"]
                 if isinstance(v.get("execution_context"), str):
                     row["execution_context"] = normalize_execution_context(v["execution_context"])
-                if isinstance(v.get("capability_group"), str):
-                    row["capability_group"] = normalize_capability_group(v["capability_group"])
                 if isinstance(v.get("os_support"), (list, tuple)):
                     row["os_support"] = [str(x).strip().lower() for x in v["os_support"] if str(x).strip()]
                 if v.get("risk_level") is not None:
@@ -381,6 +363,7 @@ class ToolRegistry:
             if per:
                 entry["per_tool"] = per
         _apply_manifest_extras(mod, entry)
+        apply_admin_metadata(entry)
         meta.append(entry)
         logger.info(
             "loaded tool %s v%s (%d tools) [%s]", pid, ver, len(tool_names), source
