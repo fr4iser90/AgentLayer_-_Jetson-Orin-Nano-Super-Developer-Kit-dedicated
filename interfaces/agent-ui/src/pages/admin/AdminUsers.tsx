@@ -1,44 +1,58 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { apiFetch } from "../../lib/api";
 
-type MeResponse = {
+type UserRow = {
   id: string;
   email: string;
   role: string;
-  created_at?: string;
+  created_at: string;
+  external_sub?: string | null;
+  display_name?: string | null;
 };
+
+function rowLabel(r: UserRow): string {
+  if (r.email?.trim()) return r.email.trim();
+  if (r.display_name?.trim()) return r.display_name.trim();
+  if (r.external_sub?.trim()) return r.external_sub.trim();
+  return r.id;
+}
 
 export function AdminUsers() {
   const auth = useAuth();
   const { user } = auth;
-  const [me, setMe] = useState<MeResponse | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [rows, setRows] = useState<UserRow[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listErr, setListErr] = useState<string | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<"user" | "admin">("user");
   const [createBusy, setCreateBusy] = useState(false);
   const [createMsg, setCreateMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await apiFetch("/auth/me", auth);
-        const data = await res.json();
-        if (!res.ok) {
-          if (!cancelled) setErr("Could not load profile");
-          return;
-        }
-        if (!cancelled) setMe(data as MeResponse);
-      } catch {
-        if (!cancelled) setErr("Could not load profile");
+  const loadUsers = useCallback(async () => {
+    setListLoading(true);
+    setListErr(null);
+    try {
+      const res = await apiFetch("/v1/admin/users", auth);
+      const data = (await res.json()) as { users?: UserRow[]; detail?: unknown };
+      if (!res.ok) {
+        setListErr(typeof data.detail === "string" ? data.detail : "Could not load users");
+        setRows([]);
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setRows(data.users ?? []);
+    } catch (e) {
+      setListErr(e instanceof Error ? e.message : "Could not load users");
+      setRows([]);
+    } finally {
+      setListLoading(false);
+    }
   }, [auth]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
 
   async function createUser() {
     const email = newEmail.trim();
@@ -56,14 +70,13 @@ export function AdminUsers() {
       });
       const data = (await res.json()) as { detail?: unknown; email?: string; role?: string };
       if (!res.ok) {
-        setCreateMsg(
-          typeof data.detail === "string" ? data.detail : "Create failed"
-        );
+        setCreateMsg(typeof data.detail === "string" ? data.detail : "Create failed");
         return;
       }
       setCreateMsg(`Created login for ${data.email} (role: ${data.role}). They can sign in at /login.`);
       setNewEmail("");
       setNewPassword("");
+      await loadUsers();
     } catch (e) {
       setCreateMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -71,17 +84,100 @@ export function AdminUsers() {
     }
   }
 
-  const row = me ?? (user ? { id: user.id, email: user.email, role: user.role } : null);
-
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-4xl px-6 py-10">
       <h1 className="text-2xl font-semibold text-white">Users</h1>
       <p className="mt-2 text-sm text-surface-muted">
-        Chat threads are stored per user in the database (server sync). Create additional logins below.
+        All password accounts in the database. Chat threads are stored per user.
+        {user?.email ? (
+          <span className="ml-1 text-neutral-500">
+            You are signed in as <span className="text-neutral-300">{user.email}</span>.
+          </span>
+        ) : null}
       </p>
 
-      <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
+      <section className="mt-8">
+        <h2 className="text-sm font-medium text-white">All accounts</h2>
+        <p className="mt-1 text-xs text-surface-muted">
+          <code className="text-neutral-500">GET /v1/admin/users</code>
+        </p>
+        <div className="mt-3 overflow-x-auto rounded-xl border border-surface-border">
+          <table className="w-full min-w-[28rem] text-left text-sm">
+            <thead className="border-b border-surface-border bg-black/20 text-surface-muted">
+              <tr>
+                <th className="px-4 py-3 font-medium">Email / identity</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listLoading ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-6 text-center text-surface-muted">
+                    Loading…
+                  </td>
+                </tr>
+              ) : listErr ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-6 text-center text-red-400">
+                    {listErr}
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-6 text-center text-surface-muted">
+                    No users found.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((r) => (
+                  <tr key={r.id} className="border-b border-surface-border/80 hover:bg-white/[0.03]">
+                    <td className="px-4 py-3 text-white">
+                      <span className="font-medium">{rowLabel(r)}</span>
+                      {r.email?.trim() ? null : (
+                        <span className="mt-0.5 block text-xs font-normal text-surface-muted">
+                          no mailbox on file
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          r.role?.toLowerCase() === "admin"
+                            ? "rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300"
+                            : "rounded bg-sky-500/20 px-2 py-0.5 text-xs text-sky-300"
+                        }
+                      >
+                        {r.role}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-surface-muted">
+                      {r.created_at
+                        ? new Date(r.created_at).toLocaleString(undefined, {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "—"}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <button
+          type="button"
+          className="mt-2 text-xs text-sky-400 hover:text-sky-300 hover:underline"
+          onClick={() => void loadUsers()}
+        >
+          Refresh list
+        </button>
+      </section>
+
+      <section className="mt-10 rounded-xl border border-surface-border bg-surface-raised p-5">
         <h2 className="text-sm font-medium text-white">Create user</h2>
         <p className="mt-1 text-xs text-surface-muted">
           <code className="text-neutral-500">POST /v1/admin/users</code> — normal accounts use role{" "}
@@ -136,55 +232,6 @@ export function AdminUsers() {
           </p>
         ) : null}
       </section>
-
-      {err ? <p className="mt-4 text-sm text-red-400">{err}</p> : null}
-
-      <h2 className="mb-2 mt-10 text-sm font-medium text-surface-muted">Current session</h2>
-      <div className="overflow-x-auto rounded-xl border border-surface-border">
-        <table className="w-full min-w-[20rem] text-left text-sm">
-          <thead className="border-b border-surface-border bg-black/20 text-surface-muted">
-            <tr>
-              <th className="px-4 py-3 font-medium">Email</th>
-              <th className="px-4 py-3 font-medium">Role</th>
-              <th className="px-4 py-3 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {row ? (
-              <tr className="hover:bg-white/[0.03]">
-                <td className="px-4 py-3 text-white">{row.email}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={
-                      row.role?.toLowerCase() === "admin"
-                        ? "rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300"
-                        : "rounded bg-sky-500/20 px-2 py-0.5 text-xs text-sky-300"
-                    }
-                  >
-                    {row.role}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-surface-muted">
-                  {row.created_at
-                    ? new Date(row.created_at).toLocaleDateString(undefined, {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })
-                    : "—"}
-                </td>
-              </tr>
-            ) : (
-              <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-surface-muted">
-                  No user loaded.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      </div>
     </div>
   );
 }

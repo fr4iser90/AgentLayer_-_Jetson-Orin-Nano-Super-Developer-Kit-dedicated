@@ -89,8 +89,7 @@ export function AdminInterfaces() {
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto max-w-xl px-6 py-10">
+    <div className="mx-auto max-w-xl px-6 py-10">
       <h1 className="text-2xl font-semibold text-white">Interfaces</h1>
       <p className="mt-2 text-sm text-surface-muted">
         Point OpenAI-compatible clients at <span className="font-mono text-neutral-300">{baseUrl}</span>
@@ -175,7 +174,6 @@ export function AdminInterfaces() {
           ) : null}
         </>
       )}
-      </div>
     </div>
   );
 }

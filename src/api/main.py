@@ -24,8 +24,8 @@ from src.infrastructure.db import db
 from src.infrastructure.auth import (
     get_current_user,
     get_user_for_bearer_token,
+    list_all_users,
     require_admin,
-    require_permission,
     LoginRequest,
     create_access_token,
     create_refresh_token,
@@ -205,13 +205,28 @@ async def auth_setup_status():
 
 
 @app.get("/auth/me")
-@require_permission("read", "user")
-async def get_current_user_info(request: Request, user):
+async def get_current_user_info(request: Request):
+    """
+    Current session user. Implemented without ``require_permission`` so FastAPI does not treat a
+    bare ``user`` parameter as request-body injection (that caused 422).
+    """
+    user = await get_current_user(request)
+    if user.role != "admin":
+        id_token = set_identity(1, user.id)
+        try:
+            return {
+                "id": str(user.id),
+                "email": user.email,
+                "role": user.role,
+                "created_at": user.created_at.isoformat(),
+            }
+        finally:
+            reset_identity(id_token)
     return {
         "id": str(user.id),
         "email": user.email,
         "role": user.role,
-        "created_at": user.created_at.isoformat()
+        "created_at": user.created_at.isoformat(),
     }
 
 
@@ -245,6 +260,13 @@ class AdminCreateUserBody(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
     password: str = Field(..., min_length=8, max_length=256)
     role: Literal["user", "admin"] = "user"
+
+
+@app.get("/v1/admin/users")
+async def admin_list_users(request: Request):
+    """List all users (admin UI); ``email`` may be empty when the row has no mailbox."""
+    await require_admin(request)
+    return {"users": list_all_users()}
 
 
 @app.post("/v1/admin/users")

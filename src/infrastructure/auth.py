@@ -142,6 +142,37 @@ def get_user_by_email(email: str) -> Optional[User]:
             )
 
 
+def list_all_users() -> list[dict[str, Any]]:
+    """
+    All ``users`` rows for admin UI. ``email`` is nullable in the schema; do not build ``User``
+    here or Pydantic rejects NULL emails.
+    """
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, email, role, created_at, external_sub, display_name
+                FROM users
+                ORDER BY created_at ASC NULLS LAST, email ASC NULLS LAST, external_sub ASC
+                """
+            )
+            rows = cur.fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        uid, email, role, created_at, external_sub, display_name = row
+        out.append(
+            {
+                "id": str(uid),
+                "email": email or "",
+                "role": role,
+                "created_at": created_at.isoformat() if created_at else "",
+                "external_sub": external_sub,
+                "display_name": display_name,
+            }
+        )
+    return out
+
+
 def get_user_by_id(user_id: uuid.UUID) -> Optional[User]:
     """Get user by id"""
     with db.pool().connection() as conn:

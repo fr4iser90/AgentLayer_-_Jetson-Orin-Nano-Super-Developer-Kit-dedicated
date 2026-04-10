@@ -4,6 +4,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { RequireSession } from "./auth/RequireSession";
 import { AppLayout } from "./layout/AppLayout";
+import { AdminLayout } from "./layout/AdminLayout";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminInterfaces } from "./pages/admin/AdminInterfaces";
 import { AdminTools } from "./pages/admin/AdminTools";
@@ -37,11 +38,13 @@ export function App() {
               <Route path="agent" element={<AgentSettings />} />
             </Route>
             <Route path="admin" element={<RequireAdmin />}>
-              <Route index element={<AdminDashboard />} />
-              <Route path="interfaces" element={<AdminInterfaces />} />
-              <Route path="tools" element={<AdminTools />} />
-              <Route path="users" element={<AdminUsers />} />
-              <Route path="workflows" element={<AdminWorkflows />} />
+              <Route element={<AdminLayout />}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="interfaces" element={<AdminInterfaces />} />
+                <Route path="tools" element={<AdminTools />} />
+                <Route path="users" element={<AdminUsers />} />
+                <Route path="workflows" element={<AdminWorkflows />} />
+              </Route>
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
