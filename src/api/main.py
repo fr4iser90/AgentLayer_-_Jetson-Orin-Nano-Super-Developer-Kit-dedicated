@@ -57,6 +57,7 @@ from src.api.chat_websocket import router as chat_ws_router
 from src.api.studio_api import router as studio_router
 from src.api.rag_api import router as rag_router
 from src.domain.plugin_system.registry import get_registry
+from src.infrastructure.user_data_api import router as user_data_router
 from src.infrastructure.user_secrets_api import router as user_secrets_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -95,8 +96,9 @@ async def lifespan(_app: FastAPI):
     db.close_pool()
 
 
-app = FastAPI(title="agent-layer", version="0.7.3", lifespan=lifespan)
+app = FastAPI(title="agent-layer", version="0.7.6", lifespan=lifespan)
 app.include_router(user_secrets_router)
+app.include_router(user_data_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
 app.include_router(chat_ws_router)
@@ -265,6 +267,14 @@ if _control_dir.is_dir():
         "/control",
         StaticFiles(directory=str(_control_dir), html=True),
         name="control_panel",
+    )
+
+_agent_ui_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static" / "app"
+if (_agent_ui_dir / "index.html").is_file():
+    app.mount(
+        "/app",
+        StaticFiles(directory=str(_agent_ui_dir), html=True),
+        name="agent_ui",
     )
 
 _cors_origins = [

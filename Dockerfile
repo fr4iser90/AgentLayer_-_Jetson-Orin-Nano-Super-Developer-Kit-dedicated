@@ -1,3 +1,12 @@
+FROM node:20-bookworm-slim AS agent_ui_builder
+
+WORKDIR /build/interfaces/agent-ui
+COPY interfaces/agent-ui/package.json interfaces/agent-ui/package-lock.json* ./
+RUN npm ci
+
+COPY interfaces/agent-ui/ ./
+RUN npm run build
+
 FROM python:3.11-slim-bookworm
 
 RUN apt-get update \
@@ -13,6 +22,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY src ./src
 COPY tools ./tools
 COPY interfaces ./interfaces
+COPY --from=agent_ui_builder /build/interfaces/web/static/app ./interfaces/web/static/app
 COPY workflows ./workflows
 COPY workspace ./workspace
 

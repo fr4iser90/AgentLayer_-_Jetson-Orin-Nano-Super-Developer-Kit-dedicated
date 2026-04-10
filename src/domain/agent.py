@@ -26,6 +26,7 @@ from src.domain.plugin_system.tool_routing import (
 )
 from src.domain.plugin_system.tools import run_tool
 from src.domain.model_routing import resolve_effective_model
+from src.domain.user_persona import apply_user_persona_system
 
 logger = logging.getLogger(__name__)
 
@@ -775,6 +776,7 @@ async def chat_completion(
     pf = body.get("tool_prefetch")
     if isinstance(pf, dict):
         _apply_tool_prefetch(messages, pf)
+    messages = apply_user_persona_system(messages)
 
     model, model_reason = resolve_effective_model(
         messages=messages,

@@ -35,6 +35,8 @@ def middleware_path_is_public(path: str, method: str) -> bool:
     """Paths that skip global Bearer/JWT checks entirely."""
     if path.startswith("/control/"):
         return True
+    if path == "/app" or path.startswith("/app/"):
+        return True
     if path in _MIDDLEWARE_PUBLIC_EXACT:
         return True
     if (method or "").upper() == "POST" and path == "/v1/user/secrets/register-with-otp":
@@ -101,7 +103,7 @@ def public_http_auth_policy() -> dict[str, Any]:
             "options_preflight": "OPTIONS passes without Authorization.",
             "no_authorization": {
                 "exact_paths": sorted(_MIDDLEWARE_PUBLIC_EXACT),
-                "path_prefixes": ["/control/"],
+                "path_prefixes": ["/control/", "/app/"],
                 "post_path": "/v1/user/secrets/register-with-otp",
             },
             "optional_connection_key": {

@@ -107,6 +107,73 @@ CREATE TABLE user_kb_notes (
 CREATE INDEX idx_user_kb_notes_tenant_user_created ON user_kb_notes (tenant_id, user_id, created_at DESC);
 CREATE INDEX idx_user_kb_notes_tsv ON user_kb_notes USING GIN (search_tsv);
 
+CREATE TABLE user_agent_persona (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  instructions TEXT NOT NULL DEFAULT '',
+  inject_into_agent BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_user_agent_persona_tenant ON user_agent_persona (tenant_id);
+
+CREATE TABLE user_kb_note_shares (
+  id BIGSERIAL PRIMARY KEY,
+  note_id BIGINT NOT NULL REFERENCES user_kb_notes(id) ON DELETE CASCADE,
+  grantee_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL DEFAULT 'read',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT user_kb_note_shares_perm_check CHECK (permission IN ('read')),
+  UNIQUE (note_id, grantee_user_id)
+);
+
+CREATE INDEX idx_kb_note_shares_grantee ON user_kb_note_shares (grantee_user_id);
+CREATE INDEX idx_kb_note_shares_note ON user_kb_note_shares (note_id);
+
+CREATE TABLE user_agent_profile (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+
+  display_name TEXT NOT NULL DEFAULT '',
+  preferred_output_language TEXT NOT NULL DEFAULT '',
+  locale TEXT NOT NULL DEFAULT '',
+  timezone TEXT NOT NULL DEFAULT '',
+
+  home_location TEXT NOT NULL DEFAULT '',
+  work_location TEXT NOT NULL DEFAULT '',
+  travel_mode TEXT NOT NULL DEFAULT '',
+  travel_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  tone TEXT NOT NULL DEFAULT '',
+  verbosity TEXT NOT NULL DEFAULT '',
+  language_level TEXT NOT NULL DEFAULT '',
+
+  interests JSONB NOT NULL DEFAULT '[]'::jsonb,
+  hobbies JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+  job_title TEXT NOT NULL DEFAULT '',
+  organization TEXT NOT NULL DEFAULT '',
+  industry TEXT NOT NULL DEFAULT '',
+  experience_level TEXT NOT NULL DEFAULT '',
+  primary_tools JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+  proactive_mode BOOLEAN NOT NULL DEFAULT false,
+  interaction_style TEXT NOT NULL DEFAULT '',
+
+  inject_structured_profile BOOLEAN NOT NULL DEFAULT true,
+  inject_dynamic_traits BOOLEAN NOT NULL DEFAULT false,
+  dynamic_traits JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  profile_version BIGINT NOT NULL DEFAULT 1,
+  profile_hash TEXT NOT NULL DEFAULT '',
+  injection_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
+  usage_patterns JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_user_agent_profile_tenant ON user_agent_profile (tenant_id);
+
 CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE rag_documents (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
 import uuid
@@ -418,7 +419,14 @@ def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     sql_full = """
                 SELECT id, title, left(body, 500) AS body_excerpt, created_at
                 FROM user_kb_notes
-                WHERE tenant_id = %s AND user_id = %s
+                WHERE tenant_id = %s
+                  AND (
+                    user_id = %s
+                    OR id IN (
+                      SELECT note_id FROM user_kb_note_shares
+                      WHERE grantee_user_id = %s
+                    )
+                  )
                   AND (
                     title ILIKE %s ESCAPE '\\'
                     OR body ILIKE %s ESCAPE '\\'
@@ -430,7 +438,14 @@ def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
     sql_ilike = """
                 SELECT id, title, left(body, 500) AS body_excerpt, created_at
                 FROM user_kb_notes
-                WHERE tenant_id = %s AND user_id = %s
+                WHERE tenant_id = %s
+                  AND (
+                    user_id = %s
+                    OR id IN (
+                      SELECT note_id FROM user_kb_note_shares
+                      WHERE grantee_user_id = %s
+                    )
+                  )
                   AND (
                     title ILIKE %s ESCAPE '\\'
                     OR body ILIKE %s ESCAPE '\\'
@@ -443,7 +458,7 @@ def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
             try:
                 cur.execute(
                     sql_full,
-                    (tenant_id, user_id, pat, pat, q, limit),
+                    (tenant_id, user_id, user_id, pat, pat, q, limit),
                 )
             except psycopg.Error:
                 logger.debug(
@@ -452,7 +467,7 @@ def kb_note_search(query: str, limit: int = 20) -> list[dict[str, Any]]:
                 conn.rollback()
                 cur.execute(
                     sql_ilike,
-                    (tenant_id, user_id, pat, pat, limit),
+                    (tenant_id, user_id, user_id, pat, pat, limit),
                 )
             rows = cur.fetchall()
         conn.commit()
@@ -478,11 +493,18 @@ def kb_note_get(note_id: int, max_body_chars: int = 12000) -> dict[str, Any] | N
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, title, body, created_at, updated_at
+                SELECT id, title, body, created_at, updated_at, user_id AS owner_user_id
                 FROM user_kb_notes
-                WHERE id = %s AND tenant_id = %s AND user_id = %s
+                WHERE id = %s AND tenant_id = %s
+                  AND (
+                    user_id = %s
+                    OR id IN (
+                      SELECT note_id FROM user_kb_note_shares
+                      WHERE grantee_user_id = %s
+                    )
+                  )
                 """,
-                (note_id, tenant_id, user_id),
+                (note_id, tenant_id, user_id, user_id),
             )
             row = cur.fetchone()
         conn.commit()
@@ -491,12 +513,15 @@ def kb_note_get(note_id: int, max_body_chars: int = 12000) -> dict[str, Any] | N
     body = str(row["body"] or "")
     if len(body) > max_body_chars:
         body = body[:max_body_chars] + "\n… (truncated)"
+    owner_uid = row.get("owner_user_id")
     return {
         "id": row["id"],
         "title": row["title"],
         "body": body,
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+        "is_owner": owner_uid == user_id,
+        "owner_user_id": str(owner_uid) if owner_uid is not None else None,
     }
 
 
@@ -597,3 +622,524 @@ def rag_vector_search(
             }
         )
     return out
+
+
+def user_persona_get(user_id: uuid.UUID) -> dict[str, Any] | None:
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT instructions, inject_into_agent, updated_at
+                FROM user_agent_persona
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return None
+    return {
+        "instructions": row["instructions"] or "",
+        "inject_into_agent": bool(row["inject_into_agent"]),
+        "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+    }
+
+
+def user_persona_upsert(
+    tenant_id: int,
+    user_id: uuid.UUID,
+    *,
+    instructions: str,
+    inject_into_agent: bool,
+) -> None:
+    text = (instructions or "").strip()
+    if len(text) > 100_000:
+        raise ValueError("instructions too long (max 100000 characters)")
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_agent_persona (user_id, tenant_id, instructions, inject_into_agent)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                  instructions = EXCLUDED.instructions,
+                  inject_into_agent = EXCLUDED.inject_into_agent,
+                  updated_at = now()
+                """,
+                (user_id, tenant_id, text, inject_into_agent),
+            )
+        conn.commit()
+
+
+DEFAULT_AGENT_PROFILE: dict[str, Any] = {
+    "display_name": "",
+    "preferred_output_language": "",
+    "locale": "",
+    "timezone": "",
+    "home_location": "",
+    "work_location": "",
+    "travel_mode": "",
+    "travel_preferences": {},
+    "tone": "",
+    "verbosity": "",
+    "language_level": "",
+    "interests": [],
+    "hobbies": [],
+    "job_title": "",
+    "organization": "",
+    "industry": "",
+    "experience_level": "",
+    "primary_tools": [],
+    "proactive_mode": False,
+    "interaction_style": "",
+    "inject_structured_profile": True,
+    "inject_dynamic_traits": False,
+    "dynamic_traits": {},
+    "profile_version": 0,
+    "profile_hash": "",
+    "injection_preferences": {},
+    "usage_patterns": {},
+}
+
+# Fields that define profile content for profile_hash (cache / diff).
+_PROFILE_HASH_FIELDS: tuple[str, ...] = (
+    "display_name",
+    "preferred_output_language",
+    "locale",
+    "timezone",
+    "home_location",
+    "work_location",
+    "travel_mode",
+    "travel_preferences",
+    "tone",
+    "verbosity",
+    "language_level",
+    "interests",
+    "hobbies",
+    "job_title",
+    "organization",
+    "industry",
+    "experience_level",
+    "primary_tools",
+    "proactive_mode",
+    "interaction_style",
+    "inject_structured_profile",
+    "inject_dynamic_traits",
+    "dynamic_traits",
+    "injection_preferences",
+    "usage_patterns",
+)
+
+
+def _compute_profile_hash(d: dict[str, Any]) -> str:
+    payload = {k: d[k] for k in _PROFILE_HASH_FIELDS}
+    blob = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _norm_json_array(val: Any) -> list[Any]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str) and val.strip():
+        try:
+            p = json.loads(val)
+            return p if isinstance(p, list) else []
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def _norm_json_object(val: Any) -> dict[str, Any]:
+    if val is None:
+        return {}
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str) and val.strip():
+        try:
+            p = json.loads(val)
+            return p if isinstance(p, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _norm_weighted_tags(val: Any) -> list[dict[str, Any]]:
+    """Interests/hobbies: strings or ``[{ \"name\": \"…\", \"weight\": 0.0–1.0 }]``."""
+    out: list[dict[str, Any]] = []
+    items: list[Any]
+    if isinstance(val, list):
+        items = val
+    else:
+        items = _norm_json_array(val)
+    for item in items:
+        if isinstance(item, str) and item.strip():
+            out.append({"name": item.strip(), "weight": 1.0})
+        elif isinstance(item, dict):
+            n = str(item.get("name") or "").strip()
+            if not n:
+                continue
+            try:
+                w = float(item.get("weight", 1.0))
+            except (TypeError, ValueError):
+                w = 1.0
+            w = max(0.0, min(1.0, w))
+            out.append({"name": n, "weight": w})
+    return out[:200]
+
+
+def _row_to_agent_profile(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "display_name": row.get("display_name") or "",
+        "preferred_output_language": row.get("preferred_output_language") or "",
+        "locale": row.get("locale") or "",
+        "timezone": row.get("timezone") or "",
+        "home_location": row.get("home_location") or "",
+        "work_location": row.get("work_location") or "",
+        "travel_mode": row.get("travel_mode") or "",
+        "travel_preferences": _norm_json_object(row.get("travel_preferences")),
+        "tone": row.get("tone") or "",
+        "verbosity": row.get("verbosity") or "",
+        "language_level": row.get("language_level") or "",
+        "interests": _norm_weighted_tags(row.get("interests")),
+        "hobbies": _norm_weighted_tags(row.get("hobbies")),
+        "job_title": row.get("job_title") or "",
+        "organization": row.get("organization") or "",
+        "industry": row.get("industry") or "",
+        "experience_level": row.get("experience_level") or "",
+        "primary_tools": _norm_json_array(row.get("primary_tools")),
+        "proactive_mode": bool(row.get("proactive_mode")),
+        "interaction_style": row.get("interaction_style") or "",
+        "inject_structured_profile": bool(row.get("inject_structured_profile", True)),
+        "inject_dynamic_traits": bool(row.get("inject_dynamic_traits")),
+        "dynamic_traits": _norm_json_object(row.get("dynamic_traits")),
+        "profile_version": int(row.get("profile_version") or 0),
+        "profile_hash": str(row.get("profile_hash") or ""),
+        "injection_preferences": _norm_json_object(row.get("injection_preferences")),
+        "usage_patterns": _norm_json_object(row.get("usage_patterns")),
+        "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+    }
+
+
+def user_agent_profile_get(user_id: uuid.UUID) -> dict[str, Any] | None:
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT
+                  display_name, preferred_output_language, locale, timezone,
+                  home_location, work_location, travel_mode, travel_preferences,
+                  tone, verbosity, language_level,
+                  interests, hobbies,
+                  job_title, organization, industry, experience_level, primary_tools,
+                  proactive_mode, interaction_style,
+                  inject_structured_profile, inject_dynamic_traits, dynamic_traits,
+                  profile_version, profile_hash, injection_preferences, usage_patterns,
+                  updated_at
+                FROM user_agent_profile
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return None
+    return _row_to_agent_profile(row)
+
+
+def user_agent_profile_upsert(
+    tenant_id: int,
+    user_id: uuid.UUID,
+    data: dict[str, Any],
+) -> None:
+    """Replace structured profile for user (complete row). Bumps profile_version; sets profile_hash."""
+    d = {**DEFAULT_AGENT_PROFILE, **data}
+    d.pop("profile_version", None)
+    d.pop("profile_hash", None)
+    d["travel_preferences"] = _norm_json_object(d.get("travel_preferences"))
+    d["interests"] = _norm_weighted_tags(d.get("interests"))
+    d["hobbies"] = _norm_weighted_tags(d.get("hobbies"))
+    d["primary_tools"] = _norm_json_array(d.get("primary_tools"))
+    d["dynamic_traits"] = _norm_json_object(d.get("dynamic_traits"))
+    d["injection_preferences"] = _norm_json_object(d.get("injection_preferences"))
+    d["usage_patterns"] = _norm_json_object(d.get("usage_patterns"))
+    d["proactive_mode"] = bool(d.get("proactive_mode"))
+    d["inject_structured_profile"] = bool(d.get("inject_structured_profile", True))
+    d["inject_dynamic_traits"] = bool(d.get("inject_dynamic_traits"))
+    for arr_name in ("interests", "hobbies", "primary_tools"):
+        if len(d[arr_name]) > 200:
+            raise ValueError(f"{arr_name}: at most 200 entries")
+    if len(json.dumps(d["travel_preferences"])) > 16_000:
+        raise ValueError("travel_preferences JSON too large")
+    if len(json.dumps(d["dynamic_traits"])) > 16_000:
+        raise ValueError("dynamic_traits JSON too large")
+    if len(json.dumps(d["injection_preferences"])) > 16_000:
+        raise ValueError("injection_preferences JSON too large")
+    if len(json.dumps(d["usage_patterns"])) > 16_000:
+        raise ValueError("usage_patterns JSON too large")
+    for k in (
+        "display_name",
+        "preferred_output_language",
+        "locale",
+        "timezone",
+        "home_location",
+        "work_location",
+        "travel_mode",
+        "tone",
+        "verbosity",
+        "language_level",
+        "job_title",
+        "organization",
+        "industry",
+        "experience_level",
+        "interaction_style",
+    ):
+        s = str(d.get(k) or "")
+        if len(s) > 10_000:
+            raise ValueError(f"{k} too long (max 10000 characters)")
+    phash = _compute_profile_hash(d)
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT profile_version FROM user_agent_profile WHERE user_id = %s",
+                (user_id,),
+            )
+            prev = cur.fetchone()
+            old_v = int(prev[0]) if prev else 0
+            new_v = old_v + 1
+            cur.execute(
+                """
+                INSERT INTO user_agent_profile (
+                  user_id, tenant_id,
+                  display_name, preferred_output_language, locale, timezone,
+                  home_location, work_location, travel_mode, travel_preferences,
+                  tone, verbosity, language_level,
+                  interests, hobbies,
+                  job_title, organization, industry, experience_level, primary_tools,
+                  proactive_mode, interaction_style,
+                  inject_structured_profile, inject_dynamic_traits, dynamic_traits,
+                  profile_version, profile_hash, injection_preferences, usage_patterns
+                )
+                VALUES (
+                  %s, %s,
+                  %s, %s, %s, %s,
+                  %s, %s, %s, %s,
+                  %s, %s, %s,
+                  %s, %s,
+                  %s, %s, %s, %s, %s,
+                  %s, %s,
+                  %s, %s, %s,
+                  %s, %s, %s, %s
+                )
+                ON CONFLICT (user_id) DO UPDATE SET
+                  tenant_id = EXCLUDED.tenant_id,
+                  display_name = EXCLUDED.display_name,
+                  preferred_output_language = EXCLUDED.preferred_output_language,
+                  locale = EXCLUDED.locale,
+                  timezone = EXCLUDED.timezone,
+                  home_location = EXCLUDED.home_location,
+                  work_location = EXCLUDED.work_location,
+                  travel_mode = EXCLUDED.travel_mode,
+                  travel_preferences = EXCLUDED.travel_preferences,
+                  tone = EXCLUDED.tone,
+                  verbosity = EXCLUDED.verbosity,
+                  language_level = EXCLUDED.language_level,
+                  interests = EXCLUDED.interests,
+                  hobbies = EXCLUDED.hobbies,
+                  job_title = EXCLUDED.job_title,
+                  organization = EXCLUDED.organization,
+                  industry = EXCLUDED.industry,
+                  experience_level = EXCLUDED.experience_level,
+                  primary_tools = EXCLUDED.primary_tools,
+                  proactive_mode = EXCLUDED.proactive_mode,
+                  interaction_style = EXCLUDED.interaction_style,
+                  inject_structured_profile = EXCLUDED.inject_structured_profile,
+                  inject_dynamic_traits = EXCLUDED.inject_dynamic_traits,
+                  dynamic_traits = EXCLUDED.dynamic_traits,
+                  profile_version = EXCLUDED.profile_version,
+                  profile_hash = EXCLUDED.profile_hash,
+                  injection_preferences = EXCLUDED.injection_preferences,
+                  usage_patterns = EXCLUDED.usage_patterns,
+                  updated_at = now()
+                """,
+                (
+                    user_id,
+                    tenant_id,
+                    d["display_name"],
+                    d["preferred_output_language"],
+                    d["locale"],
+                    d["timezone"],
+                    d["home_location"],
+                    d["work_location"],
+                    d["travel_mode"],
+                    Json(d["travel_preferences"]),
+                    d["tone"],
+                    d["verbosity"],
+                    d["language_level"],
+                    Json(d["interests"]),
+                    Json(d["hobbies"]),
+                    d["job_title"],
+                    d["organization"],
+                    d["industry"],
+                    d["experience_level"],
+                    Json(d["primary_tools"]),
+                    d["proactive_mode"],
+                    d["interaction_style"],
+                    d["inject_structured_profile"],
+                    d["inject_dynamic_traits"],
+                    Json(d["dynamic_traits"]),
+                    new_v,
+                    phash,
+                    Json(d["injection_preferences"]),
+                    Json(d["usage_patterns"]),
+                ),
+            )
+        conn.commit()
+
+
+def user_resolve_in_tenant(
+    tenant_id: int,
+    *,
+    email: str | None = None,
+    external_sub: str | None = None,
+) -> uuid.UUID | None:
+    em = (email or "").strip()
+    sub = (external_sub or "").strip()
+    if not em and not sub:
+        return None
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            if em:
+                cur.execute(
+                    """
+                    SELECT id FROM users
+                    WHERE tenant_id = %s AND email IS NOT NULL
+                      AND lower(trim(email)) = lower(trim(%s))
+                    """,
+                    (tenant_id, em),
+                )
+            else:
+                cur.execute(
+                    "SELECT id FROM users WHERE tenant_id = %s AND external_sub = %s",
+                    (tenant_id, sub),
+                )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return None
+    uid = row[0]
+    return uid if isinstance(uid, uuid.UUID) else uuid.UUID(str(uid))
+
+
+def kb_note_is_owner(note_id: int, user_id: uuid.UUID, tenant_id: int) -> bool:
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1 FROM user_kb_notes
+                WHERE id = %s AND user_id = %s AND tenant_id = %s
+                """,
+                (note_id, user_id, tenant_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row is not None
+
+
+def kb_note_share_create(
+    note_id: int,
+    owner_user_id: uuid.UUID,
+    tenant_id: int,
+    grantee_user_id: uuid.UUID,
+) -> int:
+    if grantee_user_id == owner_user_id:
+        raise ValueError("cannot share a note with yourself")
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, tenant_id FROM user_kb_notes WHERE id = %s",
+                (note_id,),
+            )
+            nrow = cur.fetchone()
+            if not nrow:
+                raise ValueError("note not found")
+            nu, nt = nrow[0], int(nrow[1])
+            ou = nu if isinstance(nu, uuid.UUID) else uuid.UUID(str(nu))
+            if ou != owner_user_id or nt != tenant_id:
+                raise ValueError("not the owner of this note")
+            cur.execute(
+                "SELECT tenant_id FROM users WHERE id = %s",
+                (grantee_user_id,),
+            )
+            grow = cur.fetchone()
+            if not grow or int(grow[0]) != tenant_id:
+                raise ValueError("grantee not in the same tenant")
+            cur.execute(
+                """
+                INSERT INTO user_kb_note_shares (note_id, grantee_user_id)
+                VALUES (%s, %s)
+                ON CONFLICT (note_id, grantee_user_id) DO NOTHING
+                RETURNING id
+                """,
+                (note_id, grantee_user_id),
+            )
+            ins = cur.fetchone()
+            if not ins:
+                raise ValueError("this user already has access")
+            sid = int(ins[0])
+        conn.commit()
+    return sid
+
+
+def kb_note_share_list(
+    note_id: int, owner_user_id: uuid.UUID, tenant_id: int
+) -> list[dict[str, Any]]:
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT s.id, s.grantee_user_id, s.created_at, u.email, u.external_sub
+                FROM user_kb_note_shares s
+                JOIN user_kb_notes n ON n.id = s.note_id
+                JOIN users u ON u.id = s.grantee_user_id
+                WHERE s.note_id = %s AND n.user_id = %s AND n.tenant_id = %s
+                ORDER BY s.created_at DESC
+                """,
+                (note_id, owner_user_id, tenant_id),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        gid = r["grantee_user_id"]
+        out.append(
+            {
+                "share_id": int(r["id"]),
+                "grantee_user_id": str(gid),
+                "grantee_email": r.get("email"),
+                "grantee_external_sub": r.get("external_sub"),
+                "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+            }
+        )
+    return out
+
+
+def kb_note_share_delete(share_id: int, owner_user_id: uuid.UUID, tenant_id: int) -> bool:
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM user_kb_note_shares s
+                USING user_kb_notes n
+                WHERE s.id = %s AND s.note_id = n.id
+                  AND n.user_id = %s AND n.tenant_id = %s
+                RETURNING s.id
+                """,
+                (share_id, owner_user_id, tenant_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return row is not None
