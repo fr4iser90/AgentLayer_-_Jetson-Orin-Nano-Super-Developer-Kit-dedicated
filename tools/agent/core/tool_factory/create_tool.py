@@ -21,6 +21,7 @@ from tools.agent.core.tool_factory._tool_factory_common import (
 
 __version__ = "1.3.2"
 TOOL_ID = "create_tool"
+TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = (
     "create_tool",

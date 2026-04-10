@@ -12,6 +12,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 __version__ = "1.0.0"
 TOOL_ID = "survival_risk"
+TOOL_BUCKET = "verticals"
 TOOL_LABEL = "Survival"
 TOOL_DESCRIPTION = (
     "Survival: Wasserbedarf, Unterstand, Risiko-Score — keine medizinische Beratung."

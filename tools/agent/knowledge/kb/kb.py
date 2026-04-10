@@ -9,6 +9,7 @@ from src.infrastructure.db import db
 
 __version__ = "1.0.0"
 TOOL_ID = "kb"
+TOOL_BUCKET = "knowledge"
 TOOL_DOMAIN = "kb"
 TOOL_LABEL = "Knowledge base"
 TOOL_DESCRIPTION = (

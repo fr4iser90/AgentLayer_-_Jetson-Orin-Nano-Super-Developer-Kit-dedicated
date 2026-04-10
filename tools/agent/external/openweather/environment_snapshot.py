@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 __version__ = "1.0.0"
 TOOL_ID = "outdoor_snapshot"
+TOOL_BUCKET = "network"
 TOOL_LABEL = "Outdoor context"
 TOOL_DESCRIPTION = (
     "Normalized snapshot: clock + optional weather + daylight hint for planning domain tools."

@@ -19,12 +19,48 @@ from src.domain.plugin_system.tool_manifest_dimensions import (
     normalize_risk_level,
     parse_os_support,
 )
-from src.domain.plugin_system.tool_admin_registry import (
-    apply_admin_metadata,
-    invalidate_cache as invalidate_tool_admin_registry_cache,
-)
 
 logger = logging.getLogger(__name__)
+
+# Admin UI grouping only; each module may set ``TOOL_BUCKET`` / ``TOOL_ADMIN_TAGS`` (plug-and-play).
+_ALLOWED_ADMIN_BUCKETS = frozenset(
+    {
+        "files",
+        "network",
+        "knowledge",
+        "secrets",
+        "comms",
+        "verticals",
+        "meta",
+        "media",
+        "unsorted",
+    }
+)
+
+
+def _apply_admin_ui_metadata(mod: Any, entry: dict[str, Any]) -> None:
+    """``admin_bucket`` / ``admin_tags`` from the tool module only (no central tool list)."""
+    pid = str(entry.get("id") or "").strip()
+    raw_b = getattr(mod, "TOOL_BUCKET", None)
+    bucket = (
+        str(raw_b).strip().lower()
+        if isinstance(raw_b, str) and raw_b.strip()
+        else "unsorted"
+    )
+    if bucket not in _ALLOWED_ADMIN_BUCKETS:
+        logger.warning("unknown TOOL_BUCKET %r for %s — using unsorted", raw_b, pid)
+        bucket = "unsorted"
+    entry["admin_bucket"] = bucket
+
+    at = getattr(mod, "TOOL_ADMIN_TAGS", None)
+    if isinstance(at, (list, tuple, frozenset, set)):
+        tags = [str(x).strip() for x in at if str(x).strip()]
+        if tags:
+            entry["admin_tags"] = tags
+    elif isinstance(at, str) and at.strip():
+        entry["admin_tags"] = [
+            x.strip() for x in at.replace(";", ",").split(",") if x.strip()
+        ]
 
 
 class _RouterAccum:
@@ -129,7 +165,6 @@ class ToolRegistry:
 
     def load_all(self) -> None:
         with self._lock:
-            invalidate_tool_admin_registry_cache()
             self._clear_storage()
             self._purge_dynamic_tool_modules()
             acc_h: dict[str, Handler] = {}
@@ -363,7 +398,7 @@ class ToolRegistry:
             if per:
                 entry["per_tool"] = per
         _apply_manifest_extras(mod, entry)
-        apply_admin_metadata(entry)
+        _apply_admin_ui_metadata(mod, entry)
         meta.append(entry)
         logger.info(
             "loaded tool %s v%s (%d tools) [%s]", pid, ver, len(tool_names), source

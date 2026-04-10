@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 __version__ = "1.0.0"
 TOOL_ID = "fishing_bait"
+TOOL_BUCKET = "verticals"
 
 TOOL_LABEL = "Fishing"
 

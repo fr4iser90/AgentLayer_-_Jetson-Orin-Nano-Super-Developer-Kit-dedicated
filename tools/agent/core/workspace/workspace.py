@@ -17,6 +17,7 @@ from src.core.config import config
 
 __version__ = "1.0.0"
 TOOL_ID = "workspace"
+TOOL_BUCKET = "files"
 TOOL_DOMAIN = "workspace"
 TOOL_OS_SUPPORT = "linux,windows,macos"
 TOOL_RISK_LEVEL = 1

@@ -17,6 +17,7 @@ from tools.agent.core.tool_factory._tool_factory_common import (
 
 __version__ = "1.3.0"
 TOOL_ID = "replace_tool"
+TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
 

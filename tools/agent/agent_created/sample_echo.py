@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 __version__ = "0.1.0"
 TOOL_ID = "echo"
+TOOL_BUCKET = "meta"
 
 
 def echo_text(arguments: dict[str, Any]) -> str:

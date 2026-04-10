@@ -16,6 +16,7 @@ import httpx
 
 __version__ = "1.3.1"
 TOOL_ID = "web_search"
+TOOL_BUCKET = "network"
 TOOL_DOMAIN = "web_search"
 TOOL_RISK_LEVEL = 2
 TOOL_LABEL = "Web search"

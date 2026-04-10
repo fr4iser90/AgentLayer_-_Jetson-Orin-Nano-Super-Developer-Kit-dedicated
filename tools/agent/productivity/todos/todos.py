@@ -9,6 +9,7 @@ from src.infrastructure.db import db
 
 __version__ = "1.1.1"
 TOOL_ID = "todos"
+TOOL_BUCKET = "comms"
 TOOL_DOMAIN = "todos"
 TOOL_LABEL = "Todos"
 TOOL_DESCRIPTION = (

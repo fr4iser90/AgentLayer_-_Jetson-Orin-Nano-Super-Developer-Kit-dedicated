@@ -92,7 +92,7 @@ const ADMIN_BUCKET_LABELS: Record<string, string> = {
   verticals: "Domain verticals",
   meta: "Meta & factory",
   media: "Media",
-  unsorted: "Unsorted (map in config/tool_admin_registry.json)",
+  unsorted: "Unsorted (set TOOL_BUCKET in the tool module)",
 };
 
 function shouldSubdivideByDomain(pkgs: ToolMeta[]): boolean {
@@ -453,14 +453,13 @@ export function AdminTools() {
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
       <p className="mt-2 max-w-3xl text-sm leading-relaxed text-surface-muted">
-        <strong className="font-medium text-neutral-300">Admin buckets</strong> come from{" "}
-        <span className="font-mono text-neutral-400">config/tool_admin_registry.json</span> (API fields{" "}
-        <span className="font-mono">admin_bucket</span>, <span className="font-mono">admin_tags</span>
-        ). Packages not listed there land in <span className="font-mono">unsorted</span>. Router{" "}
+        <strong className="font-medium text-neutral-300">Admin buckets</strong> are plug-and-play: each
+        tool module may set <span className="font-mono">TOOL_BUCKET</span> and optional{" "}
+        <span className="font-mono">TOOL_ADMIN_TAGS</span> (exposed as API{" "}
+        <span className="font-mono">admin_bucket</span> / <span className="font-mono">admin_tags</span>
+        ). Omit them → <span className="font-mono">unsorted</span>. Router{" "}
         <span className="font-mono">domain</span> is unchanged (optional sub-headings when a bucket mixes
-        several domains). Filesystem folders under <span className="font-mono">tools/agent/</span> are for
-        humans only. Override path: env <span className="font-mono">AGENT_TOOL_ADMIN_REGISTRY</span>.
-        Operator policy overrides: <strong>Save policy</strong>.
+        several domains). Operator policy: <strong>Save policy</strong>.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">

@@ -12,6 +12,7 @@ from src.infrastructure.secret_otp_bundle import secret_otp_bundle
 
 __version__ = "1.0.0"
 TOOL_ID = "secrets_help"
+TOOL_BUCKET = "secrets"
 TOOL_DOMAIN = "secrets"
 TOOL_TRIGGERS = ()
 

@@ -14,6 +14,7 @@ from tools.agent.core.tool_factory._tool_factory_common import (
 
 __version__ = "1.0.0"
 TOOL_ID = "rename_tool"
+TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
 

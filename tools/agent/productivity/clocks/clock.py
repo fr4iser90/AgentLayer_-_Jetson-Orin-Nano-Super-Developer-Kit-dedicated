@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 __version__ = "1.0.0"
 TOOL_ID = "clock"
+TOOL_BUCKET = "comms"
 TOOL_DOMAIN = "clocks"
 TOOL_LABEL = "Clocks"
 TOOL_DESCRIPTION = "Current time and IANA timezone names (no database)."

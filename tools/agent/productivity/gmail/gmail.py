@@ -15,6 +15,7 @@ from src.domain.identity import get_identity
 
 __version__ = "1.0.1"
 TOOL_ID = "gmail"
+TOOL_BUCKET = "comms"
 TOOL_DOMAIN = "gmail"
 TOOL_TRIGGERS = (
     "gmail",

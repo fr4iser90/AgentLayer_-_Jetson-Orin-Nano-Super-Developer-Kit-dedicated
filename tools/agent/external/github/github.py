@@ -15,6 +15,7 @@ from src.domain.identity import get_identity
 
 __version__ = "1.0.0"
 TOOL_ID = "github"
+TOOL_BUCKET = "network"
 TOOL_DOMAIN = "github"
 TOOL_LABEL = "GitHub"
 TOOL_DESCRIPTION = (

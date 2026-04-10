@@ -10,6 +10,7 @@ import base64
 # --- METADATA ---
 __version__ = "1.0.0"
 TOOL_ID = "inpainting_realvision"
+TOOL_BUCKET = "media"
 TOOL_LABEL = "Inpainting RealVision"
 TOOL_DESCRIPTION = "Bearbeitet Bilder via Inpainting (Bild + Maske) mit RealVision über ComfyUI."
 TOOL_DOMAIN = "image_editor"

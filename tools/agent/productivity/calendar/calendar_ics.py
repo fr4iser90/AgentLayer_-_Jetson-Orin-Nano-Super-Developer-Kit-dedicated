@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 __version__ = "1.2.0"
 TOOL_ID = "calendar_ics"
+TOOL_BUCKET = "comms"
 TOOL_DOMAIN = "calendar"
 TOOL_LABEL = "Calendar"
 TOOL_DESCRIPTION = (

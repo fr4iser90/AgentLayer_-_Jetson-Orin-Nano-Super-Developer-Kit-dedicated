@@ -17,6 +17,7 @@ import httpx
 
 __version__ = "1.2.0"
 TOOL_ID = "openweather"
+TOOL_BUCKET = "network"
 TOOL_DOMAIN = "weather"
 TOOL_LABEL = "OpenWeather"
 TOOL_DESCRIPTION = (

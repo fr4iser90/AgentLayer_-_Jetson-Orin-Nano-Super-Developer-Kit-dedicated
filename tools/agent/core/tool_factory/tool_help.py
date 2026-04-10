@@ -12,6 +12,7 @@ from src.domain.plugin_system.tool_name_hints import suggest_tool_names
 
 __version__ = "1.4.1"
 TOOL_ID = "tool_help"
+TOOL_BUCKET = "meta"
 
 
 def list_available_tools(arguments: dict[str, Any]) -> str:

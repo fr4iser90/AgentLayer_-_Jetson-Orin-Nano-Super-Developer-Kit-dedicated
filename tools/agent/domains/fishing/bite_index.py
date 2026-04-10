@@ -28,6 +28,7 @@ def _moon_illumination(d: date) -> tuple[float, str]:
 
 __version__ = "1.0.0"
 TOOL_ID = "fishing_bite_index"
+TOOL_BUCKET = "verticals"
 TOOL_LABEL = "Fishing"
 TOOL_DESCRIPTION = (
     "Angeln: Biss-Heuristik, Spot-Muster, Köder — keine Karten/GPS oder Rechtsberatung."

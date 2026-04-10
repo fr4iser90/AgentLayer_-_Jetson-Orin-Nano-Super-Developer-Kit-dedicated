@@ -10,6 +10,7 @@ from src.infrastructure.rag import rag as rag_service
 
 __version__ = "1.0.0"
 TOOL_ID = "rag"
+TOOL_BUCKET = "knowledge"
 TOOL_DOMAIN = "rag"
 TOOL_LABEL = "RAG"
 TOOL_DESCRIPTION = (

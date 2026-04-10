@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 __version__ = "1.0.0"
 TOOL_ID = "hunting_tracking"
+TOOL_BUCKET = "verticals"
 TOOL_LABEL = "Hunting"
 TOOL_DESCRIPTION = (
     "Jagd: Windkomponenten und Spuren-Checklisten — keine Ballistik, keine Live-Daten."

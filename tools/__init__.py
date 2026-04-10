@@ -1,8 +1,9 @@
 """
 Shipped tool tree: **recursive** scan for ``*.py`` (``TOOLS`` + ``HANDLERS``); see ``app.registry``.
 
-**Layout** — thematic folders under ``tools/agent/`` for humans only; admin UI buckets come from
-``config/tool_admin_registry.json`` (``tools_meta[].admin_bucket`` / ``admin_tags``), not from path names.
+**Layout** — thematic folders under ``tools/agent/`` for humans only. Admin UI buckets are optional
+per-module constants ``TOOL_BUCKET`` / ``TOOL_ADMIN_TAGS`` (``tools_meta``); omit them and the
+package lists under ``unsorted``. No central tool catalog in the repo.
 Go deeper only when it helps (e.g. many modules under ``domains/fishing/``).
 
 - ``core/`` — introspection, secrets, workspace, **tool_factory** (dynamic plugins).
