@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 
 export function HomePage() {
   return (
-    <div className="mx-auto max-w-2xl px-6 py-12">
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="mx-auto max-w-2xl px-6 py-12">
       <h1 className="text-2xl font-semibold text-white">Agent Layer</h1>
       <p className="mt-2 text-sm text-surface-muted">
         First-party UI on the same origin as the API. Operators with the admin role can open{" "}
@@ -35,6 +36,7 @@ export function HomePage() {
           </Link>
         </li>
       </ul>
+      </div>
     </div>
   );
 }

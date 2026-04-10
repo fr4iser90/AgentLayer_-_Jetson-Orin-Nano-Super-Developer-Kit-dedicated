@@ -136,8 +136,8 @@ export function StudioPage() {
     (jobResult as { primary_image?: { data_url?: string } }).primary_image?.data_url;
 
   return (
-    <div className="flex min-h-[calc(100vh-52px)] bg-surface">
-      <aside className="w-56 shrink-0 border-r border-surface-border bg-[#111] p-3">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-surface">
+      <aside className="flex h-full min-h-0 w-56 shrink-0 flex-col overflow-y-auto border-r border-surface-border bg-[#111] p-3">
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-surface-muted">
           Image generation
         </p>

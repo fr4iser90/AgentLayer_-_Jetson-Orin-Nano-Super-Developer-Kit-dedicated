@@ -74,7 +74,8 @@ export function AdminUsers() {
   const row = me ?? (user ? { id: user.id, email: user.email, role: user.role } : null);
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-2xl font-semibold text-white">Users</h1>
       <p className="mt-2 text-sm text-surface-muted">
         Chat threads are stored per user in the database (server sync). Create additional logins below.
@@ -182,6 +183,7 @@ export function AdminUsers() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );

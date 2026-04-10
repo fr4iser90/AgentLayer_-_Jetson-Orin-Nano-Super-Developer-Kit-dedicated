@@ -603,16 +603,16 @@ export function ChatPage() {
 
   if (!hydrated || !userId) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-sm text-surface-muted">
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden text-sm text-surface-muted">
         Loading chats…
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-52px)] bg-surface">
-      <aside className="flex w-[280px] shrink-0 flex-col border-r border-surface-border bg-[#111]">
-        <div className="border-b border-surface-border p-3">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-surface">
+      <aside className="flex h-full min-h-0 w-[280px] shrink-0 flex-col border-r border-surface-border bg-[#111]">
+        <div className="shrink-0 border-b border-surface-border p-3">
           <button
             type="button"
             onClick={() => void startNewChat()}
@@ -709,8 +709,8 @@ export function ChatPage() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-start justify-between gap-4 border-b border-surface-border px-6 py-4">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-border px-6 py-4">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">{activeThread?.title ?? "Chat"}</p>
             <label className="mt-2 block text-xs text-surface-muted">Ollama model</label>
@@ -745,13 +745,13 @@ export function ChatPage() {
         </div>
 
         {error ? (
-          <div className="border-b border-red-900/50 bg-red-950/40 px-6 py-2 text-sm text-red-300">
+          <div className="shrink-0 border-b border-red-900/50 bg-red-950/40 px-6 py-2 text-sm text-red-300">
             {error}
           </div>
         ) : null}
 
-        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-6 py-6">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full border border-surface-border bg-white/5 text-lg font-semibold text-neutral-300">
@@ -810,11 +810,11 @@ export function ChatPage() {
           </div>
 
           {mode === "agent" && agentLog.length > 0 ? (
-            <div className="w-full shrink-0 border-t border-surface-border bg-black/20 lg:w-[300px] lg:border-l lg:border-t-0">
-              <div className="sticky top-0 border-b border-surface-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
+            <div className="flex min-h-0 w-full shrink-0 flex-col border-t border-surface-border bg-black/20 lg:w-[300px] lg:border-l lg:border-t-0">
+              <div className="shrink-0 border-b border-surface-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
                 Agent activity
               </div>
-              <ul className="max-h-[50vh] overflow-y-auto px-3 py-2 text-xs lg:max-h-none">
+              <ul className="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-xs">
                 {agentLog.map((e) => (
                   <li key={e.id} className="mb-2 border-l-2 border-sky-500/40 pl-2 text-neutral-400">
                     <span className="text-[10px] text-surface-muted">{e.kind}</span>
@@ -826,7 +826,7 @@ export function ChatPage() {
           ) : null}
         </div>
 
-        <div className="border-t border-surface-border bg-[#0c0c0c] px-6 py-4">
+        <div className="shrink-0 border-t border-surface-border bg-[#0c0c0c] px-6 py-4">
           <div className="relative mx-auto max-w-3xl">
             <input
               ref={fileInputRef}

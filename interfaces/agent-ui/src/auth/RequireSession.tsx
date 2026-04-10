@@ -9,7 +9,7 @@ export function RequireSession() {
 
   if (loading) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center px-4 text-sm text-surface-muted">
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center px-4 text-sm text-surface-muted">
         Loading…
       </div>
     );
@@ -18,7 +18,7 @@ export function RequireSession() {
   if (!accessToken) {
     window.location.replace("/login");
     return (
-      <div className="flex min-h-[40vh] items-center justify-center px-4 text-sm text-surface-muted">
+      <div className="flex h-full min-h-0 flex-1 items-center justify-center px-4 text-sm text-surface-muted">
         Redirecting to sign in…
       </div>
     );

@@ -275,6 +275,7 @@ _agent_index = _agent_ui_dir / "index.html"
 if _agent_index.is_file():
 
     @app.get("/app/chat")
+    @app.get("/app/docs")
     @app.get("/app/login")
     @app.get("/app/studio")
     @app.get("/app/admin")

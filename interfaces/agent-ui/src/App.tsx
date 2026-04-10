@@ -9,6 +9,7 @@ import { AdminTools } from "./pages/admin/AdminTools";
 import { AdminUsers } from "./pages/admin/AdminUsers";
 import { AdminWorkflows } from "./pages/admin/AdminWorkflows";
 import { ChatPage } from "./pages/ChatPage";
+import { DocsPage } from "./pages/DocsPage";
 import { HomePage } from "./pages/HomePage";
 import { StudioPage } from "./pages/StudioPage";
 
@@ -22,6 +23,7 @@ export function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="studio" element={<StudioPage />} />
+            <Route path="docs" element={<DocsPage />} />
             <Route path="admin" element={<RequireAdmin />}>
               <Route index element={<AdminDashboard />} />
               <Route path="interfaces" element={<AdminInterfaces />} />

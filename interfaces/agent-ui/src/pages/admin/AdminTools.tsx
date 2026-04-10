@@ -59,7 +59,8 @@ export function AdminTools() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="mx-auto max-w-4xl px-6 py-10">
       <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
       <p className="mt-2 text-sm text-surface-muted">Registered MCP tools and chat tool specs.</p>
 
@@ -120,6 +121,7 @@ export function AdminTools() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
     </div>
   );
