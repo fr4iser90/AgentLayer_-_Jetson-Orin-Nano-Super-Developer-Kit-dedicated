@@ -42,7 +42,41 @@ def run_tool(name: str, arguments: dict) -> str:
     token: Token[int] | None = None
     try:
         token = _chain_depth.set(depth + 1)
-        return get_registry().run_tool(name, arguments)
+        reg = get_registry()
+        nm = (name or "").strip()
+        meta = reg.meta_entry_for_tool_name(nm) if nm else None
+        if meta:
+            try:
+                from src.infrastructure.tool_operator_policy_db import policies_map
+                from src.domain.plugin_system.tool_policy import (
+                    effective_flags,
+                    manifest_execution_context,
+                )
+
+                pmap = policies_map()
+            except Exception:
+                pmap = {}
+            if pmap:
+                eff = effective_flags(meta, nm, pmap)
+                if not eff["enabled"]:
+                    return json.dumps(
+                        {"ok": False, "error": "tool disabled by operator policy"},
+                        ensure_ascii=False,
+                    )
+                man_ctx = manifest_execution_context(meta, nm)
+                if man_ctx == "host" and eff["execution_context"] == "container":
+                    return json.dumps(
+                        {
+                            "ok": False,
+                            "error": (
+                                "tool manifest requires host-class execution; operator policy "
+                                "restricts this package to container — change Admin → Tools "
+                                "execution context or disable the tool"
+                            ),
+                        },
+                        ensure_ascii=False,
+                    )
+        return reg.run_tool(name, arguments)
     finally:
         if token is not None:
             _chain_depth.reset(token)

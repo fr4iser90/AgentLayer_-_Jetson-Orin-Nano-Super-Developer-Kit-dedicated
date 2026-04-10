@@ -10,6 +10,8 @@ from tools.agent.core.tool_factory._tool_factory_common import extra_root_or_err
 __version__ = "1.1.0"
 TOOL_ID = "list_tools"
 TOOL_DOMAIN = "tool_factory"
+TOOL_EXECUTION_CONTEXT = "container"
+TOOL_CAPABILITY_GROUP = "core"
 TOOL_TRIGGERS = ()
 
 

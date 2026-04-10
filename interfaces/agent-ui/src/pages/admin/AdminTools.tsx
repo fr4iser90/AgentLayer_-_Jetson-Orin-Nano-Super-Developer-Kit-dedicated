@@ -1,29 +1,199 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { apiFetch } from "../../lib/api";
 
-type ToolRow = {
-  function?: { name?: string; description?: string; TOOL_DESCRIPTION?: string };
+type ToolMeta = {
+  id?: string;
+  version?: string;
+  source?: string;
+  tools?: string[];
+  tags?: string[];
+  capabilities?: string[];
+  secrets_required?: string[];
+  requires?: string[];
+  default_on?: boolean;
+  user_configurable?: boolean;
+  families?: string[];
+  domain?: string;
+  layer?: string;
+  execution_context?: string;
+  capability_group?: string;
+  os_support?: string[];
+  risk_level?: string;
+  tool_effective?: Record<
+    string,
+    { enabled: boolean; default_on: boolean; user_configurable: boolean; execution_context?: string }
+  >;
+  policy_row?: {
+    enabled?: boolean;
+    default_on?: boolean | null;
+    user_configurable?: boolean | null;
+    execution_context?: string | null;
+  };
 };
+
+const GROUP_ORDER = [
+  "execution",
+  "filesystem",
+  "core",
+  "external",
+  "knowledge",
+  "communication",
+  "identity",
+  "media",
+  "environment",
+  "domain",
+  "other",
+] as const;
+
+const GROUP_LABELS: Record<string, string> = {
+  execution: "Execution",
+  core: "Core / factory",
+  filesystem: "Filesystem",
+  external: "External / network",
+  knowledge: "Knowledge",
+  communication: "Communication",
+  identity: "Identity",
+  media: "Media",
+  environment: "Environment",
+  domain: "Domain products",
+  other: "Other (uncategorized manifest)",
+};
+
+type PolicyRow = {
+  package_id: string;
+  tool_name: string;
+  enabled: boolean;
+  default_on: boolean | null;
+  user_configurable: boolean | null;
+  execution_context: string | null;
+};
+
+type Tri = "manifest" | "true" | "false";
+
+function boolToTri(v: boolean | null | undefined): Tri {
+  if (v === null || v === undefined) return "manifest";
+  return v ? "true" : "false";
+}
+
+function triToBool(t: Tri): boolean | null {
+  if (t === "manifest") return null;
+  return t === "true";
+}
+
+function ctxToSelect(v: string | null | undefined): string {
+  if (v === null || v === undefined || v === "") return "manifest";
+  return v;
+}
+
+function selectToCtx(t: string): string | null {
+  if (t === "manifest") return null;
+  return t;
+}
+
+function capabilityGroupOf(p: ToolMeta): string {
+  const g = (p.capability_group || "other").toLowerCase();
+  return GROUP_ORDER.includes(g as (typeof GROUP_ORDER)[number]) ? g : "other";
+}
+
+function sortPackages(pkgs: ToolMeta[]): ToolMeta[] {
+  return [...pkgs].sort((a, b) => {
+    const da = (a.domain || "\uffff").toLowerCase();
+    const db = (b.domain || "\uffff").toLowerCase();
+    if (da !== db) return da.localeCompare(db);
+    const la = (a.layer || "").toLowerCase();
+    const lb = (b.layer || "").toLowerCase();
+    if (la !== lb) return la.localeCompare(lb);
+    return (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" });
+  });
+}
+
+/** Sub-headings by TOOL_DOMAIN when the bucket mixes domains or is the catch-all "other". */
+function shouldSubdivideByDomain(group: string, pkgs: ToolMeta[]): boolean {
+  if (group === "other") return true;
+  const domains = new Set(pkgs.map((p) => (p.domain || "—").toLowerCase()));
+  return domains.size > 1;
+}
+
+function partitionByDomain(pkgs: ToolMeta[]): { domain: string; items: ToolMeta[] }[] {
+  const sorted = sortPackages(pkgs);
+  const map = new Map<string, ToolMeta[]>();
+  for (const p of sorted) {
+    const d = p.domain || "—";
+    const key = d.toLowerCase();
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(p);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([domainKey, items]) => ({
+      domain: items[0]?.domain || domainKey,
+      items,
+    }));
+}
+
+function riskBadgeClass(rl: string | undefined): string {
+  switch (rl) {
+    case "l3":
+      return "bg-rose-900/80 text-rose-100";
+    case "l2":
+      return "bg-amber-900/70 text-amber-100";
+    case "l1":
+      return "bg-sky-900/60 text-sky-100";
+    case "l0":
+      return "bg-white/10 text-neutral-200";
+    default:
+      return "bg-white/5 text-neutral-400";
+  }
+}
 
 export function AdminTools() {
   const auth = useAuth();
-  const [tools, setTools] = useState<ToolRow[]>([]);
+  const [meta, setMeta] = useState<ToolMeta[]>([]);
+  const [policyByPkg, setPolicyByPkg] = useState<Record<string, PolicyRow>>({});
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const loadTools = useCallback(async () => {
+  const loadAdmin = useCallback(async () => {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await apiFetch("/v1/tools", auth);
-      const data = (await res.json()) as { tools?: ToolRow[] };
+      const res = await apiFetch("/v1/admin/tools", auth);
+      const data = (await res.json()) as { tools?: ToolMeta[]; policy_rows?: PolicyRow[] };
       if (!res.ok) {
-        setMsg("Failed to load tools");
+        setMsg("Failed to load admin tools");
         return;
       }
-      setTools(data.tools ?? []);
+      const list = data.tools ?? [];
+      setMeta(list);
+      const rows = data.policy_rows ?? [];
+      const map: Record<string, PolicyRow> = {};
+      for (const r of rows) {
+        if (r.tool_name === "*" || !r.tool_name) {
+          map[r.package_id] = {
+            ...r,
+            tool_name: "*",
+            execution_context: r.execution_context ?? null,
+            default_on: r.default_on ?? null,
+            user_configurable: r.user_configurable ?? null,
+          };
+        }
+      }
+      for (const t of list) {
+        const pid = t.id ?? "";
+        if (!pid || map[pid]) continue;
+        const te = t.tool_effective?.[t.tools?.[0] ?? ""];
+        map[pid] = {
+          package_id: pid,
+          tool_name: "*",
+          enabled: te?.enabled ?? true,
+          default_on: null,
+          user_configurable: null,
+          execution_context: null,
+        };
+      }
+      setPolicyByPkg(map);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -32,8 +202,8 @@ export function AdminTools() {
   }, [auth]);
 
   useEffect(() => {
-    void loadTools();
-  }, [loadTools]);
+    void loadAdmin();
+  }, [loadAdmin]);
 
   async function reloadRegistry() {
     setBusy(true);
@@ -49,7 +219,7 @@ export function AdminTools() {
         setMsg(detail);
         return;
       }
-      await loadTools();
+      await loadAdmin();
       setMsg("Registry reloaded.");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -58,19 +228,251 @@ export function AdminTools() {
     }
   }
 
-  return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
-      <p className="mt-2 text-sm text-surface-muted">Registered MCP tools and chat tool specs.</p>
+  async function savePolicies() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const policies = packages.map((p) => {
+        const pid = p.id ?? "";
+        const pol = policyByPkg[pid];
+        if (pol?.package_id) return pol;
+        return {
+          package_id: pid,
+          tool_name: "*",
+          enabled: true,
+          default_on: null,
+          user_configurable: null,
+          execution_context: null,
+        };
+      });
+      const res = await apiFetch("/v1/admin/tool-policies", auth, {
+        method: "PUT",
+        body: JSON.stringify({ policies }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const detail =
+          data && typeof data === "object" && "detail" in data
+            ? String((data as { detail: unknown }).detail)
+            : res.statusText;
+        setMsg(detail);
+        return;
+      }
+      setMsg("Policy saved.");
+      await loadAdmin();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      <div className="mt-6 flex flex-wrap gap-2">
+  const packages = useMemo(() => meta.filter((m) => m.id), [meta]);
+
+  const groupedPackages = useMemo(() => {
+    const buckets: Record<string, ToolMeta[]> = {};
+    for (const g of GROUP_ORDER) buckets[g] = [];
+    for (const p of packages) {
+      const g = capabilityGroupOf(p);
+      if (!buckets[g]) buckets[g] = [];
+      buckets[g].push(p);
+    }
+    return buckets;
+  }, [packages]);
+
+  const totalPackages = packages.length;
+
+  function updatePolicy(pid: string, patch: Partial<PolicyRow>) {
+    setPolicyByPkg((prev) => ({
+      ...prev,
+      [pid]: {
+        package_id: pid,
+        tool_name: "*",
+        enabled: true,
+        default_on: null,
+        user_configurable: null,
+        execution_context: null,
+        ...prev[pid],
+        ...patch,
+      },
+    }));
+  }
+
+  function renderCard(p: ToolMeta) {
+    const pid = p.id ?? "";
+    const pol = policyByPkg[pid] ?? {
+      package_id: pid,
+      tool_name: "*",
+      enabled: true,
+      default_on: null,
+      user_configurable: null,
+      execution_context: null,
+    };
+    const sec = p.secrets_required?.length ? p.secrets_required : p.requires;
+    const firstTool = p.tools?.[0] ?? "";
+    const manCtx = p.execution_context || "container";
+    const effCtx =
+      (firstTool && p.tool_effective?.[firstTool]?.execution_context) || manCtx;
+
+    return (
+      <li
+        key={pid}
+        className="rounded-lg border border-surface-border bg-surface-raised/80 p-3 text-xs text-neutral-200"
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-mono text-sm font-semibold text-white">{pid}</span>
+              {p.version ? <span className="text-[11px] text-surface-muted">v{p.version}</span> : null}
+              {p.layer ? (
+                <span className="rounded bg-emerald-950/60 px-1.5 py-0.5 text-[10px] text-emerald-200/90">
+                  layer:{p.layer}
+                </span>
+              ) : null}
+              {p.domain ? (
+                <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                  domain:{p.domain}
+                </span>
+              ) : null}
+              <span className="rounded bg-violet-900/50 px-1.5 py-0.5 text-[10px] text-violet-100">
+                run:{effCtx}
+                {effCtx !== manCtx ? (
+                  <span className="text-violet-200/80"> (manifest:{manCtx})</span>
+                ) : null}
+              </span>
+              {p.os_support?.length ? (
+                <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                  os:{p.os_support.join(",")}
+                </span>
+              ) : null}
+              {p.risk_level ? (
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${riskBadgeClass(p.risk_level)}`}
+                >
+                  risk:{p.risk_level}
+                </span>
+              ) : null}
+            </div>
+            <p className="truncate font-mono text-[11px] text-surface-muted" title={p.source}>
+              {p.source}
+            </p>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              <div>
+                <span className="text-surface-muted">Tools:</span>{" "}
+                <span className="break-all font-mono text-[11px] text-neutral-300">
+                  {(p.tools ?? []).join(", ")}
+                </span>
+              </div>
+              {p.tags?.length ? (
+                <div>
+                  <span className="text-surface-muted">Tags:</span>{" "}
+                  <span className="text-neutral-300">{p.tags.join(", ")}</span>
+                </div>
+              ) : null}
+              {p.capabilities?.length ? (
+                <div>
+                  <span className="text-surface-muted">Capabilities:</span>{" "}
+                  <span className="text-neutral-300">{p.capabilities.join(", ")}</span>
+                </div>
+              ) : null}
+              {sec?.length ? (
+                <div>
+                  <span className="text-surface-muted">Secrets:</span>{" "}
+                  <span className="text-amber-200/90">{sec.join(", ")}</span>
+                </div>
+              ) : null}
+              {p.families?.length ? (
+                <div>
+                  <span className="text-surface-muted">Families:</span>{" "}
+                  <span className="text-neutral-300">{p.families.join(", ")}</span>
+                </div>
+              ) : null}
+              <div className="sm:col-span-2">
+                <span className="text-surface-muted">Manifest default_on / user_configurable:</span>{" "}
+                <span className="text-neutral-300">
+                  {String(p.default_on ?? true)} / {String(p.user_configurable ?? true)}
+                </span>
+              </div>
+            </div>
+          </div>
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-[11px] text-neutral-200">
+            <input
+              type="checkbox"
+              checked={pol.enabled}
+              onChange={(e) => updatePolicy(pid, { enabled: e.target.checked })}
+            />
+            Enabled
+          </label>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 border-t border-white/10 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted">
+            <span className="text-neutral-400">Operator · default_on</span>
+            <select
+              className="w-full rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
+              value={boolToTri(pol.default_on)}
+              onChange={(e) => updatePolicy(pid, { default_on: triToBool(e.target.value as Tri) })}
+            >
+              <option value="manifest">Manifest</option>
+              <option value="true">Force true</option>
+              <option value="false">Force false</option>
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted">
+            <span className="text-neutral-400">Operator · user_configurable</span>
+            <select
+              className="w-full rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
+              value={boolToTri(pol.user_configurable)}
+              onChange={(e) =>
+                updatePolicy(pid, { user_configurable: triToBool(e.target.value as Tri) })
+              }
+            >
+              <option value="manifest">Manifest</option>
+              <option value="true">Force true</option>
+              <option value="false">Force false</option>
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted sm:col-span-2 lg:col-span-2">
+            <span className="text-neutral-400">Operator · execution_context</span>
+            <select
+              className="w-full max-w-md rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
+              value={ctxToSelect(pol.execution_context)}
+              onChange={(e) =>
+                updatePolicy(pid, { execution_context: selectToCtx(e.target.value) })
+              }
+            >
+              <option value="manifest">Manifest</option>
+              <option value="container">container</option>
+              <option value="host">host</option>
+              <option value="remote">remote</option>
+              <option value="browser">browser</option>
+            </select>
+          </label>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
+      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-surface-muted">
+        Sortierung:{" "}
+        <span className="text-neutral-300">capability_group</span> (Manifest) → in jeder Sektion
+        alphabetisch nach <span className="text-neutral-300">domain</span>, dann{" "}
+        <span className="text-neutral-300">layer</span> (Scan-Pfad), dann Paket-ID. „Other“ ist immer
+        nach Domain unterteilt; andere Sektionen auch, sobald mehrere Domains vorkommen. Kategorien
+        sind standardmäßig <span className="text-neutral-300">eingeklappt</span> — Zeile anklicken zum
+        Öffnen. Operator-Overrides (inkl. execution_context) speichern mit „Save policy“.
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy}
           className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-          onClick={() => void loadTools()}
+          onClick={() => void loadAdmin()}
         >
-          Refresh list
+          Refresh
         </button>
         <button
           type="button"
@@ -80,47 +482,69 @@ export function AdminTools() {
         >
           Reload registry
         </button>
+        <button
+          type="button"
+          disabled={busy || loading}
+          className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+          onClick={() => void savePolicies()}
+        >
+          Save policy
+        </button>
       </div>
 
       {msg ? <p className="mt-3 text-sm text-surface-muted">{msg}</p> : null}
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-surface-border">
-        <table className="w-full min-w-[28rem] text-left text-sm">
-          <thead className="border-b border-surface-border bg-black/20 text-surface-muted">
-            <tr>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-surface-muted">
-                  Loading…
-                </td>
-              </tr>
-            ) : tools.length === 0 ? (
-              <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-surface-muted">
-                  No tools loaded.
-                </td>
-              </tr>
-            ) : (
-              tools.map((tool, i) => {
-                const fn = tool.function ?? {};
-                const name = fn.name ?? "—";
-                const desc = fn.description ?? fn.TOOL_DESCRIPTION ?? "";
-                return (
-                  <tr key={`${name}-${i}`} className="border-b border-surface-border/80 hover:bg-white/[0.03]">
-                    <td className="px-4 py-3 font-mono text-xs text-white">{name}</td>
-                    <td className="px-4 py-3 text-surface-muted">{desc}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <p className="mt-8 text-sm text-surface-muted">Loading…</p>
+      ) : (
+        <div className="mt-6 max-h-[min(72vh,calc(100dvh-11rem))] overflow-y-auto overscroll-contain rounded-lg border border-surface-border bg-black/20 pr-1">
+          <div className="flex flex-col divide-y divide-white/10">
+            {GROUP_ORDER.map((group) => {
+              const raw = groupedPackages[group] ?? [];
+              const sectionPkgs = sortPackages(raw);
+              if (!sectionPkgs.length) return null;
+              const subdiv = shouldSubdivideByDomain(group, sectionPkgs);
+              const blocks = subdiv
+                ? partitionByDomain(sectionPkgs)
+                : [{ domain: "", items: sectionPkgs }];
+
+              return (
+                <details key={group} className="group px-2 py-0.5 open:bg-white/[0.03]">
+                  <summary className="cursor-pointer list-none py-2.5 pl-1 [&::-webkit-details-marker]:hidden">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 pr-1">
+                      <span className="text-sm font-medium text-neutral-200">
+                        {GROUP_LABELS[group] ?? group}
+                      </span>
+                      <span className="font-mono text-xs text-surface-muted">
+                        {sectionPkgs.length} packages
+                      </span>
+                    </div>
+                  </summary>
+                  <div className="space-y-4 pb-4 pl-1">
+                    {blocks.map((block) => (
+                      <div key={block.domain || "_"}>
+                        {subdiv ? (
+                          <h3 className="mb-2 border-l-2 border-sky-600/60 pl-2 text-[11px] font-semibold uppercase tracking-wide text-sky-200/90">
+                            Domain · {block.domain}{" "}
+                            <span className="font-mono font-normal text-surface-muted">
+                              ({block.items.length})
+                            </span>
+                          </h3>
+                        ) : null}
+                        <ul className="flex flex-col gap-2">{block.items.map((p) => renderCard(p))}</ul>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!loading && totalPackages === 0 ? (
+        <p className="mt-8 text-sm text-surface-muted">No tool packages loaded.</p>
+      ) : null}
     </div>
   );
 }

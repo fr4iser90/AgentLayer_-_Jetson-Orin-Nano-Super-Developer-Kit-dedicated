@@ -30,6 +30,15 @@ TOOL_DESCRIPTION = (
     "Read and search Gmail over IMAP using the per-user `gmail` app-password secret."
 )
 
+TOOL_REQUIRES = ("gmail",)
+TOOL_CAPABILITIES = ("mail.read", "mail.search", "secrets.user")
+TOOL_EXECUTION_CONTEXT = "container"
+TOOL_CAPABILITY_GROUP = "communication"
+TOOL_RISK_LEVEL = 2
+TOOL_DEFAULT_ON = True
+TOOL_USER_CONFIGURABLE = True
+TOOL_FAMILIES = ("communication", "productivity")
+
 # Stored via register_secrets / POST user/secrets — this tool reads it server-side only.
 SECRET_SERVICE_KEY = "gmail"
 

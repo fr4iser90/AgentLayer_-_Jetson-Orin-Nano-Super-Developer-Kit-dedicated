@@ -283,3 +283,16 @@ CREATE TABLE operator_settings (
 
 INSERT INTO operator_settings (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE operator_tool_policies (
+  package_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL DEFAULT '*',
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  default_on BOOLEAN,
+  user_configurable BOOLEAN,
+  execution_context TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (package_id, tool_name)
+);
+
+CREATE INDEX idx_operator_tool_policies_package ON operator_tool_policies (package_id);

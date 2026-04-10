@@ -14,6 +14,12 @@ from typing import Any, Callable
 
 from src.core.config import config
 from src.infrastructure.db import db
+from src.domain.plugin_system.tool_manifest_dimensions import (
+    normalize_capability_group,
+    normalize_execution_context,
+    normalize_risk_level,
+    parse_os_support,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,47 @@ class _RouterAccum:
         self.cat_TOOL_DESCRIPTION: dict[str, str] = {}
 
 Handler = Callable[[dict[str, Any]], str]
+
+
+def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
+    """Optional module fields: execution/capability axes, capabilities, secrets, defaults, families."""
+    xctx = getattr(mod, "TOOL_EXECUTION_CONTEXT", None)
+    entry["execution_context"] = normalize_execution_context(
+        xctx if isinstance(xctx, str) else None
+    )
+    cgrp = getattr(mod, "TOOL_CAPABILITY_GROUP", None)
+    entry["capability_group"] = normalize_capability_group(
+        cgrp if isinstance(cgrp, str) else None
+    )
+    oss = parse_os_support(mod)
+    if oss:
+        entry["os_support"] = oss
+    rlv = getattr(mod, "TOOL_RISK_LEVEL", None)
+    nr = normalize_risk_level(rlv)
+    if nr:
+        entry["risk_level"] = nr
+
+    caps = getattr(mod, "TOOL_CAPABILITIES", None)
+    if isinstance(caps, (list, tuple, frozenset, set)):
+        lc = [str(x).strip() for x in caps if str(x).strip()]
+        if lc:
+            entry["capabilities"] = lc
+    req = getattr(mod, "TOOL_SECRETS_REQUIRED", None)
+    if isinstance(req, (list, tuple, frozenset, set)):
+        lr = [str(x).strip() for x in req if str(x).strip()]
+        if lr:
+            entry["secrets_required"] = lr
+    elif entry.get("requires"):
+        entry["secrets_required"] = list(entry["requires"])
+    do = getattr(mod, "TOOL_DEFAULT_ON", None)
+    entry["default_on"] = bool(do) if isinstance(do, bool) else True
+    uc = getattr(mod, "TOOL_USER_CONFIGURABLE", None)
+    entry["user_configurable"] = bool(uc) if isinstance(uc, bool) else True
+    fam = getattr(mod, "TOOL_FAMILIES", None)
+    if isinstance(fam, (list, tuple, frozenset, set)):
+        lf = [str(x).strip() for x in fam if str(x).strip()]
+        if lf:
+            entry["families"] = lf
 
 
 def _path_under_or_equal(child: Path, parent: Path) -> bool:
@@ -299,20 +346,41 @@ class ToolRegistry:
                 if not nk:
                     continue
                 row: dict[str, Any] = {}
-                r2 = v.get("requires")
+                r2 = v.get("requires") or v.get("secrets_required")
                 if isinstance(r2, (list, tuple)):
                     lr = [str(x).strip() for x in r2 if str(x).strip()]
                     if lr:
                         row["requires"] = lr
+                        row["secrets_required"] = lr
                 t2 = v.get("tags")
                 if isinstance(t2, (list, tuple)):
                     lt = [str(x).strip() for x in t2 if str(x).strip()]
                     if lt:
                         row["tags"] = lt
+                c2 = v.get("capabilities")
+                if isinstance(c2, (list, tuple)):
+                    lc = [str(x).strip() for x in c2 if str(x).strip()]
+                    if lc:
+                        row["capabilities"] = lc
+                if "default_on" in v and isinstance(v["default_on"], bool):
+                    row["default_on"] = v["default_on"]
+                if "user_configurable" in v and isinstance(v["user_configurable"], bool):
+                    row["user_configurable"] = v["user_configurable"]
+                if isinstance(v.get("execution_context"), str):
+                    row["execution_context"] = normalize_execution_context(v["execution_context"])
+                if isinstance(v.get("capability_group"), str):
+                    row["capability_group"] = normalize_capability_group(v["capability_group"])
+                if isinstance(v.get("os_support"), (list, tuple)):
+                    row["os_support"] = [str(x).strip().lower() for x in v["os_support"] if str(x).strip()]
+                if v.get("risk_level") is not None:
+                    nr = normalize_risk_level(v.get("risk_level"))
+                    if nr:
+                        row["risk_level"] = nr
                 if row:
                     per[nk] = row
             if per:
                 entry["per_tool"] = per
+        _apply_manifest_extras(mod, entry)
         meta.append(entry)
         logger.info(
             "loaded tool %s v%s (%d tools) [%s]", pid, ver, len(tool_names), source

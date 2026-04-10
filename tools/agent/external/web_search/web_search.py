@@ -17,6 +17,9 @@ import httpx
 __version__ = "1.3.1"
 TOOL_ID = "web_search"
 TOOL_DOMAIN = "web_search"
+TOOL_EXECUTION_CONTEXT = "container"
+TOOL_CAPABILITY_GROUP = "external"
+TOOL_RISK_LEVEL = 2
 TOOL_LABEL = "Web search"
 TOOL_DESCRIPTION = (
     "Search the web via Tavily, Brave, or DuckDuckGo (ddgs); optional page fetch where allowed."

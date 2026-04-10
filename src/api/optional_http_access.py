@@ -138,6 +138,7 @@ def public_http_auth_policy() -> dict[str, Any]:
             "GET/PUT /v1/admin/interfaces",
             "GET /v1/admin/users",
             "POST /v1/admin/users",
+            "PUT /v1/admin/tool-policies",
         ],
         "note_admin": "Bearer must resolve to a user with role=admin; then require_admin().",
     }
