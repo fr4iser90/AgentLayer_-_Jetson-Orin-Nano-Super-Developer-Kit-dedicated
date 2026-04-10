@@ -10,9 +10,10 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +31,7 @@ from src.infrastructure.auth import (
     create_refresh_token,
     verify_password,
     get_user_by_email,
+    create_user,
     validate_refresh_token,
     revoke_refresh_token,
 )
@@ -58,6 +60,7 @@ from src.api.rag_api import router as rag_router
 from src.domain.plugin_system.registry import get_registry
 from src.infrastructure.user_data_api import router as user_data_router
 from src.infrastructure.user_secrets_api import router as user_secrets_router
+from src.api.conversations_api import router as conversations_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -106,6 +109,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="agent-layer", version="0.7.6", lifespan=lifespan)
 app.include_router(user_secrets_router)
+app.include_router(conversations_router)
 app.include_router(user_data_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
@@ -235,6 +239,22 @@ async def put_interface_hints(request: Request, body: InterfaceHintsPayload):
     await require_admin(request)
     apply_interface_hints(body)
     return interface_hints_public()
+
+
+class AdminCreateUserBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=8, max_length=256)
+    role: Literal["user", "admin"] = "user"
+
+
+@app.post("/v1/admin/users")
+async def admin_create_user(request: Request, body: AdminCreateUserBody):
+    """Create a password user (e.g. role ``user``). Admin only."""
+    await require_admin(request)
+    if get_user_by_email(body.email):
+        raise HTTPException(status_code=409, detail="email already registered")
+    u = create_user(body.email, body.password, body.role)
+    return {"ok": True, "id": str(u.id), "email": u.email, "role": u.role}
 
 
 @app.get("/auth/policy")
