@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { UserMenu } from "../components/UserMenu";
 
 const GITHUB_REPO =
   "https://github.com/fr4iser90/AgentLayer_-_Jetson-Orin-Nano-Super-Developer-Kit-dedicated";
@@ -16,15 +17,14 @@ const signInClass =
   "rounded-md px-3 py-2 text-sm text-surface-muted hover:bg-white/5 hover:text-neutral-200";
 
 export function AppLayout() {
-  const { accessToken, user, loading, logout } = useAuth();
+  const { accessToken, user, loading } = useAuth();
   const signedIn = !!accessToken && !!user;
-  const isAdmin = user?.role?.toLowerCase() === "admin";
 
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center gap-2 border-b border-surface-border bg-surface-raised px-4 py-3">
-        <span className="text-sm font-semibold tracking-tight text-white">Agent Layer</span>
-        <nav className="flex flex-wrap gap-1">
+      <header className="flex shrink-0 items-center gap-3 border-b border-surface-border bg-surface-raised px-4 py-3">
+        <span className="shrink-0 text-sm font-semibold tracking-tight text-white">Agent Layer</span>
+        <nav className="flex min-w-0 flex-1 flex-wrap gap-1">
           {loading ? (
             <span className="px-3 py-2 text-xs text-surface-muted">…</span>
           ) : signedIn ? (
@@ -38,14 +38,6 @@ export function AppLayout() {
               <NavLink to="/studio" className={linkClass}>
                 Studio
               </NavLink>
-              {isAdmin ? (
-                <NavLink to="/admin" className={linkClass}>
-                  Admin
-                </NavLink>
-              ) : null}
-              <button type="button" className={signInClass} onClick={() => void logout()}>
-                Sign out
-              </button>
             </>
           ) : (
             <a href="/login" className={signInClass}>
@@ -53,6 +45,11 @@ export function AppLayout() {
             </a>
           )}
         </nav>
+        {loading ? null : signedIn ? (
+          <div className="ml-auto shrink-0">
+            <UserMenu />
+          </div>
+        ) : null}
       </header>
       <div className="min-h-0 flex-1 overflow-hidden [&>*]:h-full [&>*]:min-h-0">
         <Outlet />

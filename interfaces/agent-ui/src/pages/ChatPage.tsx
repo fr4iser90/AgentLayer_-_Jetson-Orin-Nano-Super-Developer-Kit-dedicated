@@ -734,14 +734,6 @@ export function ChatPage() {
               Titles from the first message. Open a shared chat: URL query <code className="text-neutral-500">?c=&lt;id&gt;</code>
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-500/90 text-sm font-medium text-black"
-              title="Profile"
-            >
-              {(displayName[0] ?? "?").toUpperCase()}
-            </span>
-          </div>
         </div>
 
         {error ? (

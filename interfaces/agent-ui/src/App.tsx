@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { SettingsLayout } from "./layout/SettingsLayout";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { RequireSession } from "./auth/RequireSession";
@@ -11,6 +12,10 @@ import { AdminWorkflows } from "./pages/admin/AdminWorkflows";
 import { ChatPage } from "./pages/ChatPage";
 import { DocsPage } from "./pages/DocsPage";
 import { HomePage } from "./pages/HomePage";
+import { AgentSettings } from "./pages/settings/AgentSettings";
+import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
+import { ProfileSettings } from "./pages/settings/ProfileSettings";
+import { ToolsSettings } from "./pages/settings/ToolsSettings";
 import { StudioPage } from "./pages/StudioPage";
 
 export function App() {
@@ -24,6 +29,13 @@ export function App() {
             <Route path="chat" element={<ChatPage />} />
             <Route path="studio" element={<StudioPage />} />
             <Route path="docs" element={<DocsPage />} />
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route index element={<Navigate to="/settings/profile" replace />} />
+              <Route path="profile" element={<ProfileSettings />} />
+              <Route path="connections" element={<ConnectionsSettings />} />
+              <Route path="tools" element={<ToolsSettings />} />
+              <Route path="agent" element={<AgentSettings />} />
+            </Route>
             <Route path="admin" element={<RequireAdmin />}>
               <Route index element={<AdminDashboard />} />
               <Route path="interfaces" element={<AdminInterfaces />} />
