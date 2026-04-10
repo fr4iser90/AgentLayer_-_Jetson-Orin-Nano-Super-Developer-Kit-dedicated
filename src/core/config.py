@@ -132,6 +132,10 @@ def _sqlalchemy_postgresql_url(url: str) -> str:
 # Same DB as DATABASE_URL; use for Alembic / SQLAlchemy create_engine.
 SQLALCHEMY_DATABASE_URL = _sqlalchemy_postgresql_url(DATABASE_URL)
 
+# First admin when no admin user exists yet: set both before first start, or the process exits.
+AGENT_INITIAL_ADMIN_EMAIL = (os.environ.get("AGENT_INITIAL_ADMIN_EMAIL") or "").strip()
+AGENT_INITIAL_ADMIN_PASSWORD = os.environ.get("AGENT_INITIAL_ADMIN_PASSWORD") or ""
+
 # Extra tool tree (optional): scan + create_tool writes here. Two different concerns:
 # - ENABLE = whether create_tool may run (security / ops).
 # - DIR = filesystem path (must exist in the container; Docker still needs a volume mount for a host folder).

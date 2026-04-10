@@ -24,31 +24,32 @@ This document is the **stable integration surface** for front ends (e.g. Open We
 `POST /auth/login`  
 **Auth:** none  
 **Body:** `{ "email": string, "password": string }`  
-**200:** `{ "access_token", "refresh_token", "token_type": "bearer", "expires_in": 900, "user": { "id", "email", "role" } }`  
+**200:** `{ "access_token", "token_type": "bearer", "expires_in": 900, "user": { "id", "email", "role" } }` — **no `refresh_token` in JSON.**  
+**Set-Cookie:** httpOnly session cookie `agent_refresh` (refresh token); use `credentials: "include"` on fetches. Over HTTPS, set env **`AGENT_COOKIE_SECURE=true`** so the cookie is **Secure**.  
 **401:** invalid credentials
 
 ### 2.2 Refresh
 
 `POST /auth/refresh`  
 **Auth:** none  
-**Body:** `{ "refresh_token": string }`  
-**200:** `{ "access_token", "token_type": "bearer", "expires_in": 900 }`  
+**Cookie:** `agent_refresh` (preferred for browsers), **or** **Body:** `{ "refresh_token": string }` for non-browser clients.  
+**200:** `{ "access_token", "token_type": "bearer", "expires_in": 900, "user": { "id", "email", "role" } }`  
 **401:** invalid or expired refresh token
+
+### 2.2.1 Logout
+
+`POST /auth/logout`  
+**Auth:** none (cookie-based session)  
+**Effect:** revokes the refresh token server-side and clears the `agent_refresh` cookie.  
+**200:** `{ "ok": true }`
 
 ### 2.3 First admin (one-time bootstrap)
 
-When no user with `role = admin` exists, startup logs print a **single-use OTP** (24 h). Use it once with the control panel **`/control/claim.html`** or:
+When no user with `role = admin` exists, the HTTP server **does not start** until you set **`AGENT_INITIAL_ADMIN_EMAIL`** and **`AGENT_INITIAL_ADMIN_PASSWORD`** (≥ 8 chars) **before** the first process start — the first admin is created at startup. Remove those variables after login and change the password.
 
 `GET /auth/setup-status`  
 **Auth:** none  
-**200:** `{ "needs_setup": true | false }`
-
-`POST /auth/claim`  
-**Auth:** none  
-**Body:** `{ "email": string, "password": string, "otp": string }`  
-**200:** same shape as `/auth/login` (tokens + `user`)  
-**401:** invalid or expired OTP  
-**403:** setup already completed (an admin exists)
+**200:** `{ "needs_setup": true | false }` — `true` only if no admin exists (e.g. misconfiguration while running); normal installs exit at boot if unset.
 
 ### 2.4 Protected routes
 
@@ -67,10 +68,10 @@ Exact paths (see `auth_middleware` in `src/api/main.py`):
 - `GET /v1/models` (Ollama passthrough for model lists)
 - `POST /auth/login`
 - `POST /auth/refresh`
+- `POST /auth/logout`
 - `GET /auth/setup-status`
-- `POST /auth/claim`
 - `GET /` (redirect or JSON hint)
-- Paths under `/control/` (static control panel when shipped)
+- Paths under `/admin/` (static admin HTML when shipped)
 
 **Exception:** `POST /v1/user/secrets/register-with-otp` is allowed without Bearer (OTP-bound registration from chat).
 

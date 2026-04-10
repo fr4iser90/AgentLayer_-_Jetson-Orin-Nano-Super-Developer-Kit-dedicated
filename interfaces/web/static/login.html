@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Login — Agent Layer Control Panel</title>
+  <title>Login — Agent Layer Admin</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -119,7 +119,7 @@
 
   <div class="login-box">
     <h1>🔐 Agent Layer</h1>
-    <p class="subtitle">Control Panel Login</p>
+    <p class="subtitle">Admin login</p>
 
     <div class="form-group">
       <label>Email</label>
@@ -136,12 +136,13 @@
     <div id="status" class="status"></div>
   </div>
 
-  <script src="js/auth.js"></script>
+  <script src="/js/auth.js"></script>
   <script>
-    // If already logged in, go to dashboard
-    if (isLoggedIn()) {
-      window.location.href = "/control/dashboard.html";
-    }
+    (async () => {
+      if (await bootstrapSession()) {
+        window.location.href = "/dashboard";
+      }
+    })();
 
     const $ = (id) => document.getElementById(id);
 
@@ -170,7 +171,7 @@
       if (result.ok) {
         showStatus(true, "Signed in, redirecting…");
         setTimeout(() => {
-          window.location.href = "/control/dashboard.html";
+          window.location.href = "/dashboard";
         }, 500);
       } else {
         showStatus(false, result.error);
@@ -183,14 +184,6 @@
       if (e.key === "Enter") handleLogin();
     });
 
-    fetch("/auth/setup-status")
-      .then((r) => r.json())
-      .then((j) => {
-        if (j && j.needs_setup === true) {
-          window.location.replace("/control/claim.html");
-        }
-      })
-      .catch(() => {});
   </script>
 </body>
 </html>

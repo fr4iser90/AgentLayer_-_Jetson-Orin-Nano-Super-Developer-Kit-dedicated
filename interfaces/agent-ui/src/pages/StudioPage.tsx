@@ -1,0 +1,273 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { SchemaForm } from "../components/SchemaForm";
+
+type CatalogPreset = {
+  run_key: string;
+  title: string;
+  description?: string;
+  kind?: string;
+  engine?: string;
+  workflow_file?: string;
+  inputs_schema: {
+    type?: string;
+    properties?: Record<string, Record<string, unknown>>;
+    required?: string[];
+  };
+};
+
+type CatalogPayload = {
+  studio_version?: number;
+  engine_default?: string;
+  presets?: CatalogPreset[];
+};
+
+function buildInitialValues(
+  preset: CatalogPreset | undefined
+): Record<string, unknown> {
+  if (!preset?.inputs_schema?.properties) return {};
+  const out: Record<string, unknown> = {};
+  const props = preset.inputs_schema.properties;
+  for (const key of Object.keys(props)) {
+    const p = props[key] as { default?: unknown; enum?: string[] };
+    if (p.enum && p.enum.length > 0 && p.enum[0] === "") out[key] = "";
+    else if (p.default !== undefined) out[key] = p.default;
+  }
+  return out;
+}
+
+export function StudioPage() {
+  const { accessToken } = useAuth();
+  const [catalog, setCatalog] = useState<CatalogPayload | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [selectedRunKey, setSelectedRunKey] = useState<string>("comfy_txt2img_default");
+  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [jobLoading, setJobLoading] = useState(false);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [jobResult, setJobResult] = useState<unknown>(null);
+
+  const preset = useMemo(
+    () => catalog?.presets?.find((p) => p.run_key === selectedRunKey),
+    [catalog, selectedRunKey]
+  );
+
+  const txt2img = catalog?.presets?.find((p) => p.kind === "txt2img");
+  const inpaint = catalog?.presets?.find((p) => p.kind === "inpaint");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const hdr: Record<string, string> = {};
+        if (accessToken) hdr.Authorization = `Bearer ${accessToken}`;
+        const r = await fetch("/v1/studio/catalog", { credentials: "include", headers: hdr });
+        if (!r.ok) throw new Error(`catalog ${r.status}`);
+        const data = (await r.json()) as CatalogPayload;
+        if (!cancelled) {
+          setCatalog(data);
+          setCatalogError(null);
+        }
+      } catch (e) {
+        if (!cancelled)
+          setCatalogError(e instanceof Error ? e.message : "Failed to load catalog");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!preset) return;
+    setValues(buildInitialValues(preset));
+  }, [preset?.run_key, catalog?.studio_version]);
+
+  const onFieldChange = useCallback((key: string, value: unknown) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  const runJob = async () => {
+    if (!preset) return;
+    setJobLoading(true);
+    setJobError(null);
+    setJobResult(null);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+      const body = { run_key: preset.run_key, inputs: values };
+      const r = await fetch("/v1/studio/jobs", {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await r.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = text;
+      }
+      if (!r.ok) {
+        setJobError(typeof data === "object" && data && "detail" in (data as object)
+          ? String((data as { detail: unknown }).detail)
+          : text || `HTTP ${r.status}`);
+        return;
+      }
+      setJobResult(data);
+    } catch (e) {
+      setJobError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setJobLoading(false);
+    }
+  };
+
+  const schemaProps = preset?.inputs_schema?.properties as
+    | Record<string, Record<string, unknown>>
+    | undefined;
+  const required = preset?.inputs_schema?.required ?? [];
+
+  const previewUrl =
+    jobResult &&
+    typeof jobResult === "object" &&
+    jobResult !== null &&
+    "primary_image" in jobResult &&
+    (jobResult as { primary_image?: { data_url?: string } }).primary_image?.data_url;
+
+  return (
+    <div className="flex min-h-[calc(100vh-52px)] bg-surface">
+      <aside className="w-56 shrink-0 border-r border-surface-border bg-[#111] p-3">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-surface-muted">
+          Image generation
+        </p>
+        {txt2img ? (
+          <button
+            type="button"
+            onClick={() => setSelectedRunKey(txt2img.run_key)}
+            className={[
+              "mb-1 w-full rounded-lg border px-3 py-2 text-left text-sm",
+              selectedRunKey === txt2img.run_key
+                ? "border-white/30 bg-white/10 text-white"
+                : "border-transparent text-neutral-400 hover:bg-white/5",
+            ].join(" ")}
+          >
+            <div className="font-medium">{txt2img.title}</div>
+            <div className="text-xs text-surface-muted">{txt2img.engine ?? "comfyui"}</div>
+          </button>
+        ) : null}
+
+        <p className="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-surface-muted">
+          Inpaint
+        </p>
+        {inpaint ? (
+          <button
+            type="button"
+            onClick={() => setSelectedRunKey(inpaint.run_key)}
+            className={[
+              "w-full rounded-lg border px-3 py-2 text-left text-sm",
+              selectedRunKey === inpaint.run_key
+                ? "border-white/30 bg-white/10 text-white"
+                : "border-transparent text-neutral-400 hover:bg-white/5",
+            ].join(" ")}
+          >
+            <div className="font-medium">{inpaint.title}</div>
+            <div className="text-xs text-surface-muted">{inpaint.engine ?? "comfyui"}</div>
+          </button>
+        ) : null}
+      </aside>
+
+      <div className="min-w-0 flex-1 overflow-y-auto p-8">
+        <h1 className="text-2xl font-semibold text-white">Image Studio</h1>
+        <p className="mt-1 max-w-2xl text-sm text-surface-muted">
+          Schema-driven forms from the Agent Layer. Configure ComfyUI / operator settings on the
+          server.
+        </p>
+
+        {catalogError ? (
+          <p className="mt-4 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+            {catalogError}
+          </p>
+        ) : null}
+
+        {catalog && !catalogError ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+            <span className="rounded-full bg-emerald-950/80 px-2 py-0.5 text-emerald-300">
+              Studio catalog from server
+            </span>
+            <span className="text-surface-muted">v{catalog.studio_version ?? "?"}</span>
+            <span className="text-surface-muted">
+              Default engine: {catalog.engine_default ?? "—"}
+            </span>
+            <button
+              type="button"
+              className="text-sky-400 underline hover:text-sky-300"
+              onClick={() => window.location.reload()}
+            >
+              Reload catalog
+            </button>
+          </div>
+        ) : null}
+
+        {preset ? (
+          <div className="mt-8 max-w-xl">
+            <h2 className="text-lg font-medium text-white">{preset.title}</h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-surface-muted">
+              {preset.description}
+            </p>
+            <p className="mt-2 font-mono text-xs text-neutral-500">
+              run_key: {preset.run_key}
+              {preset.workflow_file ? ` · ${preset.workflow_file}` : ""}
+            </p>
+
+            {schemaProps ? (
+              <div className="mt-6">
+                <SchemaForm
+                  properties={schemaProps}
+                  required={required}
+                  values={values}
+                  onChange={onFieldChange}
+                />
+              </div>
+            ) : null}
+
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={jobLoading}
+                onClick={() => void runJob()}
+                className="rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-black hover:bg-neutral-200 disabled:opacity-50"
+              >
+                {jobLoading ? "Running…" : "Run job"}
+              </button>
+              <code className="text-xs text-surface-muted">POST /v1/studio/jobs</code>
+            </div>
+
+            {jobError ? (
+              <p className="mt-4 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                {jobError}
+              </p>
+            ) : null}
+
+            {previewUrl ? (
+              <div className="mt-6">
+                <p className="mb-2 text-sm text-neutral-300">Result</p>
+                <img
+                  src={previewUrl}
+                  alt="Studio output"
+                  className="max-h-[480px] max-w-full rounded-lg border border-surface-border"
+                />
+              </div>
+            ) : jobResult ? (
+              <pre className="mt-4 max-h-64 overflow-auto rounded-lg border border-surface-border bg-[#111] p-3 text-xs text-neutral-300">
+                {JSON.stringify(jobResult, null, 2)}
+              </pre>
+            ) : null}
+          </div>
+        ) : catalog && !catalogError ? (
+          <p className="mt-8 text-surface-muted">No preset selected.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}

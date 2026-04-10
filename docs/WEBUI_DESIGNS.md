@@ -17,7 +17,7 @@ Die WebUI braucht **keinen** vollen Agent-Code — nur den **Contract** + dieses
 
 ### Admin vs. Nutzung (festgelegt)
 
-- **Agent Layer:** **Operator-Admin** bleibt hier — z. B. Control-Panel (`/control/` wenn ausgeliefert), oder `curl`/interne Tools gegen `GET/POST /v1/admin/*` (Reload-Tools, Create-Tool, RAG-Ingest, …). Hohe Rechte, enges Netz / wenige Personen.
+- **Agent Layer:** **Operator-Admin** bleibt hier — z. B. statisches Admin-HTML (`/admin/` wenn ausgeliefert), oder `curl`/interne Tools gegen `GET/POST /v1/admin/*` (Reload-Tools, Create-Tool, RAG-Ingest, …). Hohe Rechte, enges Netz / wenige Personen.
 - **Open WebUI:** nur **Endnutzung** gegen den Agent (Auth + Header wie im Contract). Der **WebUI-eigene** Admin (WebUI-Nutzer, Gruppen, …) ist etwas anderes und betrifft nicht die Agent-Backend-Operator-Funktionen.
 
 ---

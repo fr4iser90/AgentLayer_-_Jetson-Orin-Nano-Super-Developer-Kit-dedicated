@@ -12,11 +12,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.core.config import config
@@ -33,6 +31,7 @@ from src.infrastructure.auth import (
     verify_password,
     get_user_by_email,
     validate_refresh_token,
+    revoke_refresh_token,
 )
 from src.infrastructure.operator_settings import (
     InterfaceHintsPayload,
@@ -48,7 +47,7 @@ from src.api.optional_http_access import (
     optional_connection_allows,
     public_http_auth_policy,
 )
-from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed, claim_admin_user
+from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed
 from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_user_tenant
 from src.domain.identity import reset_identity, set_identity
@@ -62,6 +61,15 @@ from src.infrastructure.user_secrets_api import router as user_secrets_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
+
+REFRESH_COOKIE_NAME = "agent_refresh"
+REFRESH_COOKIE_MAX_AGE = 7 * 24 * 3600
+
+
+def _cookie_secure(request: Request) -> bool:
+    if os.environ.get("AGENT_COOKIE_SECURE", "").lower() in ("1", "true", "yes"):
+        return True
+    return request.url.scheme == "https"
 
 
 def _bearer_user_role_from_request(request: Request) -> str | None:
@@ -82,7 +90,7 @@ async def lifespan(_app: FastAPI):
         setup_admin_claim_if_needed()
     except Exception:
         logger.exception(
-            "First-admin bootstrap failed (run DB migrations; need 0011_admin_claim_otp?)"
+            "First-admin bootstrap failed (DB migrations? or set AGENT_INITIAL_ADMIN_EMAIL/PASSWORD)"
         )
     if (os.environ.get("AGENT_CORS_ORIGINS") or "*").strip() == "*":
         logger.warning(
@@ -111,11 +119,10 @@ async def login(request: Request, login_data: LoginRequest):
     user = get_user_by_email(login_data.email)
     if not user or not user.password_hash or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
     access_token = create_access_token(user.id, user.role)
     refresh_token, refresh_token_hash = create_refresh_token(user.id)
-    
-    # Store refresh token
+
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -123,90 +130,9 @@ async def login(request: Request, login_data: LoginRequest):
                 VALUES (%s, %s, NOW() + INTERVAL '7 days')
             """, (user.id, refresh_token_hash))
             conn.commit()
-    
-    return {
+
+    payload = {
         "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "expires_in": 900,
-        "user": {
-            "id": str(user.id),
-            "email": user.email,
-            "role": user.role
-        }
-    }
-
-
-@app.post("/auth/refresh")
-async def refresh_token(request: Request):
-    try:
-        body = await request.json()
-        refresh_token = body.get("refresh_token")
-        if not refresh_token:
-            raise HTTPException(status_code=400, detail="refresh_token required")
-        
-        user = validate_refresh_token(refresh_token)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid refresh token")
-        
-        access_token = create_access_token(user.id, user.role)
-        
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "expires_in": 900
-        }
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-
-
-class ClaimRequest(BaseModel):
-    email: str = Field(..., min_length=3, max_length=320)
-    password: str = Field(..., min_length=8, max_length=512)
-    otp: str = Field(..., min_length=8, max_length=512)
-
-
-@app.get("/auth/setup-status")
-async def auth_setup_status():
-    """True when no admin user exists yet (browser may show claim form)."""
-    return {"needs_setup": is_first_start()}
-
-
-@app.post("/auth/claim")
-async def auth_claim(claim: ClaimRequest):
-    """
-    One-time first admin creation. Requires OTP from server logs (startup) or
-    AGENT_ADMIN_CLAIM_OTP env after bootstrap (same value as printed once).
-    """
-    if not is_first_start():
-        raise HTTPException(status_code=403, detail="setup already completed")
-
-    if not claim_admin_user(claim.email.strip(), claim.password, claim.otp.strip()):
-        raise HTTPException(
-            status_code=401,
-            detail="invalid or expired otp",
-        )
-
-    user = get_user_by_email(claim.email.strip())
-    if not user:
-        raise HTTPException(status_code=500, detail="user creation failed")
-
-    access_token = create_access_token(user.id, user.role)
-    refresh_token, refresh_token_hash = create_refresh_token(user.id)
-    with db.pool().connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO refresh_tokens (user_id, token_hash, expires_at)
-                VALUES (%s, %s, NOW() + INTERVAL '7 days')
-                """,
-                (user.id, refresh_token_hash),
-            )
-            conn.commit()
-
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
         "token_type": "bearer",
         "expires_in": 900,
         "user": {
@@ -215,6 +141,63 @@ async def auth_claim(claim: ClaimRequest):
             "role": user.role,
         },
     }
+    response = JSONResponse(content=payload)
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        max_age=REFRESH_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=_cookie_secure(request),
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/auth/refresh")
+async def auth_refresh(request: Request):
+    raw_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not raw_refresh:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                raw_refresh = body.get("refresh_token")
+        except Exception:
+            pass
+    if not raw_refresh:
+        raise HTTPException(status_code=400, detail="refresh_token required")
+
+    user = validate_refresh_token(raw_refresh)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    access_token = create_access_token(user.id, user.role)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": 900,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "role": user.role,
+        },
+    }
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    raw = request.cookies.get(REFRESH_COOKIE_NAME)
+    if raw:
+        revoke_refresh_token(raw)
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/auth/setup-status")
+async def auth_setup_status():
+    """False when an admin exists (startup already requires env or CLI if DB was empty)."""
+    return {"needs_setup": is_first_start()}
 
 
 @app.get("/auth/me")
@@ -262,15 +245,27 @@ def http_auth_policy():
 
 # interfaces/ lives at repo root (sibling of src/), not under src/
 _control_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static"
-if _control_dir.is_dir():
-    app.mount(
-        "/control",
-        StaticFiles(directory=str(_control_dir), html=True),
-        name="control_panel",
-    )
+_control_login_html = _control_dir / "login.html"
+_js_dir = _control_dir / "js"
+if _js_dir.is_dir():
+    app.mount("/js", StaticFiles(directory=str(_js_dir)), name="public_js")
 
 _agent_ui_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static" / "app"
-if (_agent_ui_dir / "index.html").is_file():
+_agent_index = _agent_ui_dir / "index.html"
+if _agent_index.is_file():
+
+    @app.get("/app/chat")
+    @app.get("/app/login")
+    @app.get("/app/studio")
+    @app.get("/app/admin")
+    @app.get("/app/admin/interfaces")
+    @app.get("/app/admin/tools")
+    @app.get("/app/admin/users")
+    @app.get("/app/admin/workflows")
+    async def agent_ui_spa_shell():
+        """Serve SPA index for client-side routes (must register before mount /app)."""
+        return FileResponse(_agent_index)
+
     app.mount(
         "/app",
         StaticFiles(directory=str(_agent_ui_dir), html=True),
@@ -319,14 +314,52 @@ async def auth_middleware(request: Request, call_next):
 
 
 @app.get("/")
-def root():
-    """Browser-friendly entry: control panel when shipped; otherwise a tiny JSON hint."""
-    if _control_dir.is_dir():
-        return RedirectResponse(url="/control/", status_code=307)
-    return {
+def root(request: Request):
+    """JSON index for API clients; top-level browser navigations go to the SPA (see /auth/policy for JSON)."""
+    accept = (request.headers.get("accept") or "").lower()
+    sec_dest = (request.headers.get("sec-fetch-dest") or "").lower()
+    first = accept.split(",")[0].strip() if accept else ""
+    wants_html = sec_dest == "document" or (
+        "text/html" in accept and not first.startswith("application/json")
+    )
+    if wants_html and _agent_index.is_file():
+        return RedirectResponse(url="/app/", status_code=302)
+
+    out: dict[str, object] = {
         "service": "agent-layer",
+        "first_party_ui": "/app/",
+        "login": "/login",
         "hint": "OpenAI API under /v1/ (e.g. POST /v1/chat/completions); WebSocket /ws/v1/chat; GET /health; GET /v1/tools",
     }
+    if _agent_index.is_file():
+        out["operator_admin_ui"] = "/app/admin"
+    return out
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """Empty favicon so GET does not fall through to POST /{tool_name} (would return 405)."""
+    return Response(status_code=204)
+
+
+@app.get("/login")
+def login_page():
+    """Canonical browser login; session script at ``/js/auth.js``."""
+    if not _control_login_html.is_file():
+        raise HTTPException(status_code=404, detail="login page not shipped")
+    return FileResponse(_control_login_html)
+
+
+@app.get("/chat")
+def browser_chat_entry():
+    """Short URL → SPA (public: loading the shell must not require JWT)."""
+    return RedirectResponse(url="/app/chat", status_code=307)
+
+
+@app.get("/dashboard")
+def browser_dashboard_entry():
+    """Short URL → first-party app home (`/app/`)."""
+    return RedirectResponse(url="/app/", status_code=307)
 
 
 @app.get("/health")

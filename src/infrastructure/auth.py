@@ -90,6 +90,28 @@ def validate_refresh_token(token: str) -> Optional[User]:
     return None
 
 
+def revoke_refresh_token(token: str) -> bool:
+    """Delete refresh session matching the raw token (e.g. on logout). Returns True if a row was removed."""
+    if not (token or "").strip():
+        return False
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, token_hash
+                FROM refresh_tokens
+                WHERE expires_at > NOW()
+                """
+            )
+            for row in cur.fetchall():
+                rid, token_hash = row
+                if verify_password(token, token_hash):
+                    cur.execute("DELETE FROM refresh_tokens WHERE id = %s", (rid,))
+                    conn.commit()
+                    return True
+    return False
+
+
 def decode_access_token(token: str) -> Optional[dict]:
     """Decode and validate JWT access token"""
     try:

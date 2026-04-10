@@ -23,17 +23,20 @@ _MIDDLEWARE_PUBLIC_EXACT: frozenset[str] = frozenset(
         "/v1/models",
         "/auth/login",
         "/auth/refresh",
-        "/auth/claim",
+        "/auth/logout",
         "/auth/setup-status",
         "/auth/policy",
         "/favicon.ico",
+        "/login",
+        "/chat",
+        "/dashboard",
     }
 )
 
 
 def middleware_path_is_public(path: str, method: str) -> bool:
     """Paths that skip global Bearer/JWT checks entirely."""
-    if path.startswith("/control/"):
+    if path.startswith("/js/"):
         return True
     if path == "/app" or path.startswith("/app/"):
         return True
@@ -103,7 +106,7 @@ def public_http_auth_policy() -> dict[str, Any]:
             "options_preflight": "OPTIONS passes without Authorization.",
             "no_authorization": {
                 "exact_paths": sorted(_MIDDLEWARE_PUBLIC_EXACT),
-                "path_prefixes": ["/control/", "/app/"],
+                "path_prefixes": ["/js/", "/app/"],
                 "post_path": "/v1/user/secrets/register-with-otp",
             },
             "optional_connection_key": {

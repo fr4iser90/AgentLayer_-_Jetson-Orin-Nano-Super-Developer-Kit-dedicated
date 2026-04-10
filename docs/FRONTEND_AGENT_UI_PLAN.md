@@ -128,12 +128,12 @@ Single **base URL** from `VITE_AGENT_LAYER_ORIGIN` (or Vite dev proxy).
 
 | Topic | Recommendation |
 |-------|----------------|
-| **Access token** | Short-lived (~15m) — **`sessionStorage`** or **memory** to reduce XSS exposure; **`localStorage`** only with accepted risk. |
-| **Refresh token** | **`httpOnly` cookie** only if Agent Layer sets cookies; else **localStorage** or memory-only access + re-login. **Pragmatic P1:** access in memory + refresh in `sessionStorage`, refresh via `POST /auth/refresh`. |
+| **Access token** | Short-lived (~15m) — **memory only** in browser (`auth.js` / React `AuthContext`); never `localStorage`. |
+| **Refresh token** | **`httpOnly` cookie** `agent_refresh` (set by `POST /auth/login`); **`POST /auth/logout`** revokes. Non-browser clients may still send `{ "refresh_token" }` on `POST /auth/refresh`. |
 | **Auto-refresh** | Before expiry (`expires_in`), timer/interceptor; on 401, one refresh attempt then logout. |
 | **WebSocket auth** | Match server: `Authorization: Bearer` on handshake **or** `?token=` — see [WEBUI_CONTRACT.md](WEBUI_CONTRACT.md) / `chat_websocket.py`. |
 | **Multi-tab** | **BroadcastChannel** or `storage` event: logout in one tab clears others; or intentional “per-tab session” (simpler, inconsistent). |
-| **Logout** | Clear tokens, React Query `clear()`, close WS, navigate to `/login`. |
+| **Logout** | Clear tokens, React Query `clear()`, close WS, navigate to **`/app/login`** (or `/login` while HTML admin flow remains). |
 
 No second user database in the browser — **identity is whatever the Agent Layer validates**.
 
@@ -263,7 +263,7 @@ This prevents future features (shared memory, multi-device) from fighting a fake
 
 ## 18. Deployment: same container vs extra service
 
-**Today:** the Agent Layer already serves **static files** from `interfaces/web/static` at **`/control`** (see `src/api/main.py` — `StaticFiles`). There is **no** separate frontend container in-repo unless you add compose yourself.
+**Today:** the Agent Layer already serves **static files** from `interfaces/web/static` at **`/admin`** (see `src/api/main.py` — `StaticFiles`). There is **no** separate frontend container in-repo unless you add compose yourself.
 
 **For the new React app (`interfaces/agent-ui/`), you can choose:**
 
@@ -273,7 +273,24 @@ This prevents future features (shared memory, multi-device) from fighting a fake
 | **B — Separate container (e.g. nginx)** | Build the SPA in a **frontend** image; nginx serves static files and **proxies** `/` API traffic to `agent-layer:8088` (or whatever). **Two containers**; good if you want independent UI deploys or CDN. |
 | **C — Dev only** | `vite dev` on the host with **proxy** to Agent Layer — no Docker change until production. |
 
-**Option A in-repo:** `interfaces/agent-ui/` is a Vite+React app; `npm run build` writes to `interfaces/web/static/app/`. The image build runs that step and **`app.mount("/app", …)`** in `src/api/main.py` serves the SPA when `index.html` is present. `/app` is public in the auth middleware (same pattern as `/control/`).
+**Option A in-repo:** `interfaces/agent-ui/` is a Vite+React app; `npm run build` writes to `interfaces/web/static/app/`. The image build runs that step and **`app.mount("/app", …)`** in `src/api/main.py` serves the SPA when `index.html` is present. `/app` is public in the auth middleware (same pattern as `/admin/`).
+
+---
+
+## 19. Canonical browser routes (SPA-first)
+
+| Route | Role |
+|-------|------|
+| **`GET /`** | **JSON** service index (`first_party_ui: "/app/"`, optional `admin_static: "/admin/"`). |
+| **`GET /chat`** | **307 → `/app/chat`** — short link; loading the SPA shell stays **unauthenticated** (JWT only for API/WS). |
+| **`GET /dashboard`** | **307 → `/app/`** — short link for the first-party “home” (not `/admin/dashboard.html`). |
+| **`GET /app/*`** | **React SPA** (`interfaces/agent-ui` build). Routes include **`/app/`**, **`/app/chat`**, **`/app/studio`**, **`/app/login`** (P1: real auth UI here). |
+| **`POST /auth/login`** | **JSON API** (not a page); used by any client (HTML form today, SPA after P1). |
+| **`GET /login`** | **HTML login** (`login.html`) for sessions used by **`/admin/`** pages until P1 moves sign-in into the SPA. |
+| **`GET /admin/*`** | **Static HTML** admin (dashboard, tools, …). |
+| **`GET /admin/login.html`** | Same file as **`GET /login`**; served via static mount (no redirect route). |
+
+**Intent:** The **first-party product UI** is the SPA under **`/app`**. **`GET /login`** remains an interim HTML form for **`/admin/`** compatibility; **`/app/login`** becomes the primary sign-in surface in P1.
 
 ---
 
@@ -286,3 +303,8 @@ This prevents future features (shared memory, multi-device) from fighting a fake
 | 2026-04-09 | **English-only** canonical doc; added: degraded modes, rendering (markdown/code/memo), memory vs UI rule, observability. |
 | 2026-04-09 | §18 deployment: same Agent Layer container vs separate nginx-style service. |
 | 2026-04-08 | §18 Option A: `interfaces/agent-ui`, Docker multi-stage build, `/app` static mount. |
+| 2026-04-08 | §19 SPA-first: `/` JSON index with `first_party_ui`; no redirects from `/` or `/chat`; interim HTML login at `/login` for `/admin/`. |
+| 2026-04-10 | Static admin mount renamed **`/control` → `/admin`** (e.g. `/admin/dashboard.html`). |
+| 2026-04-10 | SPA: Tailwind shell; **`/app/chat`** (OWUI-style layout stub) and **`/app/studio`** (schema-driven Image Studio + `POST /v1/studio/jobs`). |
+| 2026-04-10 | Public short links **`GET /chat` → `/app/chat`**, **`GET /dashboard` → `/app/`** (avoid 401 on unauthenticated browser navigation). |
+| 2026-04-10 | Auth: **httpOnly cookie** `agent_refresh` for refresh; **no refresh token in JSON**; access JWT + user only in **memory** (HTML `auth.js` + React `AuthContext`). **`POST /auth/logout`** clears cookie + DB row. |
