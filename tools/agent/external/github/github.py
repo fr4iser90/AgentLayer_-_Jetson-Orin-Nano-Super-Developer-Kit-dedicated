@@ -19,7 +19,8 @@ TOOL_BUCKET = "network"
 TOOL_DOMAIN = "github"
 TOOL_LABEL = "GitHub"
 TOOL_DESCRIPTION = (
-    "Search code and issues, list PRs, read files via GitHub REST (token or user secret github_pat)."
+    "Search code and issues, list PRs, read files via GitHub REST (env GITHUB_TOKEN or per-user secret "
+    "github_pat — use Settings → Connections for a token field, or JSON {\"token\":\"ghp_…\"})."
 )
 TOOL_TRIGGERS = (
     "github",

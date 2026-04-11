@@ -1,5 +1,0 @@
-ALTER TABLE user_agent_profile
-  ADD COLUMN IF NOT EXISTS profile_version BIGINT NOT NULL DEFAULT 1,
-  ADD COLUMN IF NOT EXISTS profile_hash TEXT NOT NULL DEFAULT '',
-  ADD COLUMN IF NOT EXISTS injection_preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS usage_patterns JSONB NOT NULL DEFAULT '{}'::jsonb;

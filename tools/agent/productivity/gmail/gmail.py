@@ -1,4 +1,8 @@
-"""Gmail via IMAP (Google App Password). User secret ``gmail`` — see module docstring."""
+"""Gmail via IMAP (Google App Password).
+
+Per-user secret ``gmail`` (JSON: email + app_password). The Agent web UI maps this to a structured form
+via ``TOOL_USER_SECRET_FORMS`` (Settings → Connections).
+"""
 
 from __future__ import annotations
 

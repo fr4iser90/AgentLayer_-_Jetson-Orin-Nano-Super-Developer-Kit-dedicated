@@ -36,20 +36,21 @@ def secrets_help(arguments: dict[str, Any]) -> str:
 
     hints: list[str] = [
         "Neues Secret speichern: **nur** Tool `register_secrets` — in der Antwort stehen `curl_bash` und ggf. `jq_register_example_de` (OTP ist schon eingebaut).",
+        "Mit Web-UI (eingeloggt): **Einstellungen → Connections** — dort zeigen die Tools die passenden Felder (Gmail, GitHub, Kalender …).",
         "Dieses Tool (`secrets_help`) erzeugt **kein** OTP und keinen curl — nur Erklärung.",
     ]
     if topic in ("email", "imap", "mail", "gmail"):
         hints.append(
-            "Gmail: Google-Konto → App-Passwort; `service_key` z. B. `gmail` oder `email_imap`."
+            "Gmail: **App-Passwort** (nicht das normale Passwort); `service_key` **`gmail`** — JSON `{\"email\":\"…\",\"app_password\":\"…\"}` oder Formular unter Einstellungen → Connections."
         )
     if topic in ("github", "gh", "pat"):
         hints.append(
-            'GitHub: `service_key` `github_pat` — JSON `{"token":"…"}` oder Operator setzt `GITHUB_TOKEN` in docker/.env für alle Nutzer.'
+            'GitHub: `service_key` **`github_pat`** — JSON `{"token":"ghp_…"}` (oder nur den Token-String). Operator kann stattdessen `GITHUB_TOKEN` in docker/.env setzen.'
         )
     if topic in ("calendar", "ics", "caldav", "nextcloud"):
         hints.append(
-            'Kalender read-only: `calendar_ics` oder `google_calendar` mit JSON `{"ics_url":"https://…"}` — '
-            "Google: Einstellungen → geheime iCal-Adresse (`calendar.google.com/.../basic.ics`)."
+            'Kalender read-only: **`calendar_ics`** oder **`google_calendar`** (gleiches JSON `{"ics_url":"https://…"}`). '
+            "Google: Kalendereinstellungen → *Geheime Adresse im iCal-Format*. Es reicht **ein** gespeicherter Key — der Agent probiert `google_calendar` zuerst."
         )
     if topic in ("google", "gcal", "google_calendar"):
         hints.append(
@@ -79,9 +80,10 @@ def secrets_help(arguments: dict[str, Any]) -> str:
             "resolved_user_id": uid,
             "resolved_external_sub": user_value,
             "for_llm_de": (
-                "Neues Secret speichern: **nur** `register_secrets` mit passendem `service_key_example` "
-                "(gmail, google_calendar, github_pat, …). Dem Nutzer **nur** `curl_bash` / `jq_register_example_de` "
-                "aus **dieser** Antwort geben — nichts erfinden. Klartext-Secrets und iCal-URLs **nie** in den Chat."
+                "Neues Secret speichern: **Web-UI** Einstellungen → Connections (Formulare), **oder** `register_secrets` "
+                "mit passendem `service_key_example` (gmail, google_calendar, calendar_ics, github_pat, …). "
+                "Bei curl: Dem Nutzer **nur** `curl_bash` / `jq_register_example_de` aus **dieser** Antwort geben — nichts erfinden. "
+                "Klartext-Secrets und iCal-URLs **nie** in den Chat."
             ),
             "common_mistakes_de": [
                 "Falsch: `secrets_help` aufrufen und erwarten, dass ein OTP oder curl erscheint.",

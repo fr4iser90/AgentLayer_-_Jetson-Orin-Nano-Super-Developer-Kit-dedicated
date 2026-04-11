@@ -39,6 +39,41 @@ TOOL_TRIGGERS = (
 
 # Try Google-specific key first (same JSON shape), then generic ICS.
 SECRET_KEYS_TRY_ORDER: tuple[str, ...] = ("google_calendar", "calendar_ics")
+
+# Catalog: both keys (same JSON); runtime tries ``google_calendar`` first, then ``calendar_ics``.
+TOOL_REQUIRES = ("google_calendar", "calendar_ics")
+_TOOL_ICS_FORM: dict[str, Any] = {
+    "title": "Calendar (HTTPS iCal / ICS URL)",
+    "help": (
+        "Read-only feed URL (must be https://). Google Calendar: calendar.google.com → gear → Settings for your "
+        "calendar → **Integrate calendar** → *Secret address in iCal format* (…/basic.ics). "
+        "Nextcloud / others: use their “subscribe” HTTPS ICS link. "
+        "If you already saved the same JSON under **google_calendar**, you do not need a second secret — "
+        "the tool tries that key first, then **calendar_ics**."
+    ),
+    "fields": [
+        {
+            "name": "ics_url",
+            "label": "ICS / iCal HTTPS URL",
+            "type": "text",
+            "required": True,
+        },
+    ],
+}
+TOOL_USER_SECRET_FORMS: dict[str, dict[str, Any]] = {
+    "calendar_ics": dict(_TOOL_ICS_FORM),
+    # Same JSON shape; lets users who prefer the Google-specific key get the same form in the UI.
+    "google_calendar": {
+        **_TOOL_ICS_FORM,
+        "title": "Google Calendar (secret iCal URL)",
+        "help": (
+            "Same as **calendar_ics**: store `{\"ics_url\":\"https://calendar.google.com/calendar/ical/…/basic.ics\"}`. "
+            "Google: Settings for the calendar → Integrate calendar → *Secret address in iCal format*. "
+            "The agent tries **google_calendar** before **calendar_ics**."
+        ),
+    },
+}
+
 HTTP_TIMEOUT = 45.0
 MAX_ICS_BYTES = 2_000_000
 MAX_EVENTS_RETURN = 120
@@ -105,9 +140,10 @@ def _ics_url_for_user() -> str | dict[str, Any]:
         return {
             "ok": False,
             "error": (
-                "No calendar ICS URL stored. Use register_secrets with "
-                'service_key_example "google_calendar" (Google) or "calendar_ics" (any HTTPS iCal feed). '
-                'Secret JSON: {"ics_url":"https://..."}.'
+                "No calendar ICS URL stored. In the web app: **Settings → Connections**, pick **calendar_ics** or "
+                "**google_calendar** and paste the HTTPS iCal URL (saved as JSON with key `ics_url`). "
+                "Or use chat tool **register_secrets** with service_key_example `google_calendar` or `calendar_ics` "
+                'and the OTP curl — same JSON shape: {"ics_url":"https://..."}.'
             ),
             "google_calendar_setup_de": (
                 "Google Kalender (read-only, ohne OAuth): In calendar.google.com → Zahnrad → Einstellungen → "

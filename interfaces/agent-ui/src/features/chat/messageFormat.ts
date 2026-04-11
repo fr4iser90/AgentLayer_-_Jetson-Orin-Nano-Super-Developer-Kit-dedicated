@@ -74,10 +74,15 @@ export function buildUserMessageContent(
   const lines: string[] = [];
   const t = text.trim();
   if (t) lines.push(t);
-  const imageParts: Array<{ type: string; image_url: { url: string } }> = [];
+  const imageParts: Array<Record<string, unknown>> = [];
   for (const a of attachments) {
     if (a.kind === "image") {
-      imageParts.push({ type: "image_url", image_url: { url: a.dataUrl } });
+      // Server-only hint so tools (e.g. run_iterative_html_build) can persist uploads/hero.png etc.
+      imageParts.push({
+        type: "image_url",
+        image_url: { url: a.dataUrl },
+        agent_filename: a.name,
+      });
     } else if (a.kind === "textfile") {
       lines.push(`[File: ${a.name}]\n${a.text}`);
     } else {

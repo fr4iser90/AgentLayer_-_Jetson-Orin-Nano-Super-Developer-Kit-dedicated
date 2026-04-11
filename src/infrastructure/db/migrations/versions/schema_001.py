@@ -1,11 +1,11 @@
-"""Squashed baseline schema (UUID users, operator_settings.optional_connection_key).
+"""Single baseline migration — applies ``sql/schema.sql`` (full current schema).
 
 Revision ID: schema_001
-Revises:
-Create Date: 2026-04-08
+Revises: (none)
+Head: this revision only.
 
-Fresh databases only. Older installs used revisions 0001–0015; drop the DB volume
-or create a new database before upgrading to this head.
+Use on empty databases: ``alembic upgrade head``. Older incremental revisions were removed;
+existing deployments should dump data, recreate DB, restore data if needed, or keep a backup branch.
 """
 from __future__ import annotations
 

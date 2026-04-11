@@ -25,6 +25,10 @@ from src.domain.plugin_system.tool_routing import (
     last_user_text,
 )
 from src.domain.plugin_system.tools import run_tool
+from src.domain.tool_invocation_context import (
+    reset_tool_invocation_messages,
+    set_tool_invocation_messages,
+)
 from src.domain.model_routing import resolve_effective_model
 from src.domain.user_persona import apply_user_persona_system
 
@@ -99,6 +103,7 @@ _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
         "TOOL_DOMAIN",
         "agent_pause_between_rounds",
         "agent_disabled_tools",
+        "agent_plain_completion",
     }
 )
 
@@ -769,6 +774,7 @@ async def chat_completion(
     # stream flag is ignored here; Ollama always gets stream=false. Caller may wrap JSON as SSE.
     body.pop("agent_tool_mode", None)
     body.pop("agent_mode", None)
+    plain_completion = _coerce_body_bool(body.pop("agent_plain_completion", None), False)
     extra_cats_body = _parse_router_categories_value(body.pop("agent_router_categories", None))
     extra_cats_hdr = _parse_router_category_tokens(router_categories_header)
     raw_tool_dom = body.pop("TOOL_DOMAIN", None)
@@ -794,7 +800,11 @@ async def chat_completion(
         bearer_user_role=bearer_user_role,
     )
 
-    merged_tools = _merge_tools(body.get("tools"))
+    if plain_completion:
+        merged_tools: list[Any] = []
+        logger.debug("chat_completion: agent_plain_completion (no tools forwarded to Ollama)")
+    else:
+        merged_tools = _merge_tools(body.get("tools"))
     routed_category: str | None = None
     cats = classify_user_tool_categories(last_user_text(messages))
     cats = cats | extra_cats_body | extra_cats_hdr
@@ -1120,7 +1130,11 @@ async def chat_completion(
                         "name": name,
                     }
                 )
-            result = run_tool(name, args)
+            tctx = set_tool_invocation_messages(list(messages))
+            try:
+                result = run_tool(name, args)
+            finally:
+                reset_tool_invocation_messages(tctx)
             if event_emit:
                 await event_emit(
                     {

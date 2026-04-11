@@ -6,6 +6,7 @@ See docs/WEBUI_CONTRACT.md (model routing) and env AGENT_MODEL_* / AGENT_ALLOW_M
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -18,17 +19,29 @@ logger = logging.getLogger(__name__)
 _PROFILE_KEYS = frozenset({"default", "vlm", "agent", "coding"})
 
 
+def _message_content_parts(msg: dict[str, Any]) -> list[dict[str, Any]]:
+    """OpenAI-style ``content`` as list, or JSON array string (agent-ui storage format)."""
+    c = msg.get("content")
+    if isinstance(c, list):
+        return [p for p in c if isinstance(p, dict)]
+    if isinstance(c, str):
+        t = c.strip()
+        if t.startswith("["):
+            try:
+                p = json.loads(c)
+                if isinstance(p, list):
+                    return [x for x in p if isinstance(x, dict)]
+            except json.JSONDecodeError:
+                pass
+    return []
+
+
 def messages_contain_image_parts(messages: list[dict[str, Any]]) -> bool:
     """True if any message content uses OpenAI-style multimodal image parts."""
     for m in messages:
         if not isinstance(m, dict):
             continue
-        c = m.get("content")
-        if not isinstance(c, list):
-            continue
-        for part in c:
-            if not isinstance(part, dict):
-                continue
+        for part in _message_content_parts(m):
             t = str(part.get("type") or "").strip().lower()
             if t in ("image_url", "image", "input_image"):
                 return True
@@ -122,7 +135,8 @@ def resolve_effective_model(
             f" (body.model token)" if body_tok and not hdr else ""
         )
 
-    if _override_allowed(bearer_user_role):
+    # Text-only overrides (e.g. lfm2.5-thinking) cannot consume image_url parts — Ollama 500s.
+    if _override_allowed(bearer_user_role) and not auto_vlm:
         oh = _strip_model(override_header)
         bm = _strip_model(body_model)
         if _profile_token_from_body(body_model):
@@ -136,6 +150,19 @@ def resolve_effective_model(
                 bearer_user_role,
             )
             return chosen, "override:header" if oh else "override:body"
+    if auto_vlm and _override_allowed(bearer_user_role):
+        oh = _strip_model(override_header)
+        bm = _strip_model(body_model)
+        if _profile_token_from_body(body_model):
+            bm = None
+        if oh or bm:
+            logger.info(
+                "model routing: %s — ignoring model override %r (conversation has images; "
+                "using VLM profile model %r)",
+                reason_base,
+                oh or bm,
+                base,
+            )
 
     logger.info(
         "model routing: %s effective=%r (profile=%s)",

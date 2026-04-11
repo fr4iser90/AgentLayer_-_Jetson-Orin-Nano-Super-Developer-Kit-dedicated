@@ -32,7 +32,7 @@ This document describes how **secrets**, **structured profile**, **persona text*
 
 ## Database migration
 
-Fresh installs: `schema.sql`. Existing DBs: Alembic **`0012`** → **`0013`** → **`0014_profile_inj_prefs`**, or run `migrations/sql/0014_profile_inj_prefs.sql` after 0013.
+Fresh installs: run Alembic **`schema_001`** only (`alembic upgrade head`); it applies `src/infrastructure/db/migrations/sql/schema.sql`.
 
 ## HTTP API (same identity as chat)
 

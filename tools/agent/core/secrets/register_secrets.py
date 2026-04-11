@@ -14,7 +14,8 @@ TOOL_BUCKET = "secrets"
 TOOL_DOMAIN = "secrets"
 TOOL_LABEL = "Secrets"
 TOOL_DESCRIPTION = (
-    "Register per-user credentials with OTP + curl; static help for stored secrets."
+    "Register per-user credentials with OTP + curl; static help for stored secrets. "
+    "In the Agent web UI, **Settings → Connections** can save the same secrets (schema-driven forms) when signed in."
 )
 TOOL_TRIGGERS = (
     "secret",
@@ -74,8 +75,9 @@ TOOLS: list[dict[str, Any]] = [
                     "service_key_example": {
                         "type": "string",
                         "TOOL_DESCRIPTION": (
-                            "Must match the integration: google_calendar (Google secret iCal link), calendar_ics (other HTTPS ICS), "
-                            "gmail (IMAP app password JSON), github_pat (token JSON). Lowercase [a-z0-9._-]."
+                            "Must match the integration: google_calendar or calendar_ics (HTTPS ICS URL JSON with ics_url), "
+                            "gmail (IMAP: email + app_password JSON), github_pat (token JSON {\"token\":\"ghp_…\"}). "
+                            "Lowercase [a-z0-9._-]."
                         ),
                     },
                     "ttl_seconds": {

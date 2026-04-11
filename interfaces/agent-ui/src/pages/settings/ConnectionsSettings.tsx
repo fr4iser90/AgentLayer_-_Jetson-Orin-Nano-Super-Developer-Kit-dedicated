@@ -243,7 +243,10 @@ export function ConnectionsSettings() {
       <section className="rounded-xl border border-surface-border bg-surface-raised">
         <div className="border-b border-surface-border px-4 py-3">
           <h2 className="text-sm font-medium text-white">From your tool catalog</h2>
-          <p className="mt-0.5 text-xs text-surface-muted">Keys declared by packages you are allowed to use.</p>
+          <p className="mt-0.5 text-xs text-surface-muted">
+          Keys declared by packages you are allowed to use. For calendar, <span className="font-mono">google_calendar</span>{" "}
+          and <span className="font-mono">calendar_ics</span> use the same URL — storing one is enough for the tool to work.
+        </p>
         </div>
         <ul className="divide-y divide-white/5">
           {keyUsage.length === 0 && !loading ? (

@@ -1,6 +1,6 @@
--- Agent Layer — single baseline (squashed migrations).
--- Intended for fresh PostgreSQL only: empty DB, then `alembic upgrade head`.
--- UUID user ids from the start; no bigint→uuid upgrade path.
+-- Agent Layer — single baseline schema (one Alembic revision: schema_001).
+-- Fresh PostgreSQL only: empty DB, then `alembic upgrade head`.
+-- UUID user ids from the start; incremental migrations 0012–0021 were folded into this file.
 
 CREATE TABLE tenants (
   id BIGSERIAL PRIMARY KEY,
@@ -295,3 +295,40 @@ CREATE TABLE operator_tool_policies (
 );
 
 CREATE INDEX idx_operator_tool_policies_package ON operator_tool_policies (package_id);
+
+COMMENT ON COLUMN operator_tool_policies.min_role IS
+  'Minimum users.role required to list/invoke tools in this package (user = all authenticated users).';
+COMMENT ON COLUMN operator_tool_policies.allowed_tenant_ids IS
+  'NULL = any tenant; non-empty = only these tenant ids may use the package.';
+
+COMMENT ON COLUMN operator_settings.agent_mode IS
+  'sandbox | host; NULL = use AGENT_MODE from environment.';
+
+-- Server-side chat threads (first-party UI sync; per user, per tenant).
+
+CREATE TABLE chat_conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'agent')),
+  model TEXT NOT NULL DEFAULT '',
+  agent_log JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_chat_conv_user_updated ON chat_conversations (user_id, updated_at DESC);
+CREATE INDEX idx_chat_conv_tenant ON chat_conversations (tenant_id);
+
+CREATE TABLE chat_messages (
+  id BIGSERIAL PRIMARY KEY,
+  conversation_id UUID NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  position INT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (conversation_id, position)
+);
+
+CREATE INDEX idx_chat_msg_conv ON chat_messages (conversation_id, position);
