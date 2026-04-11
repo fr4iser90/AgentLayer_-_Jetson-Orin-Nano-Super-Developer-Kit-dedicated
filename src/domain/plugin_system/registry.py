@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from src.core.config import config
 from src.infrastructure.db import db
+from src.domain.plugin_system.capability_index import build_capability_index
 from src.domain.plugin_system.tool_manifest_dimensions import (
     normalize_execution_context,
     normalize_min_role,
@@ -21,6 +22,7 @@ from src.domain.plugin_system.tool_manifest_dimensions import (
     parse_allowed_tenant_ids,
     parse_os_support,
 )
+from src.domain.plugin_system.tool_ui_catalog import apply_tool_ui_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +178,7 @@ class ToolRegistry:
         self._router_cat_order: list[str] = []
         self._router_cat_TOOL_LABEL: dict[str, str] = {}
         self._router_cat_TOOL_DESCRIPTION: dict[str, str] = {}
+        self._capability_index: dict[str, list[dict[str, Any]]] = {}
 
     def load_all(self) -> None:
         with self._lock:
@@ -257,6 +260,7 @@ class ToolRegistry:
             self._router_cat_order = list(router.order)
             self._router_cat_TOOL_LABEL = dict(router.cat_TOOL_LABEL)
             self._router_cat_TOOL_DESCRIPTION = dict(router.cat_TOOL_DESCRIPTION)
+            self._capability_index = build_capability_index(acc_meta)
 
     def _clear_storage(self) -> None:
         self._handlers.clear()
@@ -267,6 +271,7 @@ class ToolRegistry:
         self._router_cat_order = []
         self._router_cat_TOOL_LABEL = {}
         self._router_cat_TOOL_DESCRIPTION = {}
+        self._capability_index = {}
 
     def _purge_dynamic_tool_modules(self) -> None:
         for key in list(sys.modules):
@@ -418,6 +423,7 @@ class ToolRegistry:
                 entry["per_tool"] = per
         _apply_manifest_extras(mod, entry)
         _apply_admin_ui_metadata(mod, entry)
+        apply_tool_ui_metadata(mod, entry)
         meta.append(entry)
         logger.info(
             "loaded tool %s v%s (%d tools) [%s]", pid, ver, len(tool_names), source
@@ -559,6 +565,12 @@ class ToolRegistry:
     def tools_meta(self) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._tools_meta)
+
+    @property
+    def capability_index(self) -> dict[str, list[dict[str, Any]]]:
+        """Inverted capability → handlers index (see ADR 0001)."""
+        with self._lock:
+            return dict(self._capability_index)
 
     def meta_entry_for_tool_name(self, registered_function_name: str) -> dict[str, Any] | None:
         """

@@ -87,6 +87,13 @@ def run_tool(name: str, arguments: dict) -> str:
                     },
                     ensure_ascii=False,
                 )
+            from src.domain.plugin_system.capability_governance import (
+                capability_gate_error_json,
+            )
+
+            gate_err = capability_gate_error_json(nm, meta)
+            if gate_err:
+                return gate_err
         return reg.run_tool(name, arguments)
     finally:
         if token is not None:

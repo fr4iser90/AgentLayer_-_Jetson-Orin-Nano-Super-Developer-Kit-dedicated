@@ -36,6 +36,7 @@ TOOL_TRIGGERS = (
     "schedule",
     "appointment",
 )
+TOOL_CAPABILITIES = ("calendar.read",)
 
 # Try Google-specific key first (same JSON shape), then generic ICS.
 SECRET_KEYS_TRY_ORDER: tuple[str, ...] = ("google_calendar", "calendar_ics")

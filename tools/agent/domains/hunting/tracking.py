@@ -22,6 +22,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("hunting", "outdoor", "guide")
 TOOL_DOMAIN = "hunting"
 TOOL_REQUIRES = ["field_context"]
+TOOL_CAPABILITIES = ("recreation.hunting.advise",)
 
 
 def hunting_tracking_guide(arguments: dict[str, Any]) -> str:

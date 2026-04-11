@@ -17,6 +17,7 @@ TOOL_ID = "read_tool"
 TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("meta.inspect",)
 
 
 def read_tool(arguments: dict[str, Any]) -> str:

@@ -23,6 +23,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("survival", "outdoor", "calculator")
 TOOL_DOMAIN = "survival"
 TOOL_REQUIRES = ["temperature", "activity"]
+TOOL_CAPABILITIES = ("recreation.survival.advise",)
 
 
 def survival_water_daily_liters(arguments: dict[str, Any]) -> str:

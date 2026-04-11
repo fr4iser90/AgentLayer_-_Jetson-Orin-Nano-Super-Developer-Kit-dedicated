@@ -44,6 +44,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("fishing", "outdoor", "heuristic")
 TOOL_DOMAIN = "fishing"
 TOOL_REQUIRES = ["time", "weather"]
+TOOL_CAPABILITIES = ("recreation.fishing.advise",)
 
 
 def fishing_bite_index(arguments: dict[str, Any]) -> str:

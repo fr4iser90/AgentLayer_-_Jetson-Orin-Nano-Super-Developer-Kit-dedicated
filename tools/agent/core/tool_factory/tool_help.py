@@ -14,6 +14,14 @@ __version__ = "1.4.1"
 TOOL_ID = "tool_help"
 TOOL_BUCKET = "meta"
 
+# list_* = catalog breadth; get_tool_help = full JSON Schema for one tool (ADR 0002).
+AGENT_TOOL_META_BY_NAME: dict[str, dict[str, Any]] = {
+    "list_available_tools": {"capabilities": ["meta.discover"]},
+    "list_tool_categories": {"capabilities": ["meta.discover"]},
+    "list_tools_in_category": {"capabilities": ["meta.discover"]},
+    "get_tool_help": {"capabilities": ["meta.inspect"]},
+}
+
 
 def list_available_tools(arguments: dict[str, Any]) -> str:
     """Return every tool name and short TOOL_DESCRIPTION only (no parameter schemas — use get_tool_help)."""

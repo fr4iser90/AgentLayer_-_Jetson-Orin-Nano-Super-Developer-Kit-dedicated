@@ -17,6 +17,7 @@ TOOL_ID = "rename_tool"
 TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("meta.author",)
 
 
 def rename_tool(arguments: dict[str, Any]) -> str:

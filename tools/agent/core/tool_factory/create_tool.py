@@ -39,6 +39,7 @@ TOOL_TRIGGERS = (
     "replace_tool",
     "rename_tool",
 )
+TOOL_CAPABILITIES = ("meta.author",)
 TOOL_LABEL = "Tool factory"
 TOOL_DESCRIPTION = (
     "Create, list, read, patch, replace, and rename dynamic .py tools under AGENT_TOOLS_EXTRA_DIR."

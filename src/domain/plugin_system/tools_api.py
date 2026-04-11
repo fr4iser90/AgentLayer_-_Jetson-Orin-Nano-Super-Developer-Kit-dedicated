@@ -10,6 +10,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.infrastructure.auth import require_admin, require_permission
+from src.domain.plugin_system.capability_index import (
+    build_capability_index,
+    list_tools_without_capabilities,
+)
 from src.domain.plugin_system.registry import get_registry, reload_registry
 from src.domain.plugin_system.tool_policy import (
     attach_execution_context_by_tool,
@@ -41,6 +45,27 @@ def _registered_function_name(spec: dict) -> str | None:
         n = fn.get("name")
         return str(n) if n else None
     return None
+
+
+@router.get("/v1/capabilities")
+async def list_capabilities(request: Request):
+    """
+    Machine-readable capability index (ADR 0001): ``capability`` → tools that declare it.
+
+    Built from the same policy-filtered ``tools_meta`` as ``GET /v1/tools`` for this caller.
+    """
+    reg = get_registry()
+    pmap = _policies_map_safe()
+    uid, tid = resolve_tools_list_identity(request)
+    role = db.user_role(uid)
+    meta = filter_tools_meta(reg.tools_meta, pmap, role, tid)
+    by_cap = build_capability_index([dict(m) for m in meta])
+    uncl = list_tools_without_capabilities([dict(m) for m in meta])
+    return {
+        "schema_version": 1,
+        "by_capability": by_cap,
+        "tools_unclassified": uncl,
+    }
 
 
 @router.get("/v1/tools")

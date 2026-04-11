@@ -22,6 +22,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("survival", "outdoor", "guide")
 TOOL_DOMAIN = "survival"
 TOOL_REQUIRES = ["weather", "gear"]
+TOOL_CAPABILITIES = ("recreation.survival.advise",)
 
 
 def survival_shelter_plan(arguments: dict[str, Any]) -> str:

@@ -26,6 +26,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("fishing", "outdoor", "action")
 TOOL_DOMAIN = "fishing"
 TOOL_REQUIRES = ["species", "conditions"]
+TOOL_CAPABILITIES = ("recreation.fishing.advise",)
 
 
 def fishing_bait_suggest(arguments: dict[str, Any]) -> str:

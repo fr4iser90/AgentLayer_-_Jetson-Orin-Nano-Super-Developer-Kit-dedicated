@@ -30,6 +30,11 @@ TOOL_TRIGGERS = (
     "issue",
     "gist",
 )
+TOOL_CAPABILITIES = ("code.repository",)
+# Optional: override :mod:`src.domain.plugin_system.tool_ui_catalog` defaults (display_name, category, …).
+TOOL_UI = {
+    "tagline": "Search repos, issues, pull requests, and files",
+}
 
 GITHUB_API = "https://api.github.com"
 USER_SECRET_KEY = "github_pat"

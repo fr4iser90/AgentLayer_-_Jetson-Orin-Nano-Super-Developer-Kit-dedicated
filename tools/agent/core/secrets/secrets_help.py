@@ -15,6 +15,7 @@ TOOL_ID = "secrets_help"
 TOOL_BUCKET = "secrets"
 TOOL_DOMAIN = "secrets"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("secrets.user",)
 
 
 def secrets_help(arguments: dict[str, Any]) -> str:

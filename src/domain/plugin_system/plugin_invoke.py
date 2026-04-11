@@ -20,6 +20,7 @@ Example (extra plugin)::
         return json.dumps({"ok": True, "score": 7.2})
 
 Use the **registered tool function name** (e.g. ``openweather_forecast``), not the file name.
+Prefer :func:`src.domain.tool_executor.execute_tool` for clarity (same execution path as chat).
 Avoid recursion (tool A calling tool A) and very deep chains; see
 ``AGENT_TOOL_CHAIN_MAX_DEPTH`` in ``.env.example``.
 """
@@ -28,11 +29,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.domain.plugin_system.tools import run_tool
+from src.domain.tool_executor import execute_tool
 
 __all__ = ["invoke_registered_tool"]
 
 
 def invoke_registered_tool(name: str, arguments: dict[str, Any] | None = None) -> str:
     """Run another tool by its registered name; returns the handler's JSON string."""
-    return run_tool(name, dict(arguments or {}))
+    return execute_tool(name, dict(arguments or {}))

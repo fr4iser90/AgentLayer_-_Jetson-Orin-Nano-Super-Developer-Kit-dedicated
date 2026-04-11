@@ -94,7 +94,7 @@ export function ChatPage() {
   const auth = useAuth();
   const { accessToken, user } = auth;
   const userId = user?.id ?? "";
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -201,6 +201,27 @@ export function ChatPage() {
       cancelled = true;
     };
   }, [accessToken, userId, auth, defaultModel, setSearchParams]);
+
+  /** Prefill composer from Tools settings: `/chat?try=${encodeURIComponent(prompt)}` */
+  useEffect(() => {
+    const tryText = searchParams.get("try");
+    if (!tryText?.trim() || !hydrated) return;
+    let decoded = tryText;
+    try {
+      decoded = decodeURIComponent(tryText.replace(/\+/g, " "));
+    } catch {
+      /* use raw */
+    }
+    setDraft((prev) => (prev.trim() ? prev : decoded));
+    setSearchParams(
+      (prev) => {
+        const n = new URLSearchParams(prev);
+        n.delete("try");
+        return n;
+      },
+      { replace: true },
+    );
+  }, [hydrated, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (mode !== "agent" && wsRef.current) {

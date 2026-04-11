@@ -20,6 +20,7 @@ TOOL_ID = "update_tool"
 TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("meta.author",)
 
 
 def update_tool(arguments: dict[str, Any]) -> str:

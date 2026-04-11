@@ -22,6 +22,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("fishing", "outdoor", "planner")
 TOOL_DOMAIN = "fishing"
 TOOL_REQUIRES = ["location_context"]
+TOOL_CAPABILITIES = ("recreation.fishing.advise",)
 
 
 def fishing_spot_recommend(arguments: dict[str, Any]) -> str:

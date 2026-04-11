@@ -31,6 +31,7 @@ TOOL_TRIGGERS = (
     "openweathermap",
     "wetter",
 )
+TOOL_CAPABILITIES = ("weather.observe",)
 
 _OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 _FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"

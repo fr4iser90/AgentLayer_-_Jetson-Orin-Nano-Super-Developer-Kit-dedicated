@@ -27,6 +27,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("survival", "outdoor", "calculator")
 TOOL_DOMAIN = "survival"
 TOOL_REQUIRES = ["situation_factors"]
+TOOL_CAPABILITIES = ("recreation.survival.advise",)
 
 
 def survival_risk_score(arguments: dict[str, Any]) -> str:

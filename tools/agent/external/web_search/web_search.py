@@ -31,6 +31,7 @@ TOOL_TRIGGERS = (
     "duckduckgo",
     "ddgs",
 )
+TOOL_CAPABILITIES = ("web.search",)
 
 _TAVILY_URL = "https://api.tavily.com/search"
 _BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"

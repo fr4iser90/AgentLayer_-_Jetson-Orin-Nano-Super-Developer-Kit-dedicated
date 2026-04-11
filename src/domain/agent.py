@@ -1,4 +1,9 @@
-"""Chat completion with tool-call loop; HTTP to Ollama uses the OpenAI-compatible wire format only."""
+"""
+Chat completion with tool-call loop (**Planner**): builds messages and asks the model which tools to call.
+
+Deterministic tool execution goes through :func:`src.domain.tool_executor.execute_tool` (**Executor**).
+See ``docs/adr/0001-tool-and-agent-architecture.md``.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +22,8 @@ import httpx
 from src.core.config import config
 from src.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from src.domain.plugin_system.registry import get_registry
+from src.domain.plugin_system.capability_governance import parse_user_capability_confirm
+from src.domain.plugin_system.capability_index import filter_merged_tools_by_capabilities
 from src.domain.plugin_system.tool_routing import (
     TOOL_INTROSPECTION,
     classify_user_tool_categories,
@@ -24,8 +31,10 @@ from src.domain.plugin_system.tool_routing import (
     filter_merged_tools_by_domain,
     last_user_text,
 )
-from src.domain.plugin_system.tools import run_tool
+from src.domain.tool_executor import execute_tool
 from src.domain.tool_invocation_context import (
+    bind_capability_confirmed,
+    reset_capability_confirmed,
     reset_tool_invocation_messages,
     set_tool_invocation_messages,
 )
@@ -104,6 +113,8 @@ _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
         "agent_pause_between_rounds",
         "agent_disabled_tools",
         "agent_plain_completion",
+        "agent_capability_hints",
+        "agent_capability_confirm",
     }
 )
 
@@ -141,6 +152,17 @@ def _parse_router_categories_value(raw: Any) -> frozenset[str]:
         return _parse_router_category_tokens(raw)
     if isinstance(raw, list):
         return frozenset(str(x).strip().lower() for x in raw if str(x).strip())
+    return frozenset()
+
+
+def _parse_capability_hints(raw: Any) -> frozenset[str]:
+    """Client hint: filter tools to those declaring any of these capability strings (ADR 0001)."""
+    if raw is None:
+        return frozenset()
+    if isinstance(raw, str):
+        return frozenset(x.strip() for x in raw.replace(",", " ").split() if x.strip())
+    if isinstance(raw, list):
+        return frozenset(str(x).strip() for x in raw if str(x).strip())
     return frozenset()
 
 
@@ -636,7 +658,7 @@ def _apply_tool_prefetch(messages: list[dict[str, Any]], prefetch: dict[str, Any
     }
     if not args:
         return
-    snippet = run_tool("read_tool", args)
+    snippet = execute_tool("read_tool", args)
     try:
         o = json.loads(snippet)
     except json.JSONDecodeError:
@@ -777,6 +799,7 @@ async def chat_completion(
     plain_completion = _coerce_body_bool(body.pop("agent_plain_completion", None), False)
     extra_cats_body = _parse_router_categories_value(body.pop("agent_router_categories", None))
     extra_cats_hdr = _parse_router_category_tokens(router_categories_header)
+    cap_hints = _parse_capability_hints(body.pop("agent_capability_hints", None))
     raw_tool_dom = body.pop("TOOL_DOMAIN", None)
     body_tool_dom = (
         str(raw_tool_dom).strip().lower()
@@ -786,183 +809,205 @@ async def chat_completion(
     hdr_tool_dom = (tool_domain_header or "").strip().lower()
     tool_domain = hdr_tool_dom or body_tool_dom or None
 
-    messages = _inject_system_prompt(list(body.get("messages") or []))
-    pf = body.get("tool_prefetch")
-    if isinstance(pf, dict):
-        _apply_tool_prefetch(messages, pf)
-    messages = apply_user_persona_system(messages)
-
-    model, model_reason = resolve_effective_model(
-        messages=messages,
-        body_model=body.get("model"),
-        profile_header=model_profile_header,
-        override_header=model_override_header,
-        bearer_user_role=bearer_user_role,
+    _cap_cf_tok = bind_capability_confirmed(
+        parse_user_capability_confirm(body.pop("agent_capability_confirm", None))
     )
+    try:
 
-    if plain_completion:
-        merged_tools: list[Any] = []
-        logger.debug("chat_completion: agent_plain_completion (no tools forwarded to Ollama)")
-    else:
-        merged_tools = _merge_tools(body.get("tools"))
-    routed_category: str | None = None
-    cats = classify_user_tool_categories(last_user_text(messages))
-    cats = cats | extra_cats_body | extra_cats_hdr
-    merged_tools = filter_merged_tools_by_categories(merged_tools, cats)
-    if tool_domain and not (config.AGENT_ROUTER_STRICT_DEFAULT and not cats):
-        merged_tools = filter_merged_tools_by_domain(merged_tools, tool_domain)
-        non_intro = sum(
-            1
-            for t in merged_tools
-            if (n := _tool_spec_name(t)) is not None and n not in TOOL_INTROSPECTION
+        messages = _inject_system_prompt(list(body.get("messages") or []))
+        pf = body.get("tool_prefetch")
+        if isinstance(pf, dict):
+            _apply_tool_prefetch(messages, pf)
+        messages = apply_user_persona_system(messages)
+
+        model, model_reason = resolve_effective_model(
+            messages=messages,
+            body_model=body.get("model"),
+            profile_header=model_profile_header,
+            override_header=model_override_header,
+            bearer_user_role=bearer_user_role,
         )
-        if non_intro == 0:
-            logger.warning(
-                "tool domain filter %r removed all non-introspection tools; ignoring domain filter",
+
+        if plain_completion:
+            merged_tools: list[Any] = []
+            logger.debug("chat_completion: agent_plain_completion (no tools forwarded to Ollama)")
+        else:
+            merged_tools = _merge_tools(body.get("tools"))
+        routed_category: str | None = None
+        cats = classify_user_tool_categories(last_user_text(messages))
+        cats = cats | extra_cats_body | extra_cats_hdr
+        merged_tools = filter_merged_tools_by_categories(merged_tools, cats)
+        if tool_domain and not (config.AGENT_ROUTER_STRICT_DEFAULT and not cats):
+            merged_tools = filter_merged_tools_by_domain(merged_tools, tool_domain)
+            non_intro = sum(
+                1
+                for t in merged_tools
+                if (n := _tool_spec_name(t)) is not None and n not in TOOL_INTROSPECTION
+            )
+            if non_intro == 0:
+                logger.warning(
+                    "tool domain filter %r removed all non-introspection tools; ignoring domain filter",
+                    tool_domain,
+                )
+                merged_tools = filter_merged_tools_by_categories(
+                    _merge_tools(body.get("tools")), cats
+                )
+        elif tool_domain and config.AGENT_ROUTER_STRICT_DEFAULT and not cats:
+            logger.info(
+                "skipping tool domain filter %r (AGENT_ROUTER_STRICT_DEFAULT with no categories)",
                 tool_domain,
             )
-            merged_tools = filter_merged_tools_by_categories(
-                _merge_tools(body.get("tools")), cats
+        if cap_hints:
+            merged_tools = filter_merged_tools_by_capabilities(
+                merged_tools,
+                cap_hints,
+                tools_meta=get_registry().tools_meta,
             )
-    elif tool_domain and config.AGENT_ROUTER_STRICT_DEFAULT and not cats:
-        logger.info(
-            "skipping tool domain filter %r (AGENT_ROUTER_STRICT_DEFAULT with no categories)",
-            tool_domain,
-        )
-    if cats:
-        routed_category = (
-            next(iter(cats)) if len(cats) == 1 else "+".join(sorted(cats))
-        )
-    elif config.AGENT_ROUTER_STRICT_DEFAULT:
-        routed_category = "minimal"
-    else:
-        routed_category = "full"
+        if cats:
+            routed_category = (
+                next(iter(cats)) if len(cats) == 1 else "+".join(sorted(cats))
+            )
+        elif config.AGENT_ROUTER_STRICT_DEFAULT:
+            routed_category = "minimal"
+        else:
+            routed_category = "full"
 
-    try:
-        from src.domain.identity import get_identity
-        from src.domain.plugin_system.tool_policy import filter_chat_tool_specs
-        from src.infrastructure.db import db as _identity_db
-        from src.infrastructure.tool_operator_policy_db import policies_map
+        try:
+            from src.domain.identity import get_identity
+            from src.domain.plugin_system.tool_policy import filter_chat_tool_specs
+            from src.infrastructure.db import db as _identity_db
+            from src.infrastructure.tool_operator_policy_db import policies_map
 
-        _pmap = policies_map()
-        _tenant_ctx, _user_ctx = get_identity()
-        _role = _identity_db.user_role(_user_ctx)
-        merged_tools = filter_chat_tool_specs(
-            merged_tools,
-            get_registry(),
-            _pmap,
-            _role,
-            int(_tenant_ctx),
-        )
-    except Exception:
-        logger.debug("operator/access tool filter skipped", exc_info=True)
+            _pmap = policies_map()
+            _tenant_ctx, _user_ctx = get_identity()
+            _role = _identity_db.user_role(_user_ctx)
+            merged_tools = filter_chat_tool_specs(
+                merged_tools,
+                get_registry(),
+                _pmap,
+                _role,
+                int(_tenant_ctx),
+            )
+        except Exception:
+            logger.debug("operator/access tool filter skipped", exc_info=True)
 
-    disabled_names = _parse_disabled_tool_names(body.get("agent_disabled_tools"))
-    if disabled_names:
-        merged_tools = [
-            t
-            for t in merged_tools
-            if (n := _tool_spec_name(t)) is None or n not in disabled_names
-        ]
+        disabled_names = _parse_disabled_tool_names(body.get("agent_disabled_tools"))
+        if disabled_names:
+            merged_tools = [
+                t
+                for t in merged_tools
+                if (n := _tool_spec_name(t)) is None or n not in disabled_names
+            ]
 
-    # Stufenweise Erkundung: tools[] immer nur Katalog — volles Schema nur via get_tool_help-Antwort.
-    tools_for_request = _tools_for_chat_request(merged_tools)
-    if config.AGENT_TOOLS_DENYLIST:
-        deny = config.AGENT_TOOLS_DENYLIST
-        tools_for_request = [
-            t
-            for t in tools_for_request
-            if (n := _tool_spec_name(t)) is None or n not in deny
-        ]
+        # Stufenweise Erkundung: tools[] immer nur Katalog — volles Schema nur via get_tool_help-Antwort.
+        tools_for_request = _tools_for_chat_request(merged_tools)
+        if config.AGENT_TOOLS_DENYLIST:
+            deny = config.AGENT_TOOLS_DENYLIST
+            tools_for_request = [
+                t
+                for t in tools_for_request
+                if (n := _tool_spec_name(t)) is None or n not in deny
+            ]
 
-    if tools_for_request:
-        names = [n for t in tools_for_request if (n := _tool_spec_name(t))]
-        logger.info(
-            "forwarding %d tools in chat request (model=%s, category=%s): %s",
-            len(names),
-            model,
-            routed_category or "full",
-            names,
-        )
-    _log_tools_request_estimate("chat_completions", tools_for_request)
-    pause_between_rounds = _coerce_body_bool(body.get("agent_pause_between_rounds"), False)
-    if pause_between_rounds and control_queue is None:
-        pause_between_rounds = False
+        if tools_for_request:
+            names = [n for t in tools_for_request if (n := _tool_spec_name(t))]
+            logger.info(
+                "forwarding %d tools in chat request (model=%s, category=%s): %s",
+                len(names),
+                model,
+                routed_category or "full",
+                names,
+            )
+        _log_tools_request_estimate("chat_completions", tools_for_request)
+        pause_between_rounds = _coerce_body_bool(body.get("agent_pause_between_rounds"), False)
+        if pause_between_rounds and control_queue is None:
+            pause_between_rounds = False
 
-    options = {
-        k: v
-        for k, v in body.items()
-        if k not in ("messages", "model", "tools", "stream", *_BODY_KEYS_STRIP_FROM_OLLAMA)
-    }
-
-    def merge_add_tools_from_message(names: list[Any]) -> None:
-        existing = {
-            x for x in (_tool_spec_name(s) for s in tools_for_request) if x
+        options = {
+            k: v
+            for k, v in body.items()
+            if k not in ("messages", "model", "tools", "stream", *_BODY_KEYS_STRIP_FROM_OLLAMA)
         }
-        for raw in names:
-            nn = str(raw).strip()
-            if not nn or nn in existing:
-                continue
-            if nn in config.AGENT_TOOLS_DENYLIST:
-                continue
-            sp = _registry_tool_spec_by_registered_name(nn)
-            if not sp:
-                continue
-            slim = _tools_for_chat_request([sp])
-            if slim:
-                tools_for_request.append(slim[0])
-                existing.add(nn)
 
-    def handle_control_dict(m: dict[str, Any]) -> bool:
-        """Apply cancel/add_tools. Returns True if cancel was requested."""
-        t = m.get("type")
-        if t == "cancel" and cancel_event is not None:
-            cancel_event.set()
-            return True
-        if t == "add_tools":
-            raw_names = m.get("names")
-            nlist = raw_names if isinstance(raw_names, list) else []
-            merge_add_tools_from_message(nlist)
-        return False
+        def merge_add_tools_from_message(names: list[Any]) -> None:
+            existing = {
+                x for x in (_tool_spec_name(s) for s in tools_for_request) if x
+            }
+            for raw in names:
+                nn = str(raw).strip()
+                if not nn or nn in existing:
+                    continue
+                if nn in config.AGENT_TOOLS_DENYLIST:
+                    continue
+                sp = _registry_tool_spec_by_registered_name(nn)
+                if not sp:
+                    continue
+                slim = _tools_for_chat_request([sp])
+                if slim:
+                    tools_for_request.append(slim[0])
+                    existing.add(nn)
 
-    async def drain_control_queue() -> None:
-        if control_queue is None:
-            return
-        while True:
-            try:
-                m = control_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if not isinstance(m, dict):
-                continue
-            if m.get("type") == "continue_step":
-                logger.debug("discarding stray continue_step (not in agent.step_wait)")
-                continue
-            handle_control_dict(m)
+        def handle_control_dict(m: dict[str, Any]) -> bool:
+            """Apply cancel/add_tools. Returns True if cancel was requested."""
+            t = m.get("type")
+            if t == "cancel" and cancel_event is not None:
+                cancel_event.set()
+                return True
+            if t == "add_tools":
+                raw_names = m.get("names")
+                nlist = raw_names if isinstance(raw_names, list) else []
+                merge_add_tools_from_message(nlist)
+            return False
 
-    async def wait_for_continue_step_after_round(completed_round: int) -> None:
-        if control_queue is None:
-            return
-        if event_emit:
-            await event_emit(
-                {
-                    "type": "agent.step_wait",
-                    "after_round": completed_round,
-                    "next_round": completed_round + 1,
-                    "max_rounds": config.MAX_TOOL_ROUNDS,
-                    "detail": (
-                        "Send a frame {\"type\":\"continue_step\"} to start the next LLM round. "
-                        "You may send {\"type\":\"add_tools\",\"names\":[\"...\"]} before that."
-                    ),
-                }
-            )
-        while True:
-            m = await control_queue.get()
-            if not isinstance(m, dict):
-                continue
-            if m.get("type") == "continue_step":
-                await drain_control_queue()
-                if cancel_event is not None and cancel_event.is_set():
+        async def drain_control_queue() -> None:
+            if control_queue is None:
+                return
+            while True:
+                try:
+                    m = control_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if not isinstance(m, dict):
+                    continue
+                if m.get("type") == "continue_step":
+                    logger.debug("discarding stray continue_step (not in agent.step_wait)")
+                    continue
+                handle_control_dict(m)
+
+        async def wait_for_continue_step_after_round(completed_round: int) -> None:
+            if control_queue is None:
+                return
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.step_wait",
+                        "after_round": completed_round,
+                        "next_round": completed_round + 1,
+                        "max_rounds": config.MAX_TOOL_ROUNDS,
+                        "detail": (
+                            "Send a frame {\"type\":\"continue_step\"} to start the next LLM round. "
+                            "You may send {\"type\":\"add_tools\",\"names\":[\"...\"]} before that."
+                        ),
+                    }
+                )
+            while True:
+                m = await control_queue.get()
+                if not isinstance(m, dict):
+                    continue
+                if m.get("type") == "continue_step":
+                    await drain_control_queue()
+                    if cancel_event is not None and cancel_event.is_set():
+                        if event_emit:
+                            await event_emit(
+                                {
+                                    "type": "agent.cancelled",
+                                    "phase": "step_wait",
+                                    "round": completed_round + 1,
+                                }
+                            )
+                        raise AgentChatCancelled()
+                    return
+                if handle_control_dict(m):
                     if event_emit:
                         await event_emit(
                             {
@@ -972,212 +1017,203 @@ async def chat_completion(
                             }
                         )
                     raise AgentChatCancelled()
-                return
-            if handle_control_dict(m):
+
+        forwarded_preview = [n for t in tools_for_request if (n := _tool_spec_name(t)) is not None]
+        if event_emit:
+            await event_emit(
+                {
+                    "type": "agent.session",
+                    "routed_category": routed_category,
+                    "router_categories": sorted(cats),
+                    "forwarded_tools": forwarded_preview,
+                    "effective_model": model,
+                    "model_resolution": model_reason,
+                }
+            )
+
+        url = f"{config.OLLAMA_BASE_URL}/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
+
+        for round_i in range(config.MAX_TOOL_ROUNDS):
+            await drain_control_queue()
+            if cancel_event is not None and cancel_event.is_set():
                 if event_emit:
                     await event_emit(
                         {
                             "type": "agent.cancelled",
-                            "phase": "step_wait",
-                            "round": completed_round + 1,
+                            "phase": "before_llm",
+                            "round": round_i + 1,
                         }
                     )
                 raise AgentChatCancelled()
 
-    forwarded_preview = [n for t in tools_for_request if (n := _tool_spec_name(t)) is not None]
-    if event_emit:
-        await event_emit(
-            {
-                "type": "agent.session",
-                "routed_category": routed_category,
-                "router_categories": sorted(cats),
-                "forwarded_tools": forwarded_preview,
-                "effective_model": model,
-                "model_resolution": model_reason,
+            tools_for_round = list(tools_for_request)
+            allowed_names = _names_from_tool_list(tools_for_round)
+
+            if event_emit:
+                await event_emit(
+                    {
+                        "type": "agent.llm_round_start",
+                        "round": round_i + 1,
+                        "max_rounds": config.MAX_TOOL_ROUNDS,
+                        "forwarded_tool_names": [
+                            n for t in tools_for_round if (n := _tool_spec_name(t)) is not None
+                        ],
+                    }
+                )
+
+            payload: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                **options,
             }
-        )
+            if tools_for_round:
+                payload["tools"] = tools_for_round
 
-    url = f"{config.OLLAMA_BASE_URL}/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-
-    for round_i in range(config.MAX_TOOL_ROUNDS):
-        await drain_control_queue()
-        if cancel_event is not None and cancel_event.is_set():
-            if event_emit:
-                await event_emit(
-                    {
-                        "type": "agent.cancelled",
-                        "phase": "before_llm",
-                        "round": round_i + 1,
-                    }
-                )
-            raise AgentChatCancelled()
-
-        tools_for_round = list(tools_for_request)
-        allowed_names = _names_from_tool_list(tools_for_round)
-
-        if event_emit:
-            await event_emit(
-                {
-                    "type": "agent.llm_round_start",
-                    "round": round_i + 1,
-                    "max_rounds": config.MAX_TOOL_ROUNDS,
-                    "forwarded_tool_names": [
-                        n for t in tools_for_round if (n := _tool_spec_name(t)) is not None
-                    ],
-                }
-            )
-
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": False,
-            **options,
-        }
-        if tools_for_round:
-            payload["tools"] = tools_for_round
-
-        try:
-            data, tools_omitted = await asyncio.to_thread(
-                ollama_post_chat_completions,
-                url,
-                payload,
-                headers=headers,
-                timeout=600.0,
-            )
-        except httpx.HTTPStatusError as e:
-            err_body = (e.response.text or "")[:4000]
-            logger.error(
-                "Ollama chat/completions failed: status=%s model=%s body=%s",
-                e.response.status_code,
-                model,
-                err_body or "(empty)",
-            )
-            raise
-
-        if tools_omitted:
-            tools_for_round = []
-            allowed_names = set()
-
-        choice0 = (data.get("choices") or [{}])[0]
-        raw_msg = choice0.get("message")
-        if not isinstance(raw_msg, dict):
-            raw_msg = {}
-        msg = dict(raw_msg)
-        raw_tc = msg.get("tool_calls")
-        had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
-        tool_calls = raw_tc if had_native_tool_calls else None
-        if not tool_calls:
-            tool_calls = _synthetic_tool_calls_from_message(
-                msg, choice0, allowed_tool_names=allowed_names
-            )
-            if tool_calls:
-                msg["tool_calls"] = tool_calls
-                choice0["message"] = msg
-
-        _log_ollama_round(
-            round_i=round_i,
-            model=model,
-            messages=messages,
-            tools_for_round=tools_for_round,
-            msg=msg,
-            choice0=choice0 if isinstance(choice0, dict) else {},
-            tool_calls=tool_calls if isinstance(tool_calls, list) else None,
-            had_native_tool_calls=had_native_tool_calls,
-        )
-
-        if event_emit:
-            tc_names = [
-                (tc.get("function") or {}).get("name")
-                for tc in (tool_calls or [])
-                if isinstance(tc, dict)
-            ]
-            await event_emit(
-                {
-                    "type": "agent.llm_round",
-                    "round": round_i + 1,
-                    "tool_calls": [str(x) for x in tc_names if x],
-                    "had_native_tool_calls": had_native_tool_calls,
-                    "content_excerpt": (
-                        (msg.get("content") or "")[:400]
-                        if isinstance(msg.get("content"), str)
-                        else ""
-                    ),
-                }
-            )
-
-        if not tool_calls:
-            if event_emit:
-                await event_emit(
-                    {
-                        "type": "agent.done",
-                        "kind": "final_text",
-                        "round": round_i + 1,
-                    }
-                )
-            return data
-
-        # Append assistant message (includes tool_calls, and content if any)
-        messages.append(msg)
-
-        for tc in tool_calls:
-            fn = tc.get("function") or {}
-            name = fn.get("name") or ""
-            args = _parse_tool_arguments(fn.get("arguments"))
-            tool_call_id = tc.get("id") or ""
-            logger.info("tool round %s: %s(%s)", round_i + 1, name, args)
-            if event_emit:
-                await event_emit(
-                    {
-                        "type": "agent.tool_start",
-                        "round": round_i + 1,
-                        "name": name,
-                    }
-                )
-            tctx = set_tool_invocation_messages(list(messages))
             try:
-                result = run_tool(name, args)
-            finally:
-                reset_tool_invocation_messages(tctx)
+                data, tools_omitted = await asyncio.to_thread(
+                    ollama_post_chat_completions,
+                    url,
+                    payload,
+                    headers=headers,
+                    timeout=600.0,
+                )
+            except httpx.HTTPStatusError as e:
+                err_body = (e.response.text or "")[:4000]
+                logger.error(
+                    "Ollama chat/completions failed: status=%s model=%s body=%s",
+                    e.response.status_code,
+                    model,
+                    err_body or "(empty)",
+                )
+                raise
+
+            if tools_omitted:
+                tools_for_round = []
+                allowed_names = set()
+
+            choice0 = (data.get("choices") or [{}])[0]
+            raw_msg = choice0.get("message")
+            if not isinstance(raw_msg, dict):
+                raw_msg = {}
+            msg = dict(raw_msg)
+            raw_tc = msg.get("tool_calls")
+            had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
+            tool_calls = raw_tc if had_native_tool_calls else None
+            if not tool_calls:
+                tool_calls = _synthetic_tool_calls_from_message(
+                    msg, choice0, allowed_tool_names=allowed_names
+                )
+                if tool_calls:
+                    msg["tool_calls"] = tool_calls
+                    choice0["message"] = msg
+
+            _log_ollama_round(
+                round_i=round_i,
+                model=model,
+                messages=messages,
+                tools_for_round=tools_for_round,
+                msg=msg,
+                choice0=choice0 if isinstance(choice0, dict) else {},
+                tool_calls=tool_calls if isinstance(tool_calls, list) else None,
+                had_native_tool_calls=had_native_tool_calls,
+            )
+
             if event_emit:
+                tc_names = [
+                    (tc.get("function") or {}).get("name")
+                    for tc in (tool_calls or [])
+                    if isinstance(tc, dict)
+                ]
                 await event_emit(
                     {
-                        "type": "agent.tool_done",
+                        "type": "agent.llm_round",
                         "round": round_i + 1,
-                        "name": name,
-                        "result_chars": len(result or ""),
+                        "tool_calls": [str(x) for x in tc_names if x],
+                        "had_native_tool_calls": had_native_tool_calls,
+                        "content_excerpt": (
+                            (msg.get("content") or "")[:400]
+                            if isinstance(msg.get("content"), str)
+                            else ""
+                        ),
                     }
                 )
-            messages.append(
+
+            if not tool_calls:
+                if event_emit:
+                    await event_emit(
+                        {
+                            "type": "agent.done",
+                            "kind": "final_text",
+                            "round": round_i + 1,
+                        }
+                    )
+                return data
+
+            # Append assistant message (includes tool_calls, and content if any)
+            messages.append(msg)
+
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                name = fn.get("name") or ""
+                args = _parse_tool_arguments(fn.get("arguments"))
+                tool_call_id = tc.get("id") or ""
+                logger.info("tool round %s: %s(%s)", round_i + 1, name, args)
+                if event_emit:
+                    await event_emit(
+                        {
+                            "type": "agent.tool_start",
+                            "round": round_i + 1,
+                            "name": name,
+                        }
+                    )
+                tctx = set_tool_invocation_messages(list(messages))
+                try:
+                    result = execute_tool(name, args)
+                finally:
+                    reset_tool_invocation_messages(tctx)
+                if event_emit:
+                    await event_emit(
+                        {
+                            "type": "agent.tool_done",
+                            "round": round_i + 1,
+                            "name": name,
+                            "result_chars": len(result or ""),
+                        }
+                    )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": result,
+                    }
+                )
+                recovery = _http_error_recovery_hint(name, result)
+                if recovery:
+                    messages.append({"role": "system", "content": recovery})
+
+            if (
+                pause_between_rounds
+                and control_queue is not None
+                and round_i + 1 < config.MAX_TOOL_ROUNDS
+            ):
+                await wait_for_continue_step_after_round(round_i + 1)
+
+        logger.warning(
+            "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
+            config.MAX_TOOL_ROUNDS,
+            len(messages),
+            _approx_text_chars_in_messages(messages),
+        )
+        if event_emit:
+            await event_emit(
                 {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": result,
+                    "type": "agent.done",
+                    "kind": "max_tool_rounds",
+                    "round": config.MAX_TOOL_ROUNDS,
                 }
             )
-            recovery = _http_error_recovery_hint(name, result)
-            if recovery:
-                messages.append({"role": "system", "content": recovery})
-
-        if (
-            pause_between_rounds
-            and control_queue is not None
-            and round_i + 1 < config.MAX_TOOL_ROUNDS
-        ):
-            await wait_for_continue_step_after_round(round_i + 1)
-
-    logger.warning(
-        "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
-        config.MAX_TOOL_ROUNDS,
-        len(messages),
-        _approx_text_chars_in_messages(messages),
-    )
-    if event_emit:
-        await event_emit(
-            {
-                "type": "agent.done",
-                "kind": "max_tool_rounds",
-                "round": config.MAX_TOOL_ROUNDS,
-            }
-        )
-    return data
+        return data
+    finally:
+        reset_capability_confirmed(_cap_cf_tok)

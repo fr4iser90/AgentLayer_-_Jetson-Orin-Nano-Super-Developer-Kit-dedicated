@@ -15,6 +15,7 @@ TOOL_DOMAIN = "clocks"
 TOOL_LABEL = "Clocks"
 TOOL_DESCRIPTION = "Current time and IANA timezone names (no database)."
 TOOL_TRIGGERS = ("timezone", "utc", "what time", "clock", "zoneinfo")
+TOOL_CAPABILITIES = ("time.query",)
 
 
 def get_current_time(arguments: dict[str, Any]) -> str:

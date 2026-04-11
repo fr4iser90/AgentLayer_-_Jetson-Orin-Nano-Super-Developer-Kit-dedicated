@@ -275,9 +275,9 @@ def recent_tool_invocations(limit: int = 50) -> list[dict[str, Any]]:
 
 
 def user_secret_upsert(user_id: uuid.UUID, service_key: str, plaintext: str) -> None:
-    from src.infrastructure.crypto_secrets import crypto_secrets
+    from src.infrastructure.crypto_secrets import encrypt_secret
 
-    ct = crypto_secrets.encrypt_secret(plaintext)
+    ct = encrypt_secret(plaintext)
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -295,7 +295,7 @@ def user_secret_upsert(user_id: uuid.UUID, service_key: str, plaintext: str) -> 
 
 def user_secret_get_plaintext(user_id: uuid.UUID, service_key: str) -> str | None:
     """Server-side only — never return this to LLM tool JSON."""
-    from src.infrastructure.crypto_secrets import crypto_secrets
+    from src.infrastructure.crypto_secrets import decrypt_secret
 
     with pool().connection() as conn:
         with conn.cursor() as cur:
@@ -310,7 +310,7 @@ def user_secret_get_plaintext(user_id: uuid.UUID, service_key: str) -> str | Non
         conn.commit()
     if not row:
         return None
-    return crypto_secrets.decrypt_secret(bytes(row[0]))
+    return decrypt_secret(bytes(row[0]))
 
 
 def user_secret_delete(user_id: uuid.UUID, service_key: str) -> bool:
@@ -366,13 +366,13 @@ def user_secret_register_with_otp(
     otp_raw: str, service_key: str, plaintext: str
 ) -> None:
     """Validate OTP (single-use), then upsert encrypted secret for bound user."""
-    from src.infrastructure.crypto_secrets import crypto_secrets
+    from src.infrastructure.crypto_secrets import encrypt_secret
 
     otp_raw = (otp_raw or "").strip()
     if not otp_raw:
         raise ValueError("otp is required")
     otp_hash = hashlib.sha256(otp_raw.encode("utf-8")).hexdigest()
-    ct = crypto_secrets.encrypt_secret(plaintext)
+    ct = encrypt_secret(plaintext)
     with pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

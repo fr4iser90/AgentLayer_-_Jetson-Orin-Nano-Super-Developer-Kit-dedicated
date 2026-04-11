@@ -111,6 +111,8 @@ See `src/domain/http_identity.py` (`resolve_chat_identity`, `resolve_tools_list_
 
 These are **optional**; omit for default router behavior.
 
+**JSON body (agent-only, stripped before Ollama):** `agent_capability_hints` — array of capability strings (e.g. `["mail.read","weather.get"]`) to narrow merged `tools[]` to tools that declare matching `TOOL_CAPABILITIES` in the registry. If no tool matches, the filter is ignored (same safe fallback as domain filtering). Index: `GET /v1/capabilities`. See `docs/adr/0001-tool-and-agent-architecture.md`.
+
 ### Hybrid model routing (env + headers; optional client override)
 
 Agent Layer picks the Ollama model id **before** each `chat_completion` run:
@@ -195,6 +197,12 @@ While waiting, the client may still send **`add_tools`** (merge names for subseq
   "tools_meta": [ /* per-module metadata */ ]
 }
 ```
+
+### 6.1.1 Capability index (machine-readable)
+
+`GET /v1/capabilities`  
+**Auth:** required (same as `GET /v1/tools`)  
+**Response:** `{ "schema_version": 1, "by_capability": { "<cap>": [ { "tool_name", "package_id", "domain" } ] }, "tools_unclassified": [ ... ] }` — built from the same policy-filtered metadata as `GET /v1/tools` for this caller. `tools_unclassified` lists registered function names with no declared capabilities (migration aid).
 
 ### 6.2 Generic runner (Open WebUI “tool server” style)
 

@@ -54,6 +54,8 @@ from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed
 from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_chat_identity
 from src.domain.identity import reset_identity, set_identity
+from src.domain.plugin_system.capability_governance import parse_user_capability_confirm
+from src.domain.tool_invocation_context import bind_capability_confirmed, reset_capability_confirmed
 from src.domain.plugin_system.tools_api import router as tools_router
 from src.api.chat_websocket import router as chat_ws_router
 from src.api.studio_api import router as studio_router
@@ -659,6 +661,15 @@ async def list_openapi_domains():
     return {"domains": result}
 
 
+def _merge_capability_confirm(request: Request, body_confirm: Any) -> frozenset[str]:
+    """Header X-Agent-Capability-Confirm (comma) ∪ JSON ``agent_capability_confirm`` (body route only)."""
+    raw = (request.headers.get("X-Agent-Capability-Confirm") or "").strip()
+    hdr: frozenset[str] = frozenset()
+    if raw:
+        hdr = frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
+    return hdr | parse_user_capability_confirm(body_confirm)
+
+
 @app.post("/{tool_name}")
 async def run_tool_direct(tool_name: str, request: Request):
     """Direct tool execution endpoint (Open WebUI calls this directly per tool)"""
@@ -671,6 +682,7 @@ async def run_tool_direct(tool_name: str, request: Request):
     
     user_id, tenant_id = resolve_chat_identity(request)
     id_token = set_identity(tenant_id, user_id)
+    _cf_tok = bind_capability_confirmed(_merge_capability_confirm(request, None))
 
     try:
         result = run_tool(tool_name, arguments)
@@ -683,6 +695,7 @@ async def run_tool_direct(tool_name: str, request: Request):
         logger.exception(f"Direct tool execution failed for {tool_name}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        reset_capability_confirmed(_cf_tok)
         reset_identity(id_token)
 
 
@@ -696,7 +709,8 @@ async def run_tool_openwebui(request: Request):
     
     tool_name = body.get("name")
     arguments = body.get("arguments", {})
-    
+    body_confirm = body.get("agent_capability_confirm")
+
     if not tool_name:
         raise HTTPException(status_code=400, detail="missing tool name")
     
@@ -704,6 +718,7 @@ async def run_tool_openwebui(request: Request):
     
     user_id, tenant_id = resolve_chat_identity(request)
     id_token = set_identity(tenant_id, user_id)
+    _cf_tok = bind_capability_confirmed(_merge_capability_confirm(request, body_confirm))
 
     try:
         result = run_tool(tool_name, arguments)
@@ -716,6 +731,7 @@ async def run_tool_openwebui(request: Request):
         logger.exception(f"Open WebUI tool execution failed for {tool_name}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
+        reset_capability_confirmed(_cf_tok)
         reset_identity(id_token)
 
 

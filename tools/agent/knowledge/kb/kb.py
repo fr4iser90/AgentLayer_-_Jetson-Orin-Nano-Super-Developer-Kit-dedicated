@@ -16,6 +16,7 @@ TOOL_DESCRIPTION = (
     "Per-user notes in PostgreSQL: append, full-text search, and read (same scope as todos)."
 )
 TOOL_TRIGGERS = ("knowledge base", "second brain", "my notes", "notebook")
+TOOL_CAPABILITIES = ("knowledge.note",)
 
 
 def kb_append_note(arguments: dict[str, Any]) -> str:

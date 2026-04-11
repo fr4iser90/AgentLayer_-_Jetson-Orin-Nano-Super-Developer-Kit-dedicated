@@ -14,6 +14,7 @@ TOOL_BUCKET = "media"
 TOOL_LABEL = "Inpainting RealVision"
 TOOL_DESCRIPTION = "Bearbeitet Bilder via Inpainting (Bild + Maske) mit RealVision über ComfyUI."
 TOOL_DOMAIN = "image_editor"
+TOOL_CAPABILITIES = ("image.edit",)
 
 WORKFLOW_PATH = "/src/workflows/external/image_generator/inpainting_realvision.json"
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188")

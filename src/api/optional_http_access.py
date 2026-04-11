@@ -56,6 +56,8 @@ def is_optional_connection_route(path: str, method: str) -> bool:
         return True
     if m == "GET" and path == "/v1/tools":
         return True
+    if m == "GET" and path == "/v1/capabilities":
+        return True
     if m == "GET" and path == "/v1/router/categories":
         return True
     if m == "GET" and path == "/v1/studio/catalog":

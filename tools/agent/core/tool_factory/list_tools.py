@@ -12,6 +12,7 @@ TOOL_ID = "list_tools"
 TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("meta.discover",)
 
 
 def list_tools(arguments: dict[str, Any]) -> str:

@@ -24,6 +24,7 @@ TOOL_TRIGGERS = (
 TOOL_TAGS = ("hunting", "outdoor", "calculator")
 TOOL_DOMAIN = "hunting"
 TOOL_REQUIRES = ["wind", "bearing"]
+TOOL_CAPABILITIES = ("recreation.hunting.advise",)
 
 
 def hunting_wind_analysis(arguments: dict[str, Any]) -> str:

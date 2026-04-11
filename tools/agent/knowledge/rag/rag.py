@@ -23,6 +23,7 @@ TOOL_TRIGGERS = (
     "embeddings",
     "knowledge base documents",
 )
+TOOL_CAPABILITIES = ("knowledge.retrieve",)
 
 
 def rag_search(arguments: dict[str, Any]) -> str:

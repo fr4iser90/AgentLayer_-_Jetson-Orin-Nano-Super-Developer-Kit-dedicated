@@ -28,6 +28,7 @@ TOOL_DESCRIPTION = (
     "into the tool arguments unless you need extra assets beyond the chat uploads. "
     "Optional ``assets`` in parameters: small images as base64 when not from chat."
 )
+TOOL_CAPABILITIES = ("creative.web.build",)
 
 _wf_mod: Any | None = None
 

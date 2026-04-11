@@ -33,6 +33,7 @@ TOOL_TRIGGERS = (
 TOOL_DOMAIN = "shared"
 TOOL_TAGS = ("context", "weather", "time", "shared")
 TOOL_REQUIRES: list[str] = []
+TOOL_CAPABILITIES = ("environment.snapshot",)
 
 _OWM = "https://api.openweathermap.org/data/2.5/weather"
 

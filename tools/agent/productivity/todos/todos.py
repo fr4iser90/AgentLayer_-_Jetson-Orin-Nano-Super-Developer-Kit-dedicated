@@ -16,6 +16,7 @@ TOOL_DESCRIPTION = (
     "Create, list, and update per-user todos stored in PostgreSQL."
 )
 TOOL_TRIGGERS = ("todo", "task", "reminder")
+TOOL_CAPABILITIES = ("tasks.manage",)
 
 
 def create_todo(arguments: dict[str, Any]) -> str:

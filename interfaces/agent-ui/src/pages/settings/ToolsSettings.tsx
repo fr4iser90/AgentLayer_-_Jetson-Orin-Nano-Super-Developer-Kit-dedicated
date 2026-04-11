@@ -4,6 +4,14 @@ import { useAuth } from "../../auth/AuthContext";
 import { apiFetch } from "../../lib/api";
 import { isPackageEnabledForChat, setPackageEnabledForChat } from "../../features/settings/toolPrefs";
 
+type ToolPackageUi = {
+  category: string;
+  display_name: string;
+  order: number;
+  icon?: string;
+  tagline?: string;
+};
+
 type ToolsMeta = {
   id?: string;
   domain?: string;
@@ -14,7 +22,43 @@ type ToolsMeta = {
   secrets_required?: string[];
   requires?: string[];
   risk_level?: string | number;
+  ui?: ToolPackageUi;
 };
+
+type ChatToolFunction = {
+  name?: string;
+  description?: string;
+  TOOL_DESCRIPTION?: string;
+  parameters?: unknown;
+};
+
+const CATEGORY_ORDER = [
+  "productivity",
+  "knowledge",
+  "developer",
+  "creative",
+  "outdoor",
+  "system",
+] as const;
+
+const CATEGORY_LABEL: Record<string, string> = {
+  productivity: "Productivity",
+  knowledge: "Knowledge",
+  developer: "Developer",
+  creative: "Creative",
+  outdoor: "Outdoor",
+  system: "System & Admin",
+};
+
+/** Optional friendlier copy for recommendation strip (Phase 3). */
+const SETUP_HINTS: Record<string, string> = {
+  gmail: "Connect Gmail to search and summarize emails.",
+  github: "Add a GitHub token to search repositories and read files.",
+  google_calendar: "Add your calendar URL so events can be listed.",
+  openweather: "Add an OpenWeather API key for live forecasts.",
+};
+
+type TabId = "all" | "enabled" | "needs_setup" | "high_risk";
 
 function secretKeysForPackage(m: ToolsMeta): string[] {
   const raw = m.secrets_required ?? [];
@@ -22,42 +66,107 @@ function secretKeysForPackage(m: ToolsMeta): string[] {
   return [...new Set(raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
 }
 
-function groupKey(m: ToolsMeta): string {
-  const d = (m.domain || "").trim();
-  if (d) return d.toLowerCase();
-  const b = (m.admin_bucket || "").trim();
-  if (b) return b.toLowerCase();
-  return "general";
+function riskLabel(m: ToolsMeta): string {
+  const r = m.risk_level;
+  if (r == null || r === "") return "";
+  return String(r).toLowerCase();
 }
 
-function groupTitle(m: ToolsMeta): string {
-  const d = (m.domain || "").trim();
-  if (d) return d;
-  const b = (m.admin_bucket || "").trim();
-  if (b) return b;
-  return "General";
+function isHighRisk(m: ToolsMeta): boolean {
+  const s = riskLabel(m);
+  return s === "l2" || s === "l3" || s === "2" || s === "3";
+}
+
+function matchesSearch(m: ToolsMeta, q: string): boolean {
+  if (!q.trim()) return true;
+  const t = q.trim().toLowerCase();
+  const id = (m.id || "").toLowerCase();
+  const dn = (m.ui?.display_name || m.TOOL_LABEL || "").toLowerCase();
+  const tg = (m.ui?.tagline || m.TOOL_DESCRIPTION || "").toLowerCase();
+  const tools = (m.tools ?? []).join(" ").toLowerCase();
+  return id.includes(t) || dn.includes(t) || tg.includes(t) || tools.includes(t);
+}
+
+function buildFunctionIndex(chatTools: unknown[]): Map<string, ChatToolFunction> {
+  const map = new Map<string, ChatToolFunction>();
+  for (const spec of chatTools) {
+    if (!spec || typeof spec !== "object") continue;
+    const fn = (spec as { function?: ChatToolFunction }).function;
+    if (!fn || typeof fn !== "object") continue;
+    const n = fn.name;
+    if (typeof n === "string" && n.trim()) map.set(n.trim(), fn);
+  }
+  return map;
+}
+
+function summarizeParams(params: unknown): string {
+  if (!params || typeof params !== "object") return "";
+  try {
+    const s = JSON.stringify(params, null, 2);
+    return s.length > 1200 ? `${s.slice(0, 1200)}…` : s;
+  } catch {
+    return "";
+  }
+}
+
+function categoryAnalytics(items: ToolsMeta[], services: string[]) {
+  let ready = 0;
+  let needSetup = 0;
+  let enabled = 0;
+  for (const m of items) {
+    const names = (m.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
+    const reqs = secretKeysForPackage(m);
+    const missing = reqs.filter((k) => !services.includes(k));
+    if (missing.length) needSetup += 1;
+    else ready += 1;
+    if (names.length && isPackageEnabledForChat(names)) enabled += 1;
+  }
+  return { total: items.length, ready, needSetup, enabled };
+}
+
+function recommendationForPackage(m: ToolsMeta, missing: string[], display: string): string {
+  const mid = (m.id || "").trim();
+  for (const k of missing) {
+    const hint = SETUP_HINTS[k];
+    if (hint) return hint;
+  }
+  if (mid && SETUP_HINTS[mid]) return SETUP_HINTS[mid];
+  return `Add credentials (${missing.join(", ")}) under Connections to use ${display}.`;
 }
 
 export function ToolsSettings() {
   const auth = useAuth();
   const [meta, setMeta] = useState<ToolsMeta[]>([]);
+  const [chatSpecs, setChatSpecs] = useState<unknown[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [, bump] = useState(0);
+  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<TabId>("all");
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
+  const [drawerPkg, setDrawerPkg] = useState<ToolsMeta | null>(null);
+
+  const fnIndex = useMemo(() => buildFunctionIndex(chatSpecs), [chatSpecs]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setMsg(null);
     try {
       const res = await apiFetch("/v1/tools", auth);
-      const data = (await res.json()) as { tools_meta?: ToolsMeta[]; detail?: unknown };
+      const data = (await res.json()) as {
+        tools?: unknown[];
+        tools_meta?: ToolsMeta[];
+        detail?: unknown;
+      };
       if (!res.ok) {
         setMeta([]);
+        setChatSpecs([]);
         setMsg(typeof data.detail === "string" ? data.detail : "Could not load tools");
         return;
       }
       setMeta(Array.isArray(data.tools_meta) ? data.tools_meta : []);
+      setChatSpecs(Array.isArray(data.tools) ? data.tools : []);
 
       const sres = await apiFetch("/v1/user/secrets", auth);
       const sdata = (await sres.json()) as { services?: string[] };
@@ -77,36 +186,114 @@ export function ToolsSettings() {
     void load();
   }, [load]);
 
+  const filteredByTab = useMemo(() => {
+    return meta.filter((m) => {
+      if (!(m.id || "").trim()) return false;
+      const names = (m.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
+      const reqs = secretKeysForPackage(m);
+      const missing = reqs.filter((k) => !services.includes(k));
+      const enabled = names.length ? isPackageEnabledForChat(names) : true;
+
+      if (tab === "enabled") return enabled && names.length > 0;
+      if (tab === "needs_setup") return missing.length > 0;
+      if (tab === "high_risk") return isHighRisk(m);
+      return true;
+    });
+  }, [meta, services, tab]);
+
+  const searched = useMemo(() => {
+    return filteredByTab.filter((m) => matchesSearch(m, search));
+  }, [filteredByTab, search]);
+
   const grouped = useMemo(() => {
-    const map = new Map<string, { title: string; items: ToolsMeta[] }>();
-    for (const m of meta) {
-      if (!(m.id || "").trim()) continue;
-      const k = groupKey(m);
-      if (!map.has(k)) map.set(k, { title: groupTitle(m), items: [] });
-      map.get(k)!.items.push(m);
+    const map = new Map<string, ToolsMeta[]>();
+    for (const m of searched) {
+      const cat = (m.ui?.category || "system").toLowerCase();
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(m);
     }
     for (const g of map.values()) {
-      g.items.sort((a, b) => (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" }));
+      g.sort((a, b) => {
+        const oa = a.ui?.order ?? 500;
+        const ob = b.ui?.order ?? 500;
+        if (oa !== ob) return oa - ob;
+        return (a.ui?.display_name || a.id || "").localeCompare(b.ui?.display_name || b.id || "", undefined, {
+          sensitivity: "base",
+        });
+      });
     }
-    return [...map.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, v]) => v);
-  }, [meta]);
+    const ordered: { cat: string; label: string; items: ToolsMeta[] }[] = [];
+    for (const c of CATEGORY_ORDER) {
+      const items = map.get(c);
+      if (items?.length) ordered.push({ cat: c, label: CATEGORY_LABEL[c] ?? c, items });
+    }
+    const orderSet = new Set<string>(CATEGORY_ORDER);
+    for (const [c, items] of map.entries()) {
+      if (!orderSet.has(c) && items.length) {
+        ordered.push({ cat: c, label: CATEGORY_LABEL[c] ?? c, items });
+      }
+    }
+    return ordered;
+  }, [searched]);
+
+  const recommendations = useMemo(() => {
+    const out: { id: string; title: string; body: string }[] = [];
+    for (const m of meta) {
+      if (!(m.id || "").trim()) continue;
+      const reqs = secretKeysForPackage(m);
+      const missing = reqs.filter((k) => !services.includes(k));
+      if (!missing.length) continue;
+      const title = (m.ui?.display_name || m.TOOL_LABEL || m.id || "").trim();
+      out.push({
+        id: (m.id || "").trim(),
+        title,
+        body: recommendationForPackage(m, missing, title),
+      });
+    }
+    return out.slice(0, 6);
+  }, [meta, services]);
+
+  useEffect(() => {
+    setOpenCats((prev) => {
+      const next = { ...prev };
+      for (const g of grouped) {
+        if (next[g.cat] === undefined) next[g.cat] = true;
+      }
+      return next;
+    });
+  }, [grouped]);
+
+  useEffect(() => {
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setDrawerPkg(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   function refreshToggles() {
     bump((n) => n + 1);
   }
 
+  function toggleCat(cat: string) {
+    setOpenCats((p) => ({ ...p, [cat]: !p[cat] }));
+  }
+
+  function tryPromptForPackage(m: ToolsMeta): string {
+    const names = (m.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
+    const first = names[0] || "tools";
+    const title = (m.ui?.display_name || m.id || "").trim();
+    return `Use the ${first} tool (${title}). Run it with minimal arguments to verify it works.`;
+  }
+
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
+    <div className="mx-auto max-w-4xl space-y-8 pb-12">
       <div>
         <h1 className="text-lg font-semibold text-white">Tools</h1>
         <p className="mt-2 text-sm text-surface-muted">
-          Packages listed for your account come from <code className="rounded bg-white/5 px-1 text-xs">GET /v1/tools</code>{" "}
-          (operator policy already applied). Use the toggles to <strong className="text-neutral-300">opt out</strong> of
-          whole packages for Chat and Agent on <strong className="text-neutral-300">this browser</strong> — the app
-          sends <code className="rounded bg-white/5 px-1 text-xs">agent_disabled_tools</code> on each request. Secrets
-          live under{" "}
+          Packages come from <code className="rounded bg-white/5 px-1 text-xs">GET /v1/tools</code> (operator policy
+          applied). Opt out per package on <strong className="text-neutral-300">this browser</strong> — requests send{" "}
+          <code className="rounded bg-white/5 px-1 text-xs">agent_disabled_tools</code>. Credentials:{" "}
           <Link to="/settings/connections" className="text-sky-400 hover:text-sky-300 hover:underline">
             Connections
           </Link>
@@ -117,81 +304,224 @@ export function ToolsSettings() {
       {msg ? <p className="text-sm text-amber-400">{msg}</p> : null}
       {loading ? <p className="text-sm text-surface-muted">Loading…</p> : null}
 
-      <div className="space-y-10">
-        {grouped.map((g) => (
-          <section key={g.title}>
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-sky-200/90">{g.title}</h2>
-            <ul className="flex flex-col gap-3">
-              {g.items.map((m) => {
-                const pid = (m.id || "").trim();
-                const names = (m.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
-                const enabled = names.length ? isPackageEnabledForChat(names) : true;
-                const reqs = secretKeysForPackage(m);
-                const missing = reqs.filter((k) => !services.includes(k));
-                const desc = (m.TOOL_DESCRIPTION || "").trim().slice(0, 280);
-                const risk = m.risk_level != null ? String(m.risk_level) : "";
-                return (
-                  <li
-                    key={pid}
-                    className="rounded-xl border border-surface-border bg-surface-raised/90 p-4 shadow-sm shadow-black/20"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-sm font-semibold text-white">{pid}</span>
-                          {m.TOOL_LABEL ? (
-                            <span className="text-xs text-surface-muted">{m.TOOL_LABEL}</span>
-                          ) : null}
-                          {risk ? (
-                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-neutral-400">
-                              risk:{risk}
-                            </span>
-                          ) : null}
-                          {missing.length ? (
-                            <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">
-                              needs secret: {missing.join(", ")}
-                            </span>
-                          ) : reqs.length ? (
-                            <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-200/90">
-                              secrets ok
-                            </span>
-                          ) : null}
-                        </div>
-                        {desc ? <p className="text-xs leading-relaxed text-surface-muted">{desc}</p> : null}
-                        {names.length ? (
-                          <p className="text-[11px] text-neutral-500">
-                            <span className="text-surface-muted">Tools:</span>{" "}
-                            <span className="font-mono text-neutral-400">{names.join(", ")}</span>
+      {!loading && recommendations.length > 0 ? (
+        <section
+          className="rounded-xl border border-sky-500/25 bg-sky-500/5 px-4 py-3"
+          aria-label="Setup suggestions"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-sky-200/90">Suggested next steps</p>
+          <ul className="mt-2 space-y-2 text-sm text-neutral-200">
+            {recommendations.map((r) => (
+              <li key={r.id} className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
+                <span>{r.body}</span>
+                <Link
+                  to="/settings/connections"
+                  className="shrink-0 text-xs font-medium text-sky-400 hover:text-sky-300 hover:underline"
+                >
+                  Open Connections
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {!loading && meta.length > 0 ? (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <label className="block max-w-md flex-1 text-sm text-surface-muted">
+            Search
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Gmail, files, weather, kb…"
+              className="mt-1 w-full rounded-lg border border-surface-border bg-black/40 px-3 py-2 text-sm text-white placeholder:text-neutral-600"
+            />
+          </label>
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter packages">
+            {(
+              [
+                ["all", "All"],
+                ["enabled", "Enabled"],
+                ["needs_setup", "Needs setup"],
+                ["high_risk", "High risk"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  tab === id ? "bg-sky-600 text-white" : "bg-white/5 text-surface-muted hover:bg-white/10"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="space-y-4">
+        {grouped.map((g) => {
+          const open = openCats[g.cat] !== false;
+          const stats = categoryAnalytics(g.items, services);
+          return (
+            <section key={g.cat} className="overflow-hidden rounded-2xl border border-surface-border bg-surface-raised/40">
+              <button
+                type="button"
+                onClick={() => toggleCat(g.cat)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-white/[0.04]"
+              >
+                <div>
+                  <h2 className="text-sm font-semibold text-white">{g.label}</h2>
+                  <p className="text-[11px] text-surface-muted">
+                    {stats.total} packages · {stats.ready}/{stats.total} ready · {stats.enabled} enabled ·{" "}
+                    {stats.needSetup} needs setup
+                  </p>
+                </div>
+                <span className="text-surface-muted">{open ? "▲" : "▼"}</span>
+              </button>
+              {open ? (
+                <div className="border-t border-white/5 px-3 pb-4 pt-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {g.items.map((m) => {
+                      const pid = (m.id || "").trim();
+                      const names = (m.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
+                      const enabled = names.length ? isPackageEnabledForChat(names) : true;
+                      const reqs = secretKeysForPackage(m);
+                      const missing = reqs.filter((k) => !services.includes(k));
+                      const title = (m.ui?.display_name || m.TOOL_LABEL || pid).trim();
+                      const tagline = (m.ui?.tagline || m.TOOL_DESCRIPTION || "").trim().slice(0, 200);
+                      const risk = riskLabel(m);
+                      const high = isHighRisk(m);
+                      const tryEnc = encodeURIComponent(tryPromptForPackage(m));
+                      return (
+                        <div
+                          key={pid}
+                          className="flex flex-col rounded-xl border border-white/10 bg-black/25 p-4 shadow-sm shadow-black/20"
+                        >
+                          <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              {m.domain ? (
+                                <p className="text-[10px] uppercase tracking-wide text-neutral-500">{m.domain}</p>
+                              ) : null}
+                              <h3 className="font-semibold text-white">{title}</h3>
+                              <p className="font-mono text-[10px] text-neutral-500">{pid}</p>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-1">
+                              {enabled ? (
+                                <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-200">
+                                  On
+                                </span>
+                              ) : (
+                                <span className="rounded bg-neutral-500/20 px-1.5 py-0.5 text-[10px] text-neutral-400">
+                                  Off
+                                </span>
+                              )}
+                              {missing.length ? (
+                                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] text-amber-200">
+                                  Needs secret
+                                </span>
+                              ) : reqs.length ? (
+                                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200/90">
+                                  Ready
+                                </span>
+                              ) : (
+                                <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-400">
+                                  No secrets
+                                </span>
+                              )}
+                              {high ? (
+                                <span className="rounded bg-orange-500/20 px-1.5 py-0.5 text-[10px] text-orange-200">
+                                  Risk {risk || "high"}
+                                </span>
+                              ) : risk ? (
+                                <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-neutral-400">
+                                  risk {risk}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          {tagline ? <p className="mb-3 text-xs leading-relaxed text-surface-muted">{tagline}</p> : null}
+                          <p className="mb-3 text-[11px] text-neutral-500">
+                            <span className="text-surface-muted">Tools ({names.length}):</span>{" "}
+                            <span className="font-mono text-[10px] text-neutral-400">{names.join(", ")}</span>
                           </p>
-                        ) : (
-                          <p className="text-[11px] text-neutral-500">No discrete tool names in catalog metadata.</p>
-                        )}
-                      </div>
-                      <label className="flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap text-xs text-neutral-200">
-                        <span className="text-surface-muted sm:hidden">Enabled</span>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-surface-border bg-black/40"
-                          checked={enabled}
-                          disabled={!names.length}
-                          onChange={(e) => {
-                            setPackageEnabledForChat(names, e.target.checked);
-                            refreshToggles();
-                          }}
-                        />
-                        <span className="hidden sm:inline">On for chat</span>
-                      </label>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
+                          <div className="mb-3 flex flex-wrap gap-2 border-t border-white/5 pt-3">
+                            <Link
+                              to={`/chat?try=${tryEnc}`}
+                              className="rounded-md bg-white/10 px-2.5 py-1 text-[11px] font-medium text-neutral-100 hover:bg-white/15"
+                            >
+                              Test
+                            </Link>
+                            <Link
+                              to="/docs"
+                              className="rounded-md bg-white/5 px-2.5 py-1 text-[11px] text-surface-muted hover:bg-white/10 hover:text-neutral-200"
+                            >
+                              Docs
+                            </Link>
+                            {reqs.length ? (
+                              <Link
+                                to="/settings/connections"
+                                className="rounded-md bg-white/5 px-2.5 py-1 text-[11px] text-sky-400 hover:bg-white/10"
+                              >
+                                Configure
+                              </Link>
+                            ) : null}
+                            <button
+                              type="button"
+                              disabled={!names.length}
+                              className="rounded-md bg-white/5 px-2.5 py-1 text-[11px] text-amber-200/90 hover:bg-white/10 disabled:opacity-40"
+                              onClick={() => {
+                                setPackageEnabledForChat(names, false);
+                                refreshToggles();
+                              }}
+                            >
+                              Disable
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-white/15 px-2.5 py-1 text-[11px] text-neutral-200 hover:bg-white/10"
+                              onClick={() => setDrawerPkg(m)}
+                            >
+                              Details
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 border-t border-white/5 pt-3">
+                            <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-200">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-surface-border bg-black/40"
+                                checked={enabled}
+                                disabled={!names.length}
+                                onChange={(e) => {
+                                  setPackageEnabledForChat(names, e.target.checked);
+                                  refreshToggles();
+                                }}
+                              />
+                              Enable (this browser)
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
       </div>
 
       {!loading && meta.length === 0 ? (
         <p className="text-sm text-surface-muted">No tool packages available for your account.</p>
+      ) : null}
+
+      {!loading && meta.length > 0 && searched.length === 0 ? (
+        <p className="text-sm text-surface-muted">No packages match the current search and filters.</p>
       ) : null}
 
       <button
@@ -201,6 +531,106 @@ export function ToolsSettings() {
       >
         Refresh catalog
       </button>
+
+      {drawerPkg ? (
+        <PackageDrawer
+          pkg={drawerPkg}
+          fnIndex={fnIndex}
+          onClose={() => setDrawerPkg(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function PackageDrawer({
+  pkg,
+  fnIndex,
+  onClose,
+}: {
+  pkg: ToolsMeta;
+  fnIndex: Map<string, ChatToolFunction>;
+  onClose: () => void;
+}) {
+  const pid = (pkg.id || "").trim();
+  const title = (pkg.ui?.display_name || pkg.TOOL_LABEL || pid).trim();
+  const names = (pkg.tools ?? []).filter((x): x is string => typeof x === "string" && !!x.trim());
+  const first = names[0] || "tool";
+  const example = `Try: “Use ${first} to handle …” (adjust for your task).`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 p-0 sm:p-4" role="dialog" aria-modal="true">
+      <button type="button" className="absolute inset-0 h-full w-full cursor-default" aria-label="Close" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-lg flex-col border-l border-white/10 bg-[#141414] shadow-2xl sm:h-auto sm:max-h-[90vh] sm:rounded-xl">
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div>
+            <p className="text-[10px] uppercase text-neutral-500">{pid}</p>
+            <h2 className="text-lg font-semibold text-white">{title}</h2>
+            {(pkg.ui?.tagline || pkg.TOOL_DESCRIPTION) && (
+              <p className="mt-1 text-sm text-surface-muted">{(pkg.ui?.tagline || pkg.TOOL_DESCRIPTION || "").slice(0, 400)}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="rounded-lg px-2 py-1 text-sm text-surface-muted hover:bg-white/10 hover:text-white"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-4">
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-200/80">Example prompt</h3>
+            <p className="mt-1 text-sm text-neutral-300">{example}</p>
+          </section>
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-sky-200/80">Functions in this package</h3>
+            <ul className="mt-2 space-y-4">
+              {names.map((n) => {
+                const fn = fnIndex.get(n);
+                const desc = (fn?.description || fn?.TOOL_DESCRIPTION || "").trim() || "—";
+                const params = summarizeParams(fn?.parameters);
+                return (
+                  <li key={n} className="rounded-lg border border-white/10 bg-black/30 p-3">
+                    <p className="font-mono text-sm font-medium text-sky-200">{n}</p>
+                    <p className="mt-1 text-xs text-surface-muted">{desc}</p>
+                    {params ? (
+                      <pre className="mt-2 max-h-40 overflow-auto rounded border border-white/5 bg-black/40 p-2 text-[10px] text-neutral-400">
+                        {params}
+                      </pre>
+                    ) : (
+                      <p className="mt-1 text-[10px] text-neutral-600">No parameter schema in catalog.</p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+          <section className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Logs &amp; last used</h3>
+            <p className="mt-1 text-xs text-surface-muted">
+              Per-tool invocation history and “last used” timestamps are not exposed to this UI yet — they need a small
+              operator/analytics endpoint on the server.
+            </p>
+          </section>
+        </div>
+        <div className="flex gap-2 border-t border-white/10 px-5 py-4">
+          <Link
+            to="/settings/connections"
+            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500"
+            onClick={onClose}
+          >
+            Connections
+          </Link>
+          <button
+            type="button"
+            className="rounded-lg border border-white/15 px-4 py-2 text-sm text-neutral-200 hover:bg-white/10"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

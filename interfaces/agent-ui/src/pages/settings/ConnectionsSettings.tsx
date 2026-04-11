@@ -24,6 +24,7 @@ type ToolsMeta = {
   requires?: string[];
   TOOL_LABEL?: string;
   user_secret_forms?: Record<string, UserSecretFormSpec>;
+  ui?: { display_name?: string; category?: string };
 };
 
 function secretKeysForPackage(m: ToolsMeta): string[] {
@@ -109,7 +110,7 @@ export function ConnectionsSettings() {
     const map = new Map<string, { ids: string[]; labels: string[] }>();
     for (const m of meta) {
       const pid = (m.id || "").trim() || "—";
-      const label = (m.TOOL_LABEL || m.id || "").trim() || pid;
+      const label = (m.ui?.display_name || m.TOOL_LABEL || m.id || "").trim() || pid;
       for (const k of secretKeysForPackage(m)) {
         if (!map.has(k)) map.set(k, { ids: [], labels: [] });
         const e = map.get(k)!;

@@ -20,6 +20,7 @@ TOOL_ID = "replace_tool"
 TOOL_BUCKET = "meta"
 TOOL_DOMAIN = "tool_factory"
 TOOL_TRIGGERS = ()
+TOOL_CAPABILITIES = ("meta.author",)
 
 
 def replace_tool(arguments: dict[str, Any]) -> str:

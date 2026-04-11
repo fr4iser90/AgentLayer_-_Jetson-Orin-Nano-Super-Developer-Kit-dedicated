@@ -25,6 +25,7 @@ TOOL_TRIGGERS = (
     "otp",
     "register_secret",
 )
+TOOL_CAPABILITIES = ("secrets.user",)
 
 
 def register_secrets(arguments: dict[str, Any]) -> str:
