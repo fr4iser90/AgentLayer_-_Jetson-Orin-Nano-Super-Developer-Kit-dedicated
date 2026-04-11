@@ -17,6 +17,8 @@ from src.domain.plugin_system.tool_policy import (
     filter_chat_tool_specs,
     filter_tools_meta,
 )
+from src.domain.http_identity import resolve_tools_list_identity
+from src.infrastructure.db import db
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +44,14 @@ def _registered_function_name(spec: dict) -> str | None:
 
 
 @router.get("/v1/tools")
-async def list_tools():
-    """Chat ``tools[]``-shaped specs plus registry metadata; respects operator ``enabled`` policy."""
+async def list_tools(request: Request):
+    """Chat ``tools[]``-shaped specs plus registry metadata; respects operator policy and caller access."""
     reg = get_registry()
     pmap = _policies_map_safe()
-    tools = filter_chat_tool_specs(reg.chat_tool_specs, reg, pmap)
-    meta = [dict(m) for m in filter_tools_meta(reg.tools_meta, pmap)]
+    uid, tid = resolve_tools_list_identity(request)
+    role = db.user_role(uid)
+    tools = filter_chat_tool_specs(reg.chat_tool_specs, reg, pmap, role, tid)
+    meta = [dict(m) for m in filter_tools_meta(reg.tools_meta, pmap, role, tid)]
     attach_execution_context_by_tool(meta, pmap)
     return {"tools": tools, "tools_meta": meta}
 
@@ -109,8 +113,8 @@ class ToolPolicyItem(BaseModel):
     package_id: str = Field(..., min_length=1)
     tool_name: str = "*"
     enabled: bool = True
-    default_on: bool | None = None
-    user_configurable: bool | None = None
+    min_role: Literal["user", "admin"] = "user"
+    allowed_tenant_ids: list[int] | None = None
     execution_context: str | None = None
 
 

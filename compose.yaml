@@ -49,7 +49,7 @@ services:
       # Backups (replace_tool/update_tool): Default /data/tool_backups liegt NICHT auf diesem Mount →
       # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./tools/agent/agent_created/.tool_backups)
     # Optional read-only:  - ./tools/agent/agent_created:/data/tools:ro
-    # Optional workspace_* : - /path/on/host/project:/workspace:rw  + AGENT_WORKSPACE_ROOT=/workspace
+    # Optional: mount dirs for fs_* if you need host files in-container (paths are cwd/absolute; no AGENT_WORKSPACE_ROOT).
     networks:
       - ai-net
 volumes:

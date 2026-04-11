@@ -25,8 +25,9 @@ def secrets_help(arguments: dict[str, Any]) -> str:
     topic = (arguments.get("topic") or "").strip().lower()
 
     base = config.PUBLIC_BASE_URL or f"http://127.0.0.1:{config.HTTP_EXAMPLE_PORT}"
-    user_hdr = (
-        config.USER_SUB_HEADERS[0] if config.USER_SUB_HEADERS else "X-OpenWebUI-User-Id"
+    auth_identity = (
+        "Use Authorization: Bearer <JWT from POST /auth/login or a user API key>; "
+        "user/tenant come from the token (users.tenant_id), not from X-* identity headers."
     )
 
     _tid, uid = get_identity()
@@ -74,7 +75,7 @@ def secrets_help(arguments: dict[str, Any]) -> str:
             },
             "service_key_example": raw_svc,
             "base_url_used": base,
-            "user_header": user_hdr,
+            "auth_identity": auth_identity,
             "resolved_user_id": uid,
             "resolved_external_sub": user_value,
             "for_llm_de": (

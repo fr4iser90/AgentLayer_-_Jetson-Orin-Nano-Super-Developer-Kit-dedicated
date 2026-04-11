@@ -11,8 +11,8 @@ type ToolMeta = {
   capabilities?: string[];
   secrets_required?: string[];
   requires?: string[];
-  default_on?: boolean;
-  user_configurable?: boolean;
+  min_role?: string;
+  allowed_tenant_ids?: number[] | null;
   families?: string[];
   domain?: string;
   admin_bucket?: string;
@@ -22,12 +22,17 @@ type ToolMeta = {
   risk_level?: string;
   tool_effective?: Record<
     string,
-    { enabled: boolean; default_on: boolean; user_configurable: boolean; execution_context?: string }
+    {
+      enabled: boolean;
+      min_role: string;
+      allowed_tenant_ids?: number[] | null;
+      execution_context?: string;
+    }
   >;
   policy_row?: {
     enabled?: boolean;
-    default_on?: boolean | null;
-    user_configurable?: boolean | null;
+    min_role?: string;
+    allowed_tenant_ids?: number[] | null;
     execution_context?: string | null;
   };
 };
@@ -36,36 +41,34 @@ type PolicyRow = {
   package_id: string;
   tool_name: string;
   enabled: boolean;
-  default_on: boolean | null;
-  user_configurable: boolean | null;
+  min_role: "user" | "admin";
+  allowed_tenant_ids: number[] | null;
   execution_context: string | null;
 };
 
-type Tri = "manifest" | "true" | "false";
-
-function boolToTri(v: boolean | null | undefined): Tri {
-  if (v === null || v === undefined) return "manifest";
-  return v ? "true" : "false";
+function parseTenantIdsInput(s: string): number[] | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  const ids = [
+    ...new Set(
+      trimmed
+        .split(/[\s,;]+/)
+        .filter(Boolean)
+        .map((p) => parseInt(p, 10))
+        .filter((n) => Number.isFinite(n) && n >= 1),
+    ),
+  ].sort((a, b) => a - b);
+  return ids.length ? ids : null;
 }
 
-function triToBool(t: Tri): boolean | null {
-  if (t === "manifest") return null;
-  return t === "true";
-}
-
-function ctxToSelect(v: string | null | undefined): string {
-  if (v === null || v === undefined || v === "") return "manifest";
-  return v;
-}
-
-function selectToCtx(t: string): string | null {
-  if (t === "manifest") return null;
-  return t;
+function formatTenantIds(t: number[] | null | undefined): string {
+  if (!t?.length) return "";
+  return t.join(", ");
 }
 
 function sortPackagesById(pkgs: ToolMeta[]): ToolMeta[] {
   return [...pkgs].sort((a, b) =>
-    (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" })
+    (a.id || "").localeCompare(b.id || "", undefined, { sensitivity: "base" }),
   );
 }
 
@@ -84,7 +87,7 @@ const ADMIN_BUCKET_ORDER = [
 const ADMIN_BUCKET_SET = new Set<string>(ADMIN_BUCKET_ORDER);
 
 const ADMIN_BUCKET_LABELS: Record<string, string> = {
-  files: "Files & workspace",
+  files: "Local filesystem",
   network: "Outbound network",
   knowledge: "Knowledge & memory",
   secrets: "Secrets & identity",
@@ -141,6 +144,7 @@ export function AdminTools() {
   const auth = useAuth();
   const [meta, setMeta] = useState<ToolMeta[]>([]);
   const [policyByPkg, setPolicyByPkg] = useState<Record<string, PolicyRow>>({});
+  const [tenantInputByPkg, setTenantInputByPkg] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -159,15 +163,19 @@ export function AdminTools() {
       setMeta(list);
       const rows = data.policy_rows ?? [];
       const map: Record<string, PolicyRow> = {};
+      const tin: Record<string, string> = {};
       for (const r of rows) {
         if (r.tool_name === "*" || !r.tool_name) {
+          const mr = r.min_role === "admin" ? "admin" : "user";
+          const at = r.allowed_tenant_ids ?? null;
           map[r.package_id] = {
             ...r,
             tool_name: "*",
+            min_role: mr,
+            allowed_tenant_ids: at,
             execution_context: r.execution_context ?? null,
-            default_on: r.default_on ?? null,
-            user_configurable: r.user_configurable ?? null,
           };
+          tin[r.package_id] = formatTenantIds(at);
         }
       }
       for (const t of list) {
@@ -178,12 +186,14 @@ export function AdminTools() {
           package_id: pid,
           tool_name: "*",
           enabled: te?.enabled ?? true,
-          default_on: null,
-          user_configurable: null,
+          min_role: te?.min_role === "admin" ? "admin" : "user",
+          allowed_tenant_ids: te?.allowed_tenant_ids ?? null,
           execution_context: null,
         };
+        tin[pid] = formatTenantIds(te?.allowed_tenant_ids ?? null);
       }
       setPolicyByPkg(map);
+      setTenantInputByPkg(tin);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
@@ -225,13 +235,21 @@ export function AdminTools() {
       const policies = packages.map((p) => {
         const pid = p.id ?? "";
         const pol = policyByPkg[pid];
-        if (pol?.package_id) return pol;
+        const row = pol?.package_id
+          ? pol
+          : {
+              package_id: pid,
+              tool_name: "*" as const,
+              enabled: true,
+              min_role: "user" as const,
+              allowed_tenant_ids: null,
+              execution_context: null,
+            };
+        const rawTenants = tenantInputByPkg[pid] ?? "";
+        const parsed = parseTenantIdsInput(rawTenants);
         return {
-          package_id: pid,
-          tool_name: "*",
-          enabled: true,
-          default_on: null,
-          user_configurable: null,
+          ...row,
+          allowed_tenant_ids: parsed,
           execution_context: null,
         };
       });
@@ -274,19 +292,27 @@ export function AdminTools() {
   const totalPackages = packages.length;
 
   function updatePolicy(pid: string, patch: Partial<PolicyRow>) {
-    setPolicyByPkg((prev) => ({
-      ...prev,
-      [pid]: {
-        package_id: pid,
-        tool_name: "*",
-        enabled: true,
-        default_on: null,
-        user_configurable: null,
-        execution_context: null,
-        ...prev[pid],
-        ...patch,
-      },
-    }));
+    setPolicyByPkg((prev) => {
+      const base: PolicyRow =
+        prev[pid] ??
+        ({
+          package_id: pid,
+          tool_name: "*",
+          enabled: true,
+          min_role: "user",
+          allowed_tenant_ids: null,
+          execution_context: null,
+        } as PolicyRow);
+      return {
+        ...prev,
+        [pid]: {
+          ...base,
+          ...patch,
+          package_id: pid,
+          execution_context: null,
+        },
+      };
+    });
   }
 
   function renderCard(p: ToolMeta) {
@@ -295,8 +321,8 @@ export function AdminTools() {
       package_id: pid,
       tool_name: "*",
       enabled: true,
-      default_on: null,
-      user_configurable: null,
+      min_role: "user",
+      allowed_tenant_ids: null,
       execution_context: null,
     };
     const sec = p.secrets_required?.length ? p.secrets_required : p.requires;
@@ -304,6 +330,8 @@ export function AdminTools() {
     const manCtx = p.execution_context || "container";
     const effCtx =
       (firstTool && p.tool_effective?.[firstTool]?.execution_context) || manCtx;
+    const effMr = firstTool && p.tool_effective?.[firstTool]?.min_role;
+    const effTenants = firstTool ? p.tool_effective?.[firstTool]?.allowed_tenant_ids : null;
 
     return (
       <li
@@ -325,12 +353,28 @@ export function AdminTools() {
                   domain:{p.domain}
                 </span>
               ) : null}
-              <span className="rounded bg-violet-900/50 px-1.5 py-0.5 text-[10px] text-violet-100">
+              <span
+                className="rounded bg-violet-900/50 px-1.5 py-0.5 text-[10px] text-violet-100"
+                title="Effective run context from manifest + Interfaces (AGENT_MODE). Not set on this page."
+              >
                 run:{effCtx}
                 {effCtx !== manCtx ? (
                   <span className="text-violet-200/80"> (manifest:{manCtx})</span>
                 ) : null}
               </span>
+              {effMr ? (
+                <span
+                  className="rounded bg-amber-950/50 px-1.5 py-0.5 text-[10px] text-amber-100"
+                  title="Effective minimum role for this caller (manifest + operator policy)."
+                >
+                  access:min_role={effMr}
+                </span>
+              ) : null}
+              {effTenants?.length ? (
+                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-200">
+                  tenants:{effTenants.join(",")}
+                </span>
+              ) : null}
               {p.os_support?.length ? (
                 <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-neutral-300">
                   os:{p.os_support.join(",")}
@@ -385,9 +429,12 @@ export function AdminTools() {
                 </div>
               ) : null}
               <div className="sm:col-span-2">
-                <span className="text-surface-muted">Manifest default_on / user_configurable:</span>{" "}
-                <span className="text-neutral-300">
-                  {String(p.default_on ?? true)} / {String(p.user_configurable ?? true)}
+                <span className="text-surface-muted">Manifest access (optional in module):</span>{" "}
+                <span className="font-mono text-neutral-300">
+                  TOOL_MIN_ROLE={p.min_role ?? "user"}
+                  {p.allowed_tenant_ids?.length
+                    ? ` · TOOL_ALLOWED_TENANT_IDS=[${p.allowed_tenant_ids.join(", ")}]`
+                    : ""}
                 </span>
               </div>
             </div>
@@ -401,48 +448,34 @@ export function AdminTools() {
             Enabled
           </label>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 border-t border-white/10 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-3 grid grid-cols-1 gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
           <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted">
-            <span className="text-neutral-400">Operator · default_on</span>
+            <span className="text-neutral-400">Minimum role to use this package</span>
             <select
               className="w-full rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
-              value={boolToTri(pol.default_on)}
-              onChange={(e) => updatePolicy(pid, { default_on: triToBool(e.target.value as Tri) })}
+              value={pol.min_role}
+              onChange={(e) =>
+                updatePolicy(pid, { min_role: e.target.value === "admin" ? "admin" : "user" })
+              }
             >
-              <option value="manifest">Manifest</option>
-              <option value="true">Force true</option>
-              <option value="false">Force false</option>
+              <option value="user">user (all signed-in users)</option>
+              <option value="admin">admin only</option>
             </select>
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted">
-            <span className="text-neutral-400">Operator · user_configurable</span>
-            <select
-              className="w-full rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
-              value={boolToTri(pol.user_configurable)}
-              onChange={(e) =>
-                updatePolicy(pid, { user_configurable: triToBool(e.target.value as Tri) })
-              }
-            >
-              <option value="manifest">Manifest</option>
-              <option value="true">Force true</option>
-              <option value="false">Force false</option>
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-surface-muted sm:col-span-2 lg:col-span-2">
-            <span className="text-neutral-400">Operator · execution_context</span>
-            <select
-              className="w-full max-w-md rounded-md border border-surface-border bg-black/30 px-2 py-1.5 text-xs text-white"
-              value={ctxToSelect(pol.execution_context)}
-              onChange={(e) =>
-                updatePolicy(pid, { execution_context: selectToCtx(e.target.value) })
-              }
-            >
-              <option value="manifest">Manifest</option>
-              <option value="container">container</option>
-              <option value="host">host</option>
-              <option value="remote">remote</option>
-              <option value="browser">browser</option>
-            </select>
+            <span className="text-neutral-400">
+              Allowed tenant IDs (empty = any tenant; numbers = <span className="font-mono">tenants.id</span>)
+            </span>
+            <input
+              type="text"
+              className="w-full rounded-md border border-surface-border bg-black/30 px-2 py-1.5 font-mono text-xs text-white placeholder:text-neutral-500"
+              placeholder="e.g. 1, 2"
+              value={tenantInputByPkg[pid] ?? ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                setTenantInputByPkg((prev) => ({ ...prev, [pid]: v }));
+              }}
+            />
           </label>
         </div>
       </li>
@@ -452,14 +485,15 @@ export function AdminTools() {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-semibold text-white">Tool registry</h1>
-      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-surface-muted">
-        <strong className="font-medium text-neutral-300">Admin buckets</strong> are plug-and-play: each
-        tool module may set <span className="font-mono">TOOL_BUCKET</span> and optional{" "}
-        <span className="font-mono">TOOL_ADMIN_TAGS</span> (exposed as API{" "}
-        <span className="font-mono">admin_bucket</span> / <span className="font-mono">admin_tags</span>
-        ). Omit them → <span className="font-mono">unsorted</span>. Router{" "}
-        <span className="font-mono">domain</span> is unchanged (optional sub-headings when a bucket mixes
-        several domains). Operator policy: <strong>Save policy</strong>.
+      <p className="mt-2 max-w-2xl text-sm text-surface-muted">
+        Grouping comes from each module&apos;s <span className="font-mono">TOOL_BUCKET</span> /{" "}
+        <span className="font-mono">TOOL_ADMIN_TAGS</span> (shown as bucket and registry tags).{" "}
+        <strong className="font-medium text-neutral-300">Save policy</strong> updates package enabled state,
+        minimum role, and optional tenant allowlist (comma-separated <span className="font-mono">tenants.id</span>;
+        leave empty for any tenant). Run context is from the manifest and operator interfaces, not this page.{" "}
+        <span className="text-neutral-500">
+          Assign users to tenants under <span className="text-neutral-400">Admin → Users</span>.
+        </span>
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2">

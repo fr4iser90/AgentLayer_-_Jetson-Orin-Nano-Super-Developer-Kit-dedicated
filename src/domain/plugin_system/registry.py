@@ -16,7 +16,9 @@ from src.core.config import config
 from src.infrastructure.db import db
 from src.domain.plugin_system.tool_manifest_dimensions import (
     normalize_execution_context,
+    normalize_min_role,
     normalize_risk_level,
+    parse_allowed_tenant_ids,
     parse_os_support,
 )
 
@@ -79,7 +81,7 @@ Handler = Callable[[dict[str, Any]], str]
 
 
 def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
-    """Optional module fields: execution_context, capabilities, secrets, defaults, families."""
+    """Optional module fields: execution_context, capabilities, secrets, min_role, tenant allowlist, families."""
     xctx = getattr(mod, "TOOL_EXECUTION_CONTEXT", None)
     entry["execution_context"] = normalize_execution_context(
         xctx if isinstance(xctx, str) else None
@@ -104,10 +106,10 @@ def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
             entry["secrets_required"] = lr
     elif entry.get("requires"):
         entry["secrets_required"] = list(entry["requires"])
-    do = getattr(mod, "TOOL_DEFAULT_ON", None)
-    entry["default_on"] = bool(do) if isinstance(do, bool) else True
-    uc = getattr(mod, "TOOL_USER_CONFIGURABLE", None)
-    entry["user_configurable"] = bool(uc) if isinstance(uc, bool) else True
+    mr = getattr(mod, "TOOL_MIN_ROLE", None)
+    entry["min_role"] = normalize_min_role(mr if isinstance(mr, str) else None)
+    at = getattr(mod, "TOOL_ALLOWED_TENANT_IDS", None)
+    entry["allowed_tenant_ids"] = parse_allowed_tenant_ids(at)
     fam = getattr(mod, "TOOL_FAMILIES", None)
     if isinstance(fam, (list, tuple, frozenset, set)):
         lf = [str(x).strip() for x in fam if str(x).strip()]
@@ -381,10 +383,10 @@ class ToolRegistry:
                     lc = [str(x).strip() for x in c2 if str(x).strip()]
                     if lc:
                         row["capabilities"] = lc
-                if "default_on" in v and isinstance(v["default_on"], bool):
-                    row["default_on"] = v["default_on"]
-                if "user_configurable" in v and isinstance(v["user_configurable"], bool):
-                    row["user_configurable"] = v["user_configurable"]
+                if isinstance(v.get("min_role"), str):
+                    row["min_role"] = normalize_min_role(v["min_role"])
+                if "allowed_tenant_ids" in v:
+                    row["allowed_tenant_ids"] = parse_allowed_tenant_ids(v.get("allowed_tenant_ids"))
                 if isinstance(v.get("execution_context"), str):
                     row["execution_context"] = normalize_execution_context(v["execution_context"])
                 if isinstance(v.get("os_support"), (list, tuple)):

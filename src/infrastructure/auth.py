@@ -151,15 +151,18 @@ def list_all_users() -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, email, role, created_at, external_sub, display_name
-                FROM users
-                ORDER BY created_at ASC NULLS LAST, email ASC NULLS LAST, external_sub ASC
+                SELECT u.id, u.email, u.role, u.created_at, u.external_sub, u.display_name,
+                       u.tenant_id, t.name AS tenant_name
+                FROM users u
+                LEFT JOIN tenants t ON t.id = u.tenant_id
+                ORDER BY u.created_at ASC NULLS LAST, u.email ASC NULLS LAST, u.external_sub ASC
                 """
             )
             rows = cur.fetchall()
     out: list[dict[str, Any]] = []
     for row in rows:
-        uid, email, role, created_at, external_sub, display_name = row
+        uid, email, role, created_at, external_sub, display_name, tenant_id, tenant_name = row
+        tid = int(tenant_id) if tenant_id is not None else 1
         out.append(
             {
                 "id": str(uid),
@@ -168,6 +171,8 @@ def list_all_users() -> list[dict[str, Any]]:
                 "created_at": created_at.isoformat() if created_at else "",
                 "external_sub": external_sub,
                 "display_name": display_name,
+                "tenant_id": tid,
+                "tenant_name": (tenant_name or "") if tenant_name is not None else "",
             }
         )
     return out
@@ -272,8 +277,8 @@ def require_permission(action: str, resource_type: Optional[str] = None) -> Call
             if user.role == "admin":
                 return await func(request, *args, **kwargs, user=user)
 
-            # Set identity context for downstream code
-            id_token = set_identity(1, user.id)
+            # Set identity context for downstream code (tenant from DB, never spoofable headers)
+            id_token = set_identity(db.user_tenant_id(user.id), user.id)
 
             try:
                 return await func(request, *args, **kwargs, user=user)
@@ -284,7 +289,7 @@ def require_permission(action: str, resource_type: Optional[str] = None) -> Call
     return decorator
 
 
-def insert_user_with_cursor(cur, email: str, password: str, role: str = "user") -> User:
+def insert_user_with_cursor(cur, email: str, password: str, role: str = "user", tenant_id: int = 1) -> User:
     """Insert a user row using an existing cursor (same transaction as caller)."""
     user_id = uuid.uuid4()
     password_hash = hash_password(password)
@@ -292,22 +297,35 @@ def insert_user_with_cursor(cur, email: str, password: str, role: str = "user") 
     cur.execute(
         """
         INSERT INTO users (id, email, password_hash, role, tenant_id, external_sub)
-        VALUES (%s, %s, %s, %s, 1, %s)
+        VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING created_at
         """,
-        (user_id, email, password_hash, role, external_sub),
+        (user_id, email, password_hash, role, tenant_id, external_sub),
     )
     created_at = cur.fetchone()[0]
     return User(id=user_id, email=email, role=role, created_at=created_at)
 
 
-def create_user(email: str, password: str, role: str = "user") -> User:
-    """Create new user"""
+def create_user(email: str, password: str, role: str = "user", tenant_id: int = 1) -> User:
+    """Create new user."""
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
-            user = insert_user_with_cursor(cur, email, password, role)
+            user = insert_user_with_cursor(cur, email, password, role, tenant_id=tenant_id)
             conn.commit()
     return user
+
+
+def update_user_tenant(user_id: uuid.UUID, tenant_id: int) -> bool:
+    """Set ``users.tenant_id``. Returns True if a row was updated."""
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET tenant_id = %s WHERE id = %s",
+                (tenant_id, user_id),
+            )
+            n = cur.rowcount or 0
+            conn.commit()
+    return n > 0
 
 
 def update_user_password(user_id: uuid.UUID, password: str) -> None:

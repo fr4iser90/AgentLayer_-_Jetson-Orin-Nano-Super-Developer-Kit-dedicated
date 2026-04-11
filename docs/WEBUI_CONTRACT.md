@@ -79,18 +79,15 @@ Exact paths (see `auth_middleware` in `src/api/main.py`):
 
 ## 3. User and tenant identity (multi-user)
 
-Chat, tools, RAG ingest, and user secrets resolve **user id** and **tenant id** from headers so the WebUI can map its own user to Agent Layer’s DB user.
+Chat, tools, RAG ingest, user profile/secrets, and related routes resolve **user id** and **tenant id** only from **trusted auth**, not from client-supplied identity headers (those are ignored for identity).
 
-**Headers** (defaults in `src/core/config.py`):
+**Source of truth**
 
-| Purpose | Header | Notes |
-|--------|--------|--------|
-| External user id | First non-empty of `AGENT_USER_SUB_HEADER` list, else `X-OpenWebUI-User-Id`, `X-Agent-User-Sub` | Comma-separated env `AGENT_USER_SUB_HEADER` overrides the default list. |
-| Tenant | `X-Agent-Tenant-Id` (or `AGENT_TENANT_ID_HEADER`) | Integer ≥ 1; invalid/missing → `1`. |
+1. **`Authorization: Bearer`** with a **JWT access token** from `POST /auth/login` (subject = `users.id`), or a **user API key** that maps to a `users` row.
+2. **Tenant** is always **`users.tenant_id`** for that user (PostgreSQL). Tool-policy allowlists use the same numeric ids as `tenants.id`.
+3. **Optional shared secret** (`operator_settings.optional_connection_key`): if the Bearer value matches that secret, the server uses the fixed UUID in **`AGENT_OPTIONAL_KEY_USER_ID`** (must be an existing `users.id`) — configure in `.env` / deployment.
 
-**Open WebUI:** enable forwarding of user info headers so `X-OpenWebUI-User-Id` (or your chosen header) is set on every request to Agent Layer.
-
-**Behavior:** `resolve_user_tenant` ensures a stable internal user row for that external sub + tenant (`src/domain/http_identity.py`).
+See `src/domain/http_identity.py` (`resolve_chat_identity`, `resolve_tools_list_identity`).
 
 ---
 
@@ -128,16 +125,16 @@ Agent Layer picks the Ollama model id **before** each `chat_completion` run:
    - If `AGENT_MODEL_OVERRIDE_ROLES` is **non-empty** (e.g. `admin`), only users whose `role` is listed may override.
    - Without Bearer user, override is allowed only if **`AGENT_MODEL_OVERRIDE_ANONYMOUS=true`** (use with care on optional anonymous routes).
 
-**WebSocket:** Same headers on the handshake, or per-`chat` frame optional strings **`model_profile_header`**, **`model_override_header`** (frame values override handshake headers for that turn).
+**WebSocket:** Per-`chat` frame optional strings **`model_profile_header`**, **`model_override_header`** (frame values override handshake headers for that turn), or handshake `X-Agent-Model-*` headers — these affect routing only, not user/tenant identity.
 
 **Transparency:** The first event **`agent.session`** includes **`effective_model`** and **`model_resolution`** (short tag, e.g. `auto:vlm_images`, `profile:agent`, `override:body`) so the WebUI can show which model ran.
 
 ### 4.3 WebSocket chat (duplex, per-round events)
 
 `WebSocket /ws/v1/chat`  
-**Auth:** `?token=<JWT_or_API_key>` on the handshake URL **or** header `Authorization: Bearer <same>`. Same optional-connection-key rules as `POST /v1/chat/completions` when `optional_connection_key` is set in operator settings. If that key is **not** configured, the same routes (including this WebSocket) allow the handshake **without** a token, matching HTTP optional-route behavior.
+**Auth:** `?token=<JWT_or_API_key>` on the handshake URL **or** header `Authorization: Bearer <same>`. When `optional_connection_key` is set, the handshake may use that shared secret as the token **only if** `AGENT_OPTIONAL_KEY_USER_ID` maps to a real `users` row (same as HTTP). If the optional key is **not** configured, the WebSocket **requires** a valid JWT or user API key (no anonymous handshake).
 
-**User/tenant:** Same headers as §3 on the WebSocket handshake (`AGENT_USER_SUB_HEADER` list, `AGENT_TENANT_ID_HEADER`).
+**User/tenant:** From the token only (see §3); identity headers are not used.
 
 #### What the WebUI agent should render (recommended)
 

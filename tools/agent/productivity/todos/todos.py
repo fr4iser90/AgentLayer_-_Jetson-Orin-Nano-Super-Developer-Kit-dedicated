@@ -74,9 +74,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "create_todo",
             "TOOL_DESCRIPTION": (
-                "Creates a todo item for the current user "
-                "(Open WebUI: X-OpenWebUI-User-Id when forwarding is enabled; "
-                "else X-Agent-User-Sub; optional tenant X-Agent-Tenant-Id)."
+                "Creates a todo item for the authenticated user (Bearer JWT or API key; tenant from users.tenant_id)."
             ),
             "parameters": {
                 "type": "object",
@@ -92,7 +90,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "list_todos",
             "TOOL_DESCRIPTION": (
-                "Lists this user's todos (newest first, max 100); scoped by Open WebUI user id or Sub header."
+                "Lists this user's todos (newest first, max 100); scoped by authenticated user (Bearer)."
             ),
             "parameters": {"type": "object", "properties": {}},
         },

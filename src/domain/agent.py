@@ -633,7 +633,7 @@ def _apply_tool_prefetch(messages: list[dict[str, Any]], prefetch: dict[str, Any
         max_c = min(len(src), config.CREATE_TOOL_MAX_BYTES)
         block = (
             "Server prefetch via read_tool — edit this **extra-tool module** with read_tool/update_tool/replace_tool "
-            "(not workspace_*).\n\n"
+            "(not fs_* local disk tools — those edit paths on the agent host/container).\n\n"
             f"File: `{o.get('filename')}`\n\n```python\n{src[:max_c]}\n```"
         )
     else:
@@ -819,6 +819,25 @@ async def chat_completion(
         routed_category = "minimal"
     else:
         routed_category = "full"
+
+    try:
+        from src.domain.identity import get_identity
+        from src.domain.plugin_system.tool_policy import filter_chat_tool_specs
+        from src.infrastructure.db import db as _identity_db
+        from src.infrastructure.tool_operator_policy_db import policies_map
+
+        _pmap = policies_map()
+        _tenant_ctx, _user_ctx = get_identity()
+        _role = _identity_db.user_role(_user_ctx)
+        merged_tools = filter_chat_tool_specs(
+            merged_tools,
+            get_registry(),
+            _pmap,
+            _role,
+            int(_tenant_ctx),
+        )
+    except Exception:
+        logger.debug("operator/access tool filter skipped", exc_info=True)
 
     # Stufenweise Erkundung: tools[] immer nur Katalog — volles Schema nur via get_tool_help-Antwort.
     tools_for_request = _tools_for_chat_request(merged_tools)

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src.core.config import config
 from src.infrastructure.db import db
-from src.domain.http_identity import resolve_user_tenant
+from src.domain.http_identity import resolve_chat_identity
 
 router = APIRouter(prefix="/v1/user/secrets", tags=["user-secrets"])
 
@@ -100,7 +100,7 @@ def register_secret_with_otp(body: RegisterWithOtpBody):
 def list_user_secrets(request: Request):
     """List configured service keys for this user (no secret values)."""
     _require_user_secrets_enabled()
-    uid, _tid = resolve_user_tenant(request)
+    uid, _tid = resolve_chat_identity(request)
     return {"ok": True, "services": db.user_secret_list_service_keys(uid)}
 
 
@@ -108,7 +108,7 @@ def list_user_secrets(request: Request):
 def upsert_user_secret(request: Request, body: UserSecretBody):
     """Store or replace an encrypted secret for this user."""
     _require_user_secrets_enabled()
-    uid, _tid = resolve_user_tenant(request)
+    uid, _tid = resolve_chat_identity(request)
     sk = _norm_service_key(body.service_key)
     try:
         db.user_secret_upsert(uid, sk, body.secret)
@@ -123,7 +123,7 @@ def upsert_user_secret(request: Request, body: UserSecretBody):
 def delete_user_secret(service_key: str, request: Request):
     """Remove a stored secret."""
     _require_user_secrets_enabled()
-    uid, _tid = resolve_user_tenant(request)
+    uid, _tid = resolve_chat_identity(request)
     sk = _norm_service_key(service_key)
     if not db.user_secret_delete(uid, sk):
         raise HTTPException(status_code=404, detail="no such secret for this user")

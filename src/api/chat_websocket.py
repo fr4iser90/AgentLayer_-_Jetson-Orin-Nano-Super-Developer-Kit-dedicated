@@ -26,10 +26,10 @@ import logging
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from src.domain.agent import AgentChatCancelled, chat_completion
-from src.domain.http_identity import resolve_user_tenant_ws
+from src.domain.http_identity import resolve_chat_identity_ws
 from src.domain.identity import reset_identity, set_identity
 from src.infrastructure.auth import get_user_for_bearer_token
 from src.infrastructure.operator_settings import stored_optional_connection_key
@@ -48,19 +48,17 @@ def _bearer_from_ws(websocket: WebSocket) -> str:
 
 
 def _ws_connection_authorized(websocket: WebSocket) -> bool:
-    """Mirror optional-connection policy for HTTP tool/chat routes (see ``optional_connection_allows``)."""
+    """Require JWT/API key, or optional shared secret when configured (same idea as HTTP)."""
     bearer = _bearer_from_ws(websocket)
+    if get_user_for_bearer_token(bearer):
+        return True
     expected = stored_optional_connection_key()
     if expected is None:
-        # No operator key: same as HTTP — optional routes allow requests without Authorization.
-        return True
-    if bearer:
-        try:
-            if secrets.compare_digest(bearer, expected):
-                return True
-        except (TypeError, ValueError):
-            pass
-    return bool(get_user_for_bearer_token(bearer))
+        return False
+    try:
+        return secrets.compare_digest(bearer, expected)
+    except (TypeError, ValueError):
+        return False
 
 
 @router.websocket("/ws/v1/chat")
@@ -74,7 +72,16 @@ async def chat_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
 
-    user_id, tenant_id = resolve_user_tenant_ws(websocket)
+    try:
+        user_id, tenant_id = resolve_chat_identity_ws(websocket)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+        try:
+            await websocket.send_json({"type": "error", "detail": detail})
+        except Exception:
+            logger.debug("ws identity error send failed", exc_info=True)
+        await websocket.close(code=4401)
+        return
     control_queue: asyncio.Queue = asyncio.Queue()
     cancel_event = asyncio.Event()
     pump_stop = asyncio.Event()

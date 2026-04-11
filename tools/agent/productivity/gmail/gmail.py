@@ -34,8 +34,6 @@ TOOL_DESCRIPTION = (
 TOOL_REQUIRES = ("gmail",)
 TOOL_CAPABILITIES = ("mail.read", "mail.search", "secrets.user")
 TOOL_RISK_LEVEL = 2
-TOOL_DEFAULT_ON = True
-TOOL_USER_CONFIGURABLE = True
 TOOL_FAMILIES = ("communication", "productivity")
 
 # Stored via register_secrets / POST user/secrets — this tool reads it server-side only.

@@ -56,42 +56,56 @@ def close_pool() -> None:
         _pool = None
 
 
-def ensure_user_external(external_sub: str, tenant_id: int) -> tuple[uuid.UUID, int]:
-    """
-    Resolve or create ``users`` row. ``external_sub`` is a stable id from the client
-    (e.g. OIDC sub or WebUI user id string). Returns ``(user_id, tenant_id)``.
-    """
-    sub = (external_sub or "").strip() or "default"
-    tid = int(tenant_id) if tenant_id else 1
-    if tid < 1:
-        tid = 1
+def tenants_list() -> list[dict[str, Any]]:
+    """All rows from ``tenants`` (for admin UI: ids used in tool allowlists and ``users.tenant_id``)."""
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, name, created_at
+                FROM tenants
+                ORDER BY id ASC
+                """
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        ca = d.get("created_at")
+        if ca is not None and hasattr(ca, "isoformat"):
+            d["created_at"] = ca.isoformat()
+        out.append(d)
+    return out
+
+
+def tenant_exists(tenant_id: int) -> bool:
+    if tenant_id < 1:
+        return False
     with pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM tenants WHERE id = %s", (tid,))
-            if cur.fetchone() is None:
-                tid = 1
+            cur.execute("SELECT 1 FROM tenants WHERE id = %s", (tenant_id,))
+            ok = cur.fetchone() is not None
+        conn.commit()
+    return ok
+
+
+def tenant_insert(name: str) -> dict[str, Any]:
+    """Insert a tenant row; ``name`` trim, fallback label if empty."""
+    label = (name or "").strip() or "tenant"
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                "SELECT id FROM users WHERE tenant_id = %s AND external_sub = %s",
-                (tid, sub),
+                "INSERT INTO tenants (name) VALUES (%s) RETURNING id, name, created_at",
+                (label,),
             )
             row = cur.fetchone()
-            if row:
-                uid = row[0]
-                if not isinstance(uid, uuid.UUID):
-                    uid = uuid.UUID(str(uid))
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO users (tenant_id, external_sub)
-                    VALUES (%s, %s)
-                    RETURNING id
-                    """,
-                    (tid, sub),
-                )
-                raw = cur.fetchone()[0]
-                uid = raw if isinstance(raw, uuid.UUID) else uuid.UUID(str(raw))
         conn.commit()
-    return uid, tid
+    d = dict(row)
+    ca = d.get("created_at")
+    if ca is not None and hasattr(ca, "isoformat"):
+        d["created_at"] = ca.isoformat()
+    return d
 
 
 def user_external_sub(user_id: uuid.UUID) -> str | None:
@@ -106,6 +120,37 @@ def user_external_sub(user_id: uuid.UUID) -> str | None:
     if not row:
         return None
     return str(row[0]) if row[0] is not None else None
+
+
+def user_tenant_id(user_id: uuid.UUID) -> int:
+    """``users.tenant_id`` for FK-scoped data and tool policy (defaults to ``1``)."""
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT tenant_id FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        conn.commit()
+    if not row or row[0] is None:
+        return 1
+    try:
+        t = int(row[0])
+    except (TypeError, ValueError):
+        return 1
+    return t if t >= 1 else 1
+
+
+def user_role(user_id: uuid.UUID | None) -> str:
+    """Return ``users.role`` (``user`` or ``admin``) for tool access checks."""
+    if user_id is None:
+        return "user"
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        conn.commit()
+    if not row or row[0] is None:
+        return "user"
+    r = str(row[0]).strip().lower()
+    return r if r in ("user", "admin") else "user"
 
 
 def _require_user_uuid() -> tuple[int, uuid.UUID]:

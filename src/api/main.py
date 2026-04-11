@@ -32,6 +32,7 @@ from src.infrastructure.auth import (
     verify_password,
     get_user_by_email,
     create_user,
+    update_user_tenant,
     validate_refresh_token,
     revoke_refresh_token,
 )
@@ -51,7 +52,7 @@ from src.api.optional_http_access import (
 )
 from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed
 from src.domain.agent import chat_completion
-from src.domain.http_identity import resolve_user_tenant
+from src.domain.http_identity import resolve_chat_identity
 from src.domain.identity import reset_identity, set_identity
 from src.domain.plugin_system.tools_api import router as tools_router
 from src.api.chat_websocket import router as chat_ws_router
@@ -260,6 +261,30 @@ class AdminCreateUserBody(BaseModel):
     email: str = Field(..., min_length=3, max_length=254)
     password: str = Field(..., min_length=8, max_length=256)
     role: Literal["user", "admin"] = "user"
+    tenant_id: int = Field(default=1, ge=1)
+
+
+class AdminCreateTenantBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+
+
+class AdminPatchUserBody(BaseModel):
+    tenant_id: int = Field(..., ge=1)
+
+
+@app.get("/v1/admin/tenants")
+async def admin_list_tenants(request: Request):
+    """List tenants (``tenants.id`` = value for tool allowlists and ``users.tenant_id``)."""
+    await require_admin(request)
+    return {"tenants": db.tenants_list()}
+
+
+@app.post("/v1/admin/tenants")
+async def admin_create_tenant(request: Request, body: AdminCreateTenantBody):
+    """Create a tenant (e.g. work / friends). Admin only."""
+    await require_admin(request)
+    row = db.tenant_insert(body.name)
+    return {"ok": True, "tenant": row}
 
 
 @app.get("/v1/admin/users")
@@ -269,14 +294,27 @@ async def admin_list_users(request: Request):
     return {"users": list_all_users()}
 
 
+@app.patch("/v1/admin/users/{user_id}")
+async def admin_patch_user(request: Request, user_id: uuid.UUID, body: AdminPatchUserBody):
+    """Update user fields (currently ``tenant_id`` only). Admin only."""
+    await require_admin(request)
+    if not db.tenant_exists(body.tenant_id):
+        raise HTTPException(status_code=400, detail="unknown tenant_id")
+    if not update_user_tenant(user_id, body.tenant_id):
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"ok": True, "id": str(user_id), "tenant_id": body.tenant_id}
+
+
 @app.post("/v1/admin/users")
 async def admin_create_user(request: Request, body: AdminCreateUserBody):
     """Create a password user (e.g. role ``user``). Admin only."""
     await require_admin(request)
+    if not db.tenant_exists(body.tenant_id):
+        raise HTTPException(status_code=400, detail="unknown tenant_id")
     if get_user_by_email(body.email):
         raise HTTPException(status_code=409, detail="email already registered")
-    u = create_user(body.email, body.password, body.role)
-    return {"ok": True, "id": str(u.id), "email": u.email, "role": u.role}
+    u = create_user(body.email, body.password, body.role, tenant_id=body.tenant_id)
+    return {"ok": True, "id": str(u.id), "email": u.email, "role": u.role, "tenant_id": body.tenant_id}
 
 
 @app.get("/auth/policy")
@@ -629,9 +667,9 @@ async def run_tool_direct(tool_name: str, request: Request):
     
     from src.domain.plugin_system.tools import run_tool
     
-    user_id, tenant_id = resolve_user_tenant(request)
+    user_id, tenant_id = resolve_chat_identity(request)
     id_token = set_identity(tenant_id, user_id)
-    
+
     try:
         result = run_tool(tool_name, arguments)
         return {
@@ -662,9 +700,9 @@ async def run_tool_openwebui(request: Request):
     
     from src.domain.plugin_system.tools import run_tool
     
-    user_id, tenant_id = resolve_user_tenant(request)
+    user_id, tenant_id = resolve_chat_identity(request)
     id_token = set_identity(tenant_id, user_id)
-    
+
     try:
         result = run_tool(tool_name, arguments)
         return {
@@ -690,7 +728,7 @@ async def chat_completions(request: Request):
     work = dict(body)
     work["stream"] = False
 
-    user_id, tenant_id = resolve_user_tenant(request)
+    user_id, tenant_id = resolve_chat_identity(request)
     id_token = set_identity(tenant_id, user_id)
 
     router_hdr = (request.headers.get("X-Agent-Router-Categories") or "").strip() or None

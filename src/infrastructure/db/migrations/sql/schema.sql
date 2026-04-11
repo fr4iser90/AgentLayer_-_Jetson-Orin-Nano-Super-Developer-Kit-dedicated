@@ -272,9 +272,6 @@ CREATE INDEX idx_admin_claim_otp_pending ON admin_claim_otp (created_at DESC)
 
 CREATE TABLE operator_settings (
   id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  require_user_sub_header BOOLEAN NOT NULL DEFAULT false,
-  user_sub_header_csv TEXT,
-  tenant_id_header TEXT,
   discord_application_id TEXT,
   integration_notes TEXT,
   optional_connection_key TEXT,
@@ -289,11 +286,12 @@ CREATE TABLE operator_tool_policies (
   package_id TEXT NOT NULL,
   tool_name TEXT NOT NULL DEFAULT '*',
   enabled BOOLEAN NOT NULL DEFAULT true,
-  default_on BOOLEAN,
-  user_configurable BOOLEAN,
+  min_role TEXT NOT NULL DEFAULT 'user',
+  allowed_tenant_ids INTEGER[],
   execution_context TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (package_id, tool_name)
+  PRIMARY KEY (package_id, tool_name),
+  CONSTRAINT operator_tool_policies_min_role_check CHECK (min_role IN ('user', 'admin'))
 );
 
 CREATE INDEX idx_operator_tool_policies_package ON operator_tool_policies (package_id);

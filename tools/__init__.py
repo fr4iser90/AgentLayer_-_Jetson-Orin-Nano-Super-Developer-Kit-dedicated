@@ -6,7 +6,7 @@ per-module constants ``TOOL_BUCKET`` / ``TOOL_ADMIN_TAGS`` (``tools_meta``); omi
 package lists under ``unsorted``. No central tool catalog in the repo.
 Go deeper only when it helps (e.g. many modules under ``domains/fishing/``).
 
-- ``core/`` — introspection, secrets, workspace, **tool_factory** (dynamic plugins).
+- ``core/`` — introspection, secrets, **filesystem/local_files** (``fs_*``, paths vs process cwd / absolute), **tool_factory** (dynamic plugins).
 - ``knowledge/`` — KB, RAG, long-term notes / vectors.
 - ``external/`` — network APIs (GitHub, web search, weather, …).
 - ``productivity/`` — mail, calendar, todos, clocks.

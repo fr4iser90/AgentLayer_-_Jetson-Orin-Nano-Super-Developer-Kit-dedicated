@@ -1,4 +1,4 @@
-"""Admin HTTP for RAG ingest (same identity headers as chat)."""
+"""Admin HTTP for RAG ingest (same Bearer identity as chat)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from src.core.config import config
-from src.domain.http_identity import resolve_user_tenant
+from src.domain.http_identity import resolve_chat_identity
 import src.api.rag as rag_service
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,7 @@ router = APIRouter()
 @router.post("/v1/admin/rag/ingest")
 async def admin_rag_ingest(request: Request):
     """
-    Ingest plain text into pgvector-backed RAG for the resolved user/tenant
-    (``AGENT_USER_SUB_HEADER`` / ``AGENT_TENANT_ID_HEADER``, same as chat).
+    Ingest plain text into pgvector-backed RAG for the JWT/API-key user (``users.tenant_id``).
     """
     if not config.AGENT_RAG_ENABLED:
         raise HTTPException(status_code=503, detail="RAG disabled (AGENT_RAG_ENABLED=false)")
@@ -38,7 +37,7 @@ async def admin_rag_ingest(request: Request):
     source_uri = body.get("source_uri")
     su = source_uri if isinstance(source_uri, str) and source_uri.strip() else None
 
-    user_id, tenant_id = resolve_user_tenant(request)
+    user_id, tenant_id = resolve_chat_identity(request)
     try:
         out = rag_service.ingest_for_user(
             tenant_id, user_id, domain, title, text, su

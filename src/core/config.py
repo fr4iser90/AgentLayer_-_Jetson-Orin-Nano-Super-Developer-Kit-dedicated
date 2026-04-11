@@ -198,22 +198,6 @@ def tool_scan_directories() -> list[Path]:
 
 # Comma-separated SHA256 hex digests (64 chars). If set, each extra *.py must match one entry.
 # Read on each extra-tool scan (reload) so container env updates take effect without code change.
-# Multi-tenant HTTP: stable user id per request (comma-separated header names; first non-empty wins).
-# Default fits Open WebUI with ENABLE_FORWARD_USER_INFO_HEADERS=true (X-OpenWebUI-User-Id).
-def _user_sub_headers() -> list[str]:
-    raw = (os.environ.get("AGENT_USER_SUB_HEADER") or "").strip()
-    if raw:
-        return [x.strip() for x in raw.split(",") if x.strip()]
-    return ["X-OpenWebUI-User-Id", "X-Agent-User-Sub"]
-
-
-USER_SUB_HEADERS = _user_sub_headers()
-TENANT_ID_HEADER = (
-    os.environ.get("AGENT_TENANT_ID_HEADER") or "X-Agent-Tenant-Id"
-).strip()
-DEFAULT_EXTERNAL_SUB = (
-    os.environ.get("AGENT_DEFAULT_EXTERNAL_SUB") or "default"
-).strip() or "default"
 
 # Fernet URL-safe base64 key for encrypting user_secrets at rest (generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 SECRETS_MASTER_KEY = (os.environ.get("AGENT_SECRETS_MASTER_KEY") or "").strip()
@@ -222,8 +206,7 @@ SECRETS_MASTER_KEY = (os.environ.get("AGENT_SECRETS_MASTER_KEY") or "").strip()
 PUBLIC_BASE_URL = (os.environ.get("AGENT_PUBLIC_URL") or "").strip().rstrip("/")
 HTTP_EXAMPLE_PORT = (os.environ.get("AGENT_HTTP_PORT") or "8088").strip() or "8088"
 
-# Local files tool (workspace_*): set to an absolute path inside the container and mount it (compose volume).
-WORKSPACE_ROOT = (os.environ.get("AGENT_WORKSPACE_ROOT") or "").strip()
+# Local files tools (local_files / fs_*): size/list limits; path scope is admin/OS (no AGENT_WORKSPACE_ROOT).
 WORKSPACE_MAX_FILE_BYTES = _env_int("AGENT_WORKSPACE_MAX_FILE_BYTES", 1_200_000)
 WORKSPACE_MAX_LIST_ENTRIES = _env_int("AGENT_WORKSPACE_MAX_LIST_ENTRIES", 500)
 WORKSPACE_MAX_SEARCH_FILES = _env_int("AGENT_WORKSPACE_MAX_SEARCH_FILES", 2000)

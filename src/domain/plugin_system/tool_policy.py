@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.domain.plugin_system.tool_manifest_dimensions import normalize_execution_context
+from src.domain.plugin_system.tool_manifest_dimensions import (
+    normalize_execution_context,
+    normalize_min_role,
+    parse_allowed_tenant_ids,
+)
 from src.domain.plugin_system.registry import ToolRegistry
 
 
@@ -17,6 +21,28 @@ def manifest_execution_context(meta_entry: dict[str, Any], tool_fn_name: str) ->
         if isinstance(pt, dict) and isinstance(pt.get("execution_context"), str):
             base = pt["execution_context"]
     return normalize_execution_context(base if isinstance(base, str) else None)
+
+
+def manifest_min_role(meta_entry: dict[str, Any], tool_fn_name: str) -> str:
+    base = meta_entry.get("min_role")
+    if not isinstance(base, str):
+        base = None
+    per = meta_entry.get("per_tool")
+    if isinstance(per, dict):
+        pt = per.get(tool_fn_name)
+        if isinstance(pt, dict) and isinstance(pt.get("min_role"), str):
+            base = pt["min_role"]
+    return normalize_min_role(base)
+
+
+def manifest_allowed_tenant_ids(meta_entry: dict[str, Any], tool_fn_name: str) -> list[int] | None:
+    base = meta_entry.get("allowed_tenant_ids")
+    per = meta_entry.get("per_tool")
+    if isinstance(per, dict):
+        pt = per.get(tool_fn_name)
+        if isinstance(pt, dict) and "allowed_tenant_ids" in pt:
+            return parse_allowed_tenant_ids(pt.get("allowed_tenant_ids"))
+    return parse_allowed_tenant_ids(base)
 
 
 def _pick_execution_context_policy(
@@ -59,23 +85,52 @@ def effective_execution_context(
     return ctx
 
 
+def _pick_policy_str(
+    pmap: dict[tuple[str, str], dict[str, Any]],
+    pid: str,
+    tool_fn_name: str,
+    key: str,
+    manifest_val: str,
+    normalize: Any,
+) -> str:
+    rx = pmap.get((pid, tool_fn_name))
+    rs = pmap.get((pid, "*"))
+    if rx is not None:
+        v = rx.get(key)
+        if isinstance(v, str) and v.strip():
+            return normalize(v)
+    if rs is not None:
+        v = rs.get(key)
+        if isinstance(v, str) and v.strip():
+            return normalize(v)
+    return manifest_val
+
+
+def _pick_allowed_tenants(
+    pmap: dict[tuple[str, str], dict[str, Any]],
+    pid: str,
+    tool_fn_name: str,
+    manifest_val: list[int] | None,
+) -> list[int] | None:
+    """Operator non-NULL allowed_tenant_ids overrides manifest; NULL/absent inherits manifest."""
+    rx = pmap.get((pid, tool_fn_name))
+    rs = pmap.get((pid, "*"))
+    if rx is not None and "allowed_tenant_ids" in rx:
+        return parse_allowed_tenant_ids(rx.get("allowed_tenant_ids"))
+    if rs is not None and "allowed_tenant_ids" in rs:
+        return parse_allowed_tenant_ids(rs.get("allowed_tenant_ids"))
+    return manifest_val
+
+
 def effective_flags(
     meta_entry: dict[str, Any],
     tool_fn_name: str,
     pmap: dict[tuple[str, str], dict[str, Any]],
 ) -> dict[str, Any]:
-    """Resolved enabled / default_on / user_configurable / execution_context for one tool name."""
+    """Resolved enabled, min_role, allowed_tenant_ids, execution_context for one tool name."""
     pid = str(meta_entry.get("id") or "").strip()
-    m_def = bool(meta_entry.get("default_on", True))
-    m_uc = bool(meta_entry.get("user_configurable", True))
-    per = meta_entry.get("per_tool")
-    if isinstance(per, dict):
-        pt = per.get(tool_fn_name)
-        if isinstance(pt, dict):
-            if "default_on" in pt:
-                m_def = bool(pt["default_on"])
-            if "user_configurable" in pt:
-                m_uc = bool(pt["user_configurable"])
+    m_mr = manifest_min_role(meta_entry, tool_fn_name)
+    m_tids = manifest_allowed_tenant_ids(meta_entry, tool_fn_name)
     rs = pmap.get((pid, "*"))
     rx = pmap.get((pid, tool_fn_name))
     enabled = True
@@ -84,25 +139,41 @@ def effective_flags(
     elif rs is not None:
         enabled = bool(rs.get("enabled", True))
 
-    def pick_ov(key: str, manifest_val: bool) -> bool:
-        if rx is not None and rx.get(key) is not None:
-            return bool(rx[key])
-        if rs is not None and rs.get(key) is not None:
-            return bool(rs[key])
-        return manifest_val
+    min_role = _pick_policy_str(pmap, pid, tool_fn_name, "min_role", m_mr, normalize_min_role)
+    allowed_tenant_ids = _pick_allowed_tenants(pmap, pid, tool_fn_name, m_tids)
 
     return {
         "enabled": enabled,
-        "default_on": pick_ov("default_on", m_def),
-        "user_configurable": pick_ov("user_configurable", m_uc),
+        "min_role": min_role,
+        "allowed_tenant_ids": allowed_tenant_ids,
         "execution_context": effective_execution_context(meta_entry, tool_fn_name, pmap),
     }
+
+
+def caller_fulfills_effective_policy(
+    user_role: str | None,
+    tenant_id: int,
+    eff: dict[str, Any],
+) -> bool:
+    """Whether the current caller may list/invoke a tool with this effective policy."""
+    mr = str(eff.get("min_role") or "user")
+    ur = normalize_min_role(user_role)
+    if normalize_min_role(mr) == "admin" and ur != "admin":
+        return False
+    allowed = eff.get("allowed_tenant_ids")
+    if allowed is None:
+        return True
+    if not isinstance(allowed, list) or not allowed:
+        return True
+    return int(tenant_id) in allowed
 
 
 def filter_chat_tool_specs(
     specs: list[dict[str, Any]],
     reg: ToolRegistry,
     pmap: dict[tuple[str, str], dict[str, Any]],
+    user_role: str | None,
+    tenant_id: int,
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for spec in specs:
@@ -116,7 +187,8 @@ def filter_chat_tool_specs(
         if not meta:
             out.append(spec)
             continue
-        if effective_flags(meta, name, pmap)["enabled"]:
+        eff = effective_flags(meta, name, pmap)
+        if eff["enabled"] and caller_fulfills_effective_policy(user_role, tenant_id, eff):
             out.append(spec)
     return out
 
@@ -124,8 +196,10 @@ def filter_chat_tool_specs(
 def filter_tools_meta(
     entries: list[dict[str, Any]],
     pmap: dict[tuple[str, str], dict[str, Any]],
+    user_role: str | None,
+    tenant_id: int,
 ) -> list[dict[str, Any]]:
-    """Drop packages whose every tool is disabled by policy."""
+    """Drop packages whose every tool is disabled or not allowed for this caller."""
     out: list[dict[str, Any]] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -136,7 +210,8 @@ def filter_tools_meta(
         for tn in names:
             if not isinstance(tn, str):
                 continue
-            if effective_flags(entry, tn, pmap)["enabled"]:
+            eff = effective_flags(entry, tn, pmap)
+            if eff["enabled"] and caller_fulfills_effective_policy(user_role, tenant_id, eff):
                 out.append(entry)
                 break
     return out
@@ -183,8 +258,8 @@ def enrich_meta_for_admin(
         if rs:
             row["policy_row"] = {
                 "enabled": rs.get("enabled"),
-                "default_on": rs.get("default_on"),
-                "user_configurable": rs.get("user_configurable"),
+                "min_role": rs.get("min_role"),
+                "allowed_tenant_ids": rs.get("allowed_tenant_ids"),
                 "execution_context": rs.get("execution_context"),
             }
         rich.append(row)

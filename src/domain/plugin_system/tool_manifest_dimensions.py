@@ -4,6 +4,7 @@ Tool manifest helpers (normalization only).
 1. **execution_context** — *where* code is intended to run (policy/UI):
    ``host`` | ``container`` | ``remote`` | ``browser``
 2. **domain** (``TOOL_DOMAIN`` on modules) — router / product category; see registry.
+3. **min_role** / **allowed_tenant_ids** — optional manifest gates; operator DB can override per package.
 
 Default execution is **container** unless a module sets ``TOOL_EXECUTION_CONTEXT``.
 """
@@ -47,6 +48,37 @@ def parse_os_support(mod: Any) -> list[str] | None:
         else:
             logger.warning("unknown TOOL_OS_SUPPORT value %r ignored", p)
     return out or None
+
+
+MIN_ROLES = frozenset({"user", "admin"})
+
+
+def normalize_min_role(raw: str | None) -> str:
+    s = (raw or "user").strip().lower()
+    if s in MIN_ROLES:
+        return s
+    if raw and str(raw).strip():
+        logger.warning("unknown TOOL_MIN_ROLE %r — using user", raw)
+    return "user"
+
+
+def parse_allowed_tenant_ids(raw: Any) -> list[int] | None:
+    """Return sorted unique positive tenant ids, or None when unset / empty."""
+    if raw is None:
+        return None
+    if isinstance(raw, (list, tuple, frozenset, set)):
+        out: list[int] = []
+        for x in raw:
+            try:
+                n = int(x)
+            except (TypeError, ValueError):
+                continue
+            if n >= 1:
+                out.append(n)
+        if not out:
+            return None
+        return sorted(set(out))
+    return None
 
 
 def normalize_risk_level(raw: Any) -> str | None:

@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
-from src.domain.http_identity import resolve_user_tenant
+from src.domain.http_identity import resolve_chat_identity
 from src.infrastructure.db import db
 
 router = APIRouter(prefix="/v1/user", tags=["user-data"])
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/user", tags=["user-data"])
 @router.get("/persona")
 def get_user_persona(request: Request) -> dict:
     """Return saved persona or empty defaults."""
-    uid, _tid = resolve_user_tenant(request)
+    uid, _tid = resolve_chat_identity(request)
     try:
         row = db.user_persona_get(uid)
     except Exception:
@@ -53,7 +53,7 @@ def put_user_persona(request: Request, body: PersonaUpdateBody) -> dict:
     Replace persona text. When ``inject_into_agent`` is true, instructions are
     merged into the system message for chat (same user identity only).
     """
-    uid, tid = resolve_user_tenant(request)
+    uid, tid = resolve_chat_identity(request)
     try:
         db.user_persona_upsert(
             tid,
@@ -124,7 +124,7 @@ _NEST_MERGE_KEYS = frozenset(
 @router.get("/profile")
 def get_user_profile(request: Request) -> dict:
     """Structured agent profile (GET merges defaults if no row)."""
-    uid, _tid = resolve_user_tenant(request)
+    uid, _tid = resolve_chat_identity(request)
     try:
         row = db.user_agent_profile_get(uid)
     except Exception:
@@ -144,7 +144,7 @@ def get_user_profile(request: Request) -> dict:
 @router.put("/profile")
 def put_user_profile(request: Request, body: AgentProfilePatch) -> dict:
     """Patch structured profile fields."""
-    uid, tid = resolve_user_tenant(request)
+    uid, tid = resolve_chat_identity(request)
     patch = body.model_dump(exclude_unset=True)
     try:
         current = db.user_agent_profile_get(uid)
@@ -193,7 +193,7 @@ def create_kb_note_share(
     note_id: int, request: Request, body: KbShareCreateBody
 ) -> dict:
     """Owner only: grant read access to another user in the same tenant."""
-    uid, tid = resolve_user_tenant(request)
+    uid, tid = resolve_chat_identity(request)
     ge = (body.grantee_email or "").strip() or None
     gs = (body.grantee_external_sub or "").strip() or None
     grantee = db.user_resolve_in_tenant(tid, email=ge, external_sub=gs)
@@ -216,7 +216,7 @@ def create_kb_note_share(
 @router.get("/kb/notes/{note_id}/shares")
 def list_kb_note_shares(note_id: int, request: Request) -> dict:
     """Owner only: list grants for this note."""
-    uid, tid = resolve_user_tenant(request)
+    uid, tid = resolve_chat_identity(request)
     if not db.kb_note_is_owner(note_id, uid, tid):
         raise HTTPException(
             status_code=404, detail="note not found or you are not the owner"
@@ -231,7 +231,7 @@ def list_kb_note_shares(note_id: int, request: Request) -> dict:
 @router.delete("/kb/shares/{share_id}")
 def delete_kb_note_share(share_id: int, request: Request) -> dict:
     """Owner only: revoke a grant."""
-    uid, tid = resolve_user_tenant(request)
+    uid, tid = resolve_chat_identity(request)
     ok = db.kb_note_share_delete(share_id, uid, tid)
     if not ok:
         raise HTTPException(status_code=404, detail="share not found or not owner")

@@ -136,9 +136,15 @@ def public_http_auth_policy() -> dict[str, Any]:
         "admin_routes": [
             "GET/PUT /v1/admin/operator-settings",
             "GET/PUT /v1/admin/interfaces",
+            "GET/POST /v1/admin/tenants",
             "GET /v1/admin/users",
             "POST /v1/admin/users",
+            "PATCH /v1/admin/users/{user_id}",
             "PUT /v1/admin/tool-policies",
         ],
         "note_admin": "Bearer must resolve to a user with role=admin; then require_admin().",
+        "note_identity": (
+            "User/tenant for chat, tools, RAG, user APIs: JWT or API key only; tenant = users.tenant_id. "
+            "Optional connection Bearer maps to AGENT_OPTIONAL_KEY_USER_ID. Identity headers are not used."
+        ),
     }
