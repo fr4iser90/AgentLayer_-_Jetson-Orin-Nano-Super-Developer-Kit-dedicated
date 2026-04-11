@@ -10,7 +10,7 @@ import {
 
 export type AuthUser = { id: string; email: string; role: string };
 
-type AuthContextValue = {
+export type AuthContextValue = {
   accessToken: string | null;
   user: AuthUser | null;
   loading: boolean;

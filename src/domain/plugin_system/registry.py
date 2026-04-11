@@ -115,6 +115,16 @@ def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
         lf = [str(x).strip() for x in fam if str(x).strip()]
         if lf:
             entry["families"] = lf
+    # Optional: per ``service_key`` UI hints for Settings → Connections (fields + help text).
+    usf = getattr(mod, "TOOL_USER_SECRET_FORMS", None)
+    if isinstance(usf, dict) and usf:
+        cleaned: dict[str, Any] = {}
+        for k, v in usf.items():
+            sk = str(k).strip().lower()
+            if sk and isinstance(v, dict):
+                cleaned[sk] = v
+        if cleaned:
+            entry["user_secret_forms"] = cleaned
 
 
 def _path_under_or_equal(child: Path, parent: Path) -> bool:

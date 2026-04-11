@@ -128,12 +128,13 @@ export function StudioPage() {
     | undefined;
   const required = preset?.inputs_schema?.required ?? [];
 
-  const previewUrl =
+  const previewUrlRaw =
     jobResult &&
     typeof jobResult === "object" &&
     jobResult !== null &&
     "primary_image" in jobResult &&
     (jobResult as { primary_image?: { data_url?: string } }).primary_image?.data_url;
+  const previewUrl = typeof previewUrlRaw === "string" && previewUrlRaw ? previewUrlRaw : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-surface">

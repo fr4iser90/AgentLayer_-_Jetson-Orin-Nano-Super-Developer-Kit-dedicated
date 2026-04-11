@@ -26,6 +26,7 @@ import {
   toApiContent,
   type PendingAttachment,
 } from "../features/chat/messageFormat";
+import { getDisabledToolNames } from "../features/settings/toolPrefs";
 
 const SUGGESTED = [
   "Show me a code snippet of a website's sticky header",
@@ -318,12 +319,14 @@ export function ChatPage() {
     setPendingAttachments([]);
 
     try {
+      const disabledTools = getDisabledToolNames();
       const res = await apiFetch("/v1/chat/completions", auth, {
         method: "POST",
         body: JSON.stringify({
           model: t.model,
           messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
           stream: false,
+          ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
         }),
       });
       const data = await res.json();
@@ -491,12 +494,14 @@ export function ChatPage() {
 
     try {
       const ws = await ensureAgentWs();
+      const disabledTools = getDisabledToolNames();
       ws.send(
         JSON.stringify({
           type: "chat",
           body: {
             model: t.model,
             messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
+            ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
           },
         })
       );

@@ -32,6 +32,19 @@ TOOL_TRIGGERS = (
 
 GITHUB_API = "https://api.github.com"
 USER_SECRET_KEY = "github_pat"
+TOOL_REQUIRES = (USER_SECRET_KEY,)
+TOOL_USER_SECRET_FORMS: dict[str, dict[str, Any]] = {
+    USER_SECRET_KEY: {
+        "title": "GitHub token",
+        "help": (
+            "Fine-grained or classic **Personal Access Token** (`ghp_…` / `github_pat_…`). "
+            "You can paste the token alone, or use the field below (saved as JSON for the tool reader)."
+        ),
+        "fields": [
+            {"name": "token", "label": "Personal access token", "type": "password", "required": True},
+        ],
+    }
+}
 HTTP_TIMEOUT = 30.0
 MAX_SEARCH_ITEMS = 20
 MAX_FILE_CHARS = 120_000

@@ -98,8 +98,16 @@ _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
         "agent_router_categories",
         "TOOL_DOMAIN",
         "agent_pause_between_rounds",
+        "agent_disabled_tools",
     }
 )
+
+
+def _parse_disabled_tool_names(raw: Any) -> set[str]:
+    """Client hint: tool function names to omit from this request (after policy filter)."""
+    if not isinstance(raw, list):
+        return set()
+    return {str(x).strip() for x in raw if str(x).strip()}
 
 
 def _coerce_body_bool(value: Any, default: bool = False) -> bool:
@@ -838,6 +846,14 @@ async def chat_completion(
         )
     except Exception:
         logger.debug("operator/access tool filter skipped", exc_info=True)
+
+    disabled_names = _parse_disabled_tool_names(body.get("agent_disabled_tools"))
+    if disabled_names:
+        merged_tools = [
+            t
+            for t in merged_tools
+            if (n := _tool_spec_name(t)) is None or n not in disabled_names
+        ]
 
     # Stufenweise Erkundung: tools[] immer nur Katalog — volles Schema nur via get_tool_help-Antwort.
     tools_for_request = _tools_for_chat_request(merged_tools)

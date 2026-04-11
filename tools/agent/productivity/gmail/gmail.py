@@ -39,6 +39,22 @@ TOOL_FAMILIES = ("communication", "productivity")
 # Stored via register_secrets / POST user/secrets — this tool reads it server-side only.
 SECRET_SERVICE_KEY = "gmail"
 
+# Drives Agent UI “Connections”: structured fields instead of guessing JSON shape.
+TOOL_USER_SECRET_FORMS: dict[str, dict[str, Any]] = {
+    SECRET_SERVICE_KEY: {
+        "title": "Gmail (IMAP)",
+        "help": (
+            "Use a Google **App Password** (16 characters), not your normal Gmail password. "
+            "Requires 2-Step Verification: Google Account → Security → App passwords → generate "
+            "one for “Mail” / this device."
+        ),
+        "fields": [
+            {"name": "email", "label": "Gmail address", "type": "email", "required": True},
+            {"name": "app_password", "label": "App password", "type": "password", "required": True},
+        ],
+    }
+}
+
 IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 
