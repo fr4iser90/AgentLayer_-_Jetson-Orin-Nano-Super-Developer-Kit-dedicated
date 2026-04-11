@@ -691,6 +691,35 @@ def _names_from_tool_list(tools: list[Any]) -> set[str]:
     return {n for t in tools if (n := _tool_spec_name(t))}
 
 
+def _extract_tool_calls_from_completion_response(
+    data: dict[str, Any],
+    *,
+    allowed_tool_names: set[str],
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]] | None, bool]:
+    """
+    Parse choices[0].message and optional synthetic tool calls from content.
+    Mutates ``data`` in place when synthetic tool_calls are applied (same as inline logic).
+    """
+    choice0 = (data.get("choices") or [{}])[0]
+    if not isinstance(choice0, dict):
+        choice0 = {}
+    raw_msg = choice0.get("message")
+    if not isinstance(raw_msg, dict):
+        raw_msg = {}
+    msg = dict(raw_msg)
+    raw_tc = msg.get("tool_calls")
+    had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
+    tool_calls = raw_tc if had_native_tool_calls else None
+    if not tool_calls:
+        tool_calls = _synthetic_tool_calls_from_message(
+            msg, choice0, allowed_tool_names=allowed_tool_names
+        )
+        if tool_calls:
+            msg["tool_calls"] = tool_calls
+            choice0["message"] = msg
+    return choice0, msg, tool_calls, had_native_tool_calls
+
+
 def _approx_text_chars_in_messages(messages: list[dict[str, Any]]) -> int:
     return sum(sum(len(b) for b in _text_blobs_from_message(m)) for m in messages)
 
@@ -1093,21 +1122,74 @@ async def chat_completion(
                 tools_for_round = []
                 allowed_names = set()
 
-            choice0 = (data.get("choices") or [{}])[0]
-            raw_msg = choice0.get("message")
-            if not isinstance(raw_msg, dict):
-                raw_msg = {}
-            msg = dict(raw_msg)
-            raw_tc = msg.get("tool_calls")
-            had_native_tool_calls = isinstance(raw_tc, list) and len(raw_tc) > 0
-            tool_calls = raw_tc if had_native_tool_calls else None
-            if not tool_calls:
-                tool_calls = _synthetic_tool_calls_from_message(
-                    msg, choice0, allowed_tool_names=allowed_names
+            choice0, msg, tool_calls, had_native_tool_calls = (
+                _extract_tool_calls_from_completion_response(
+                    data,
+                    allowed_tool_names=allowed_names,
                 )
-                if tool_calls:
-                    msg["tool_calls"] = tool_calls
-                    choice0["message"] = msg
+            )
+
+            # Some models return only assistant text (TEXT_NO_TOOLS) even when tools[] is present.
+            # OpenAI-compatible: retry once with tool_choice=required so the backend emits tool_calls.
+            # Only on the first planner round: later rounds may legitimately return final text; forcing
+            # tool_choice here would pick a random tool (e.g. register_secrets) and thrash the chat.
+            if (
+                round_i == 0
+                and not tool_calls
+                and tools_for_round
+                and not plain_completion
+                and not tools_omitted
+                and config.AGENT_TOOL_CHOICE_REQUIRED_RETRY
+            ):
+                payload_retry = dict(payload)
+                payload_retry["tool_choice"] = "required"
+                try:
+                    data_r, tools_omitted_r = await asyncio.to_thread(
+                        ollama_post_chat_completions,
+                        url,
+                        payload_retry,
+                        headers=headers,
+                        timeout=600.0,
+                    )
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (400, 422):
+                        logger.warning(
+                            "Ollama rejected tool_choice=required (status=%s); keeping first completion. body~=%s",
+                            e.response.status_code,
+                            (e.response.text or "")[:400],
+                        )
+                    else:
+                        err_body = (e.response.text or "")[:4000]
+                        logger.error(
+                            "Ollama chat/completions retry failed: status=%s model=%s body=%s",
+                            e.response.status_code,
+                            model,
+                            err_body or "(empty)",
+                        )
+                        raise
+                else:
+                    if not tools_omitted_r:
+                        c0, m2, tc2, hn2 = _extract_tool_calls_from_completion_response(
+                            data_r,
+                            allowed_tool_names=allowed_names,
+                        )
+                        if tc2:
+                            logger.info(
+                                "agent: tool_choice=required retry produced tool_calls (model=%s)",
+                                model,
+                            )
+                            data, tools_omitted = data_r, tools_omitted_r
+                            choice0, msg, tool_calls, had_native_tool_calls = (
+                                c0,
+                                m2,
+                                tc2,
+                                hn2,
+                            )
+                    else:
+                        logger.warning(
+                            "agent: tool_choice=required retry omitted tools (model=%s); keeping first completion",
+                            model,
+                        )
 
             _log_ollama_round(
                 round_i=round_i,

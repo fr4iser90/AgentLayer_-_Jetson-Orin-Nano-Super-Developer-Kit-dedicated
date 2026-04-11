@@ -69,6 +69,10 @@ SYSTEM_PROMPT_EXTRA = os.environ.get("AGENT_SYSTEM_PROMPT", "").strip()
 # If Ollama returns no tool_calls but JSON tool intent in message content (e.g. Nemotron), parse and run.
 CONTENT_TOOL_FALLBACK = _env_bool("AGENT_CONTENT_TOOL_FALLBACK", True)
 
+# If the first completion (planner round 0 only) returns text but no tool_calls while tools[] was
+# sent, retry once with tool_choice=required (OpenAI-compatible). Later rounds are not retried.
+AGENT_TOOL_CHOICE_REQUIRED_RETRY = _env_bool("AGENT_TOOL_CHOICE_REQUIRED_RETRY", True)
+
 # Per Ollama round: INFO log reply type (TOOLS vs TEXT), context size, optional assistant preview (redacted).
 AGENT_LOG_LLM_ROUNDS = _env_bool("AGENT_LOG_LLM_ROUNDS", True)
 AGENT_LOG_ASSISTANT_PREVIEW_CHARS = _env_int("AGENT_LOG_ASSISTANT_PREVIEW_CHARS", 0)

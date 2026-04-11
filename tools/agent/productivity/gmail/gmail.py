@@ -14,10 +14,10 @@ from email.header import decode_header
 from email.message import Message
 from typing import Any, Callable
 
-from src.infrastructure import db
+from src.infrastructure.db import db
 from src.domain.identity import get_identity
 
-__version__ = "1.0.1"
+__version__ = "1.0.3"
 TOOL_ID = "gmail"
 TOOL_BUCKET = "comms"
 TOOL_DOMAIN = "gmail"
@@ -195,9 +195,7 @@ def gmail_search(arguments: dict[str, Any]) -> str:
 
     q = (arguments.get("gmail_query") or arguments.get("query") or "").strip()
     if not q:
-        return json.dumps(
-            {"ok": False, "error": "gmail_query is required"}, ensure_ascii=False
-        )
+        q = "in:inbox"
     mailbox = (arguments.get("mailbox") or "INBOX").strip() or "INBOX"
     try:
         limit = int(arguments.get("limit") or 20)
@@ -334,9 +332,7 @@ def gmail_collect_for_summary(arguments: dict[str, Any]) -> str:
 
     q = (arguments.get("gmail_query") or arguments.get("query") or "").strip()
     if not q:
-        return json.dumps(
-            {"ok": False, "error": "gmail_query is required"}, ensure_ascii=False
-        )
+        q = "in:inbox"
     mailbox = (arguments.get("mailbox") or "INBOX").strip() or "INBOX"
     try:
         max_msg = int(arguments.get("max_messages") or 8)
@@ -438,7 +434,10 @@ TOOLS: list[dict[str, Any]] = [
                 "properties": {
                     "gmail_query": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Gmail search query (X-GM-RAW), e.g. from:github is:unread newer_than:14d",
+                        "TOOL_DESCRIPTION": (
+                            "Gmail search query (X-GM-RAW), e.g. from:github is:unread newer_than:14d. "
+                            "If omitted, defaults to in:inbox."
+                        ),
                     },
                     "mailbox": {
                         "type": "string",
@@ -449,7 +448,6 @@ TOOLS: list[dict[str, Any]] = [
                         "TOOL_DESCRIPTION": "Max messages to return (1–50, default 20)",
                     },
                 },
-                "required": ["gmail_query"],
             },
         },
     },
@@ -492,7 +490,7 @@ TOOLS: list[dict[str, Any]] = [
                 "properties": {
                     "gmail_query": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Same as gmail_search (Gmail query syntax)",
+                        "TOOL_DESCRIPTION": "Same as gmail_search; if omitted, defaults to in:inbox.",
                     },
                     "mailbox": {"type": "string", "TOOL_DESCRIPTION": "Default INBOX"},
                     "max_messages": {
@@ -504,7 +502,6 @@ TOOLS: list[dict[str, Any]] = [
                         "TOOL_DESCRIPTION": "Truncate each body (default 6000)",
                     },
                 },
-                "required": ["gmail_query"],
             },
         },
     },
