@@ -325,7 +325,8 @@ export function AdminTools() {
       allowed_tenant_ids: null,
       execution_context: null,
     };
-    const sec = p.secrets_required?.length ? p.secrets_required : p.requires;
+    const sec = p.secrets_required;
+    const req = p.requires;
     const firstTool = p.tools?.[0] ?? "";
     const manCtx = p.execution_context || "container";
     const effCtx =
@@ -416,9 +417,15 @@ export function AdminTools() {
                   <span className="text-neutral-300">{p.capabilities.join(", ")}</span>
                 </div>
               ) : null}
+              {req?.length ? (
+                <div>
+                  <span className="text-surface-muted">TOOL_REQUIRES (context hints):</span>{" "}
+                  <span className="text-neutral-300">{req.join(", ")}</span>
+                </div>
+              ) : null}
               {sec?.length ? (
                 <div>
-                  <span className="text-surface-muted">Secrets:</span>{" "}
+                  <span className="text-surface-muted">Secrets (service keys):</span>{" "}
                   <span className="text-amber-200/90">{sec.join(", ")}</span>
                 </div>
               ) : null}

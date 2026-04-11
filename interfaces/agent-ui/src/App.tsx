@@ -18,6 +18,7 @@ import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
 import { StudioPage } from "./pages/StudioPage";
+import { LoginPage } from "./pages/LoginPage";
 
 export function App() {
   return (
@@ -25,6 +26,7 @@ export function App() {
       <AuthProvider>
       <Routes>
         <Route element={<AppLayout />}>
+          <Route path="login" element={<LoginPage />} />
           <Route element={<RequireSession />}>
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />

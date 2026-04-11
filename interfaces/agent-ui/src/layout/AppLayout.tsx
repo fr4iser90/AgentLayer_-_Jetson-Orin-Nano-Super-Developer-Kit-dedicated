@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { UserMenu } from "../components/UserMenu";
 
@@ -40,9 +40,9 @@ export function AppLayout() {
               </NavLink>
             </>
           ) : (
-            <a href="/login" className={signInClass}>
+            <Link to="/login" className={signInClass}>
               Sign in
-            </a>
+            </Link>
           )}
         </nav>
         {loading ? null : signedIn ? (

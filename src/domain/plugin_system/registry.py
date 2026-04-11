@@ -81,7 +81,11 @@ Handler = Callable[[dict[str, Any]], str]
 
 
 def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
-    """Optional module fields: execution_context, capabilities, secrets, min_role, tenant allowlist, families."""
+    """Optional module fields: execution_context, capabilities, secrets, min_role, tenant allowlist, families.
+
+    ``TOOL_SECRETS_REQUIRED`` → ``secrets_required`` (user secret ``service_key`` names for Connections UI).
+    ``TOOL_REQUIRES`` is handled earlier → ``requires`` only; do **not** merge into ``secrets_required``.
+    """
     xctx = getattr(mod, "TOOL_EXECUTION_CONTEXT", None)
     entry["execution_context"] = normalize_execution_context(
         xctx if isinstance(xctx, str) else None
@@ -104,8 +108,6 @@ def _apply_manifest_extras(mod: Any, entry: dict[str, Any]) -> None:
         lr = [str(x).strip() for x in req if str(x).strip()]
         if lr:
             entry["secrets_required"] = lr
-    elif entry.get("requires"):
-        entry["secrets_required"] = list(entry["requires"])
     mr = getattr(mod, "TOOL_MIN_ROLE", None)
     entry["min_role"] = normalize_min_role(mr if isinstance(mr, str) else None)
     at = getattr(mod, "TOOL_ALLOWED_TENANT_IDS", None)
@@ -362,6 +364,7 @@ class ToolRegistry:
         dom = getattr(mod, "TOOL_DOMAIN", None)
         if isinstance(dom, str) and dom.strip():
             entry["domain"] = dom.strip().lower()
+        # Declared context / argument hints (e.g. domain tools). Not user secret keys — use TOOL_SECRETS_REQUIRED.
         req = getattr(mod, "TOOL_REQUIRES", None)
         if isinstance(req, (list, tuple, frozenset, set)):
             rl = [str(x).strip() for x in req if str(x).strip()]
@@ -377,12 +380,16 @@ class ToolRegistry:
                 if not nk:
                     continue
                 row: dict[str, Any] = {}
-                r2 = v.get("requires") or v.get("secrets_required")
-                if isinstance(r2, (list, tuple)):
-                    lr = [str(x).strip() for x in r2 if str(x).strip()]
+                r_req = v.get("requires")
+                r_sec = v.get("secrets_required")
+                if isinstance(r_req, (list, tuple)):
+                    lr = [str(x).strip() for x in r_req if str(x).strip()]
                     if lr:
                         row["requires"] = lr
-                        row["secrets_required"] = lr
+                if isinstance(r_sec, (list, tuple)):
+                    ls = [str(x).strip() for x in r_sec if str(x).strip()]
+                    if ls:
+                        row["secrets_required"] = ls
                 t2 = v.get("tags")
                 if isinstance(t2, (list, tuple)):
                     lt = [str(x).strip() for x in t2 if str(x).strip()]

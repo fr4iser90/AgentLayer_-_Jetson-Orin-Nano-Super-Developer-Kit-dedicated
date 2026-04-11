@@ -41,7 +41,7 @@ TOOL_TRIGGERS = (
 SECRET_KEYS_TRY_ORDER: tuple[str, ...] = ("google_calendar", "calendar_ics")
 
 # Catalog: both keys (same JSON); runtime tries ``google_calendar`` first, then ``calendar_ics``.
-TOOL_REQUIRES = ("google_calendar", "calendar_ics")
+TOOL_SECRETS_REQUIRED = ("google_calendar", "calendar_ics")
 _TOOL_ICS_FORM: dict[str, Any] = {
     "title": "Calendar (HTTPS iCal / ICS URL)",
     "help": (

@@ -13,7 +13,7 @@ export function RequireAdmin() {
   }
 
   if (!accessToken) {
-    window.location.replace("/login");
+    window.location.replace("/app/login");
     return (
       <div className="flex min-h-[40vh] items-center justify-center px-4 text-sm text-surface-muted">
         Redirecting to sign in…

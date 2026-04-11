@@ -17,7 +17,7 @@ type ToolsMeta = {
 };
 
 function secretKeysForPackage(m: ToolsMeta): string[] {
-  const raw = m.secrets_required ?? m.requires ?? [];
+  const raw = m.secrets_required ?? [];
   if (!Array.isArray(raw)) return [];
   return [...new Set(raw.map((x) => String(x).trim().toLowerCase()).filter(Boolean))];
 }

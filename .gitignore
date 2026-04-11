@@ -9,7 +9,6 @@ __pycache__/
 # logs
 logs/
 
-# First-party Agent UI (Vite): deps + production build output (Docker/CI builds into static/app)
+# First-party Agent UI (Vite): deps + production build output
 interfaces/agent-ui/node_modules/
-interfaces/web/static/app/*
-!interfaces/web/static/app/.gitkeep
+interfaces/agent-ui/dist/

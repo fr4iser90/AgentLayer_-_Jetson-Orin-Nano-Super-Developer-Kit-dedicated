@@ -16,6 +16,8 @@ export type AuthContextValue = {
   loading: boolean;
   /** Returns new access token on success, or null if refresh failed. */
   refresh: () => Promise<string | null>;
+  /** Email/password; sets access token + user on success. */
+  login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
 };
 
@@ -44,6 +46,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return null;
   }, []);
 
+  const login = useCallback(async (email: string, password: string): Promise<boolean> => {
+    const r = await fetch("/auth/login", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
+    });
+    if (!r.ok) {
+      setAccessToken(null);
+      setUser(null);
+      return false;
+    }
+    const d = (await r.json()) as { access_token: string; user: AuthUser };
+    setAccessToken(d.access_token);
+    setUser(d.user ?? null);
+    return true;
+  }, []);
+
   useEffect(() => {
     void (async () => {
       await refresh();
@@ -55,12 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetch("/auth/logout", { method: "POST", credentials: "include" });
     setAccessToken(null);
     setUser(null);
-    window.location.href = "/login";
+    window.location.href = "/app/login";
   }, []);
 
   const value = useMemo(
-    () => ({ accessToken, user, loading, refresh, logout }),
-    [accessToken, user, loading, refresh, logout]
+    () => ({ accessToken, user, loading, refresh, login, logout }),
+    [accessToken, user, loading, refresh, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

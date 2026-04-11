@@ -33,7 +33,7 @@ TOOL_TRIGGERS = (
 
 GITHUB_API = "https://api.github.com"
 USER_SECRET_KEY = "github_pat"
-TOOL_REQUIRES = (USER_SECRET_KEY,)
+TOOL_SECRETS_REQUIRED = (USER_SECRET_KEY,)
 TOOL_USER_SECRET_FORMS: dict[str, dict[str, Any]] = {
     USER_SECRET_KEY: {
         "title": "GitHub token",

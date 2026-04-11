@@ -35,7 +35,7 @@ TOOL_DESCRIPTION = (
     "Read and search Gmail over IMAP using the per-user `gmail` app-password secret."
 )
 
-TOOL_REQUIRES = ("gmail",)
+TOOL_SECRETS_REQUIRED = ("gmail",)
 TOOL_CAPABILITIES = ("mail.read", "mail.search", "secrets.user")
 TOOL_RISK_LEVEL = 2
 TOOL_FAMILIES = ("communication", "productivity")

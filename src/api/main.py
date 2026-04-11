@@ -330,7 +330,7 @@ _js_dir = _control_dir / "js"
 if _js_dir.is_dir():
     app.mount("/js", StaticFiles(directory=str(_js_dir)), name="public_js")
 
-_agent_ui_dir = Path(__file__).resolve().parents[2] / "interfaces" / "web" / "static" / "app"
+_agent_ui_dir = Path(__file__).resolve().parents[2] / "interfaces" / "agent-ui" / "dist"
 _agent_index = _agent_ui_dir / "index.html"
 if _agent_index.is_file():
 
@@ -430,10 +430,12 @@ def favicon():
 
 @app.get("/login")
 def login_page():
-    """Canonical browser login; session script at ``/js/auth.js``."""
-    if not _control_login_html.is_file():
-        raise HTTPException(status_code=404, detail="login page not shipped")
-    return FileResponse(_control_login_html)
+    """Browser login: legacy ``interfaces/web/static/login.html`` if present, else SPA."""
+    if _control_login_html.is_file():
+        return FileResponse(_control_login_html)
+    if _agent_index.is_file():
+        return RedirectResponse(url="/app/login", status_code=307)
+    raise HTTPException(status_code=404, detail="login UI not shipped")
 
 
 @app.get("/chat")

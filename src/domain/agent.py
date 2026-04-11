@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from src.core.config import config
-from src.infrastructure.ollama_gate import ollama_post_json
+from src.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from src.domain.plugin_system.registry import get_registry
 from src.domain.plugin_system.tool_routing import (
     TOOL_INTROSPECTION,
@@ -1038,8 +1038,8 @@ async def chat_completion(
             payload["tools"] = tools_for_round
 
         try:
-            data = await asyncio.to_thread(
-                ollama_post_json,
+            data, tools_omitted = await asyncio.to_thread(
+                ollama_post_chat_completions,
                 url,
                 payload,
                 headers=headers,
@@ -1054,6 +1054,10 @@ async def chat_completion(
                 err_body or "(empty)",
             )
             raise
+
+        if tools_omitted:
+            tools_for_round = []
+            allowed_names = set()
 
         choice0 = (data.get("choices") or [{}])[0]
         raw_msg = choice0.get("message")

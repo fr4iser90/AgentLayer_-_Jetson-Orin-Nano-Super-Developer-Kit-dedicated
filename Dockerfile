@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY src ./src
 COPY tools ./tools
 COPY interfaces ./interfaces
-COPY --from=agent_ui_builder /build/interfaces/web/static/app ./interfaces/web/static/app
+COPY --from=agent_ui_builder /build/interfaces/agent-ui/dist ./interfaces/agent-ui/dist
 COPY workflows ./workflows
 COPY workspace ./workspace
 

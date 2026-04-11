@@ -16,7 +16,7 @@ export function RequireSession() {
   }
 
   if (!accessToken) {
-    window.location.replace("/login");
+    window.location.replace("/app/login");
     return (
       <div className="flex h-full min-h-0 flex-1 items-center justify-center px-4 text-sm text-surface-muted">
         Redirecting to sign in…

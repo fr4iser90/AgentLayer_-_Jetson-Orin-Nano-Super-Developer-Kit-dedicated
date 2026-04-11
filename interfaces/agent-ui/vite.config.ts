@@ -1,12 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Build output: interfaces/web/static/app (served by FastAPI at /app)
+// Production build → interfaces/agent-ui/dist (served by FastAPI at /app)
 export default defineConfig({
   plugins: [react()],
   base: "/app/",
   build: {
-    outDir: "../web/static/app",
+    outDir: "dist",
     emptyOutDir: true,
   },
   server: {
