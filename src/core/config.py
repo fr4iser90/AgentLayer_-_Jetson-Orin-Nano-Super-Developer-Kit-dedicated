@@ -260,8 +260,6 @@ def tools_allowed_sha256() -> frozenset[str] | None:
     return digests if digests else None
 
 
-# Am Ende von src/core/config.py einfügen:
-
 # Create a config object for backward compatibility
 class Config:
     """Compatibility wrapper for the new modular config.

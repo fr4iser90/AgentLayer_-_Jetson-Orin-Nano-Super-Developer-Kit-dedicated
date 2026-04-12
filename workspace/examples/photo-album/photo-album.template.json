@@ -1,0 +1,23 @@
+{
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "gallery-main",
+        "type": "gallery",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 10 },
+        "props": { "dataPath": "photos", "title": "Photos" }
+      },
+      {
+        "id": "album-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 10, "w": 12, "h": 4 },
+        "props": { "dataPath": "album_notes", "placeholder": "Notes…" }
+      }
+    ]
+  },
+  "initial_data": {
+    "photos": [],
+    "album_notes": ""
+  }
+}

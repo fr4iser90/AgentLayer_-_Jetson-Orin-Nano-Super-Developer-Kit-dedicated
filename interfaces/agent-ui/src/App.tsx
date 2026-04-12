@@ -18,6 +18,7 @@ import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
 import { StudioPage } from "./pages/StudioPage";
+import { WorkspacePage } from "./pages/WorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 
 export function App() {
@@ -31,6 +32,7 @@ export function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="studio" element={<StudioPage />} />
+            <Route path="workspace" element={<WorkspacePage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="/settings/profile" replace />} />

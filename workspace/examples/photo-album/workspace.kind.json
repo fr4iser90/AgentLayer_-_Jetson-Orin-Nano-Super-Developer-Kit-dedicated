@@ -1,0 +1,7 @@
+{
+  "kind": "photo_album",
+  "label": "Photo album",
+  "description": "Gallery grid and album notes.",
+  "template": "photo-album.template.json",
+  "schema_sql": "migrations/001_user_workspaces.sql"
+}

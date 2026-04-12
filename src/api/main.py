@@ -64,6 +64,7 @@ from src.domain.plugin_system.registry import get_registry
 from src.infrastructure.user_data_api import router as user_data_router
 from src.infrastructure.user_secrets_api import router as user_secrets_router
 from src.api.conversations_api import router as conversations_router
+from src.workspace.router import router as workspace_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -110,9 +111,10 @@ async def lifespan(_app: FastAPI):
     db.close_pool()
 
 
-app = FastAPI(title="agent-layer", version="0.7.6", lifespan=lifespan)
+app = FastAPI(title="agent-layer", version="0.7.7", lifespan=lifespan)
 app.include_router(user_secrets_router)
 app.include_router(conversations_router)
+app.include_router(workspace_router)
 app.include_router(user_data_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
@@ -337,6 +339,7 @@ _agent_index = _agent_ui_dir / "index.html"
 if _agent_index.is_file():
 
     @app.get("/app/chat")
+    @app.get("/app/workspace")
     @app.get("/app/docs")
     @app.get("/app/login")
     @app.get("/app/settings")

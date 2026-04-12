@@ -1,0 +1,38 @@
+{
+  "kind": "shopping_list",
+  "description": "Template for kind shopping_list — copied into DB on create; edit here to change defaults for new lists.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "main-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "props": {
+          "dataPath": "items",
+          "columns": [
+            { "field": "checked", "kind": "checkbox", "label": "" },
+            { "field": "name", "kind": "text", "label": "Artikel" },
+            { "field": "qty", "kind": "number", "label": "Menge" },
+            {
+              "field": "store",
+              "kind": "select",
+              "label": "Laden",
+              "options": ["A", "B", "C", "—"]
+            }
+          ]
+        }
+      },
+      {
+        "id": "side-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 8, "w": 12, "h": 4 },
+        "props": { "dataPath": "notes", "placeholder": "Notizen zur Liste…" }
+      }
+    ]
+  },
+  "initial_data": {
+    "items": [],
+    "notes": ""
+  }
+}

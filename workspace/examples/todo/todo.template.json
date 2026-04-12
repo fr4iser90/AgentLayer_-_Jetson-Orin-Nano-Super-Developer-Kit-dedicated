@@ -1,0 +1,31 @@
+{
+  "kind": "todo",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "tasks-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 9 },
+        "props": {
+          "dataPath": "tasks",
+          "columns": [
+            { "field": "done", "kind": "checkbox", "label": "" },
+            { "field": "title", "kind": "text", "label": "Aufgabe" },
+            { "field": "due", "kind": "text", "label": "Fällig" }
+          ]
+        }
+      },
+      {
+        "id": "todo-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 9, "w": 12, "h": 4 },
+        "props": { "dataPath": "notes", "placeholder": "Notizen zur Liste…" }
+      }
+    ]
+  },
+  "initial_data": {
+    "tasks": [],
+    "notes": ""
+  }
+}

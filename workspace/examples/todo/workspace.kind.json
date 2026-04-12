@@ -1,0 +1,7 @@
+{
+  "kind": "todo",
+  "label": "Todo list",
+  "description": "Tasks table plus notes.",
+  "template": "todo.template.json",
+  "schema_sql": "migrations/001_user_workspaces.sql"
+}

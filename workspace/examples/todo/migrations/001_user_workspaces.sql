@@ -1,0 +1,19 @@
+-- Shared user_workspaces table (same DDL as other bundles). Idempotent.
+
+CREATE TABLE IF NOT EXISTS user_workspaces (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'custom',
+  title TEXT NOT NULL DEFAULT '',
+  ui_layout JSONB NOT NULL DEFAULT '{"version":1,"blocks":[]}'::jsonb,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_workspaces_owner
+  ON user_workspaces (owner_user_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_workspaces_tenant
+  ON user_workspaces (tenant_id);

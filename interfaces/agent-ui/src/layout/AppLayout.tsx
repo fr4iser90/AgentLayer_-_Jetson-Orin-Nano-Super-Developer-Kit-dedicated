@@ -38,6 +38,9 @@ export function AppLayout() {
               <NavLink to="/studio" className={linkClass}>
                 Studio
               </NavLink>
+              <NavLink to="/workspace" className={linkClass}>
+                Workspace
+              </NavLink>
             </>
           ) : (
             <Link to="/login" className={signInClass}>
