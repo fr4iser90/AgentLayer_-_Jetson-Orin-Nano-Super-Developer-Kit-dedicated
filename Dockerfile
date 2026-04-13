@@ -25,6 +25,7 @@ COPY interfaces ./interfaces
 COPY --from=agent_ui_builder /build/interfaces/agent-ui/dist ./interfaces/agent-ui/dist
 COPY workflows ./workflows
 COPY workspace ./workspace
+COPY image_generation ./image_generation
 
 # copy entrypoint script for alembic stamp/upgrade
 COPY scripts/alembic_entrypoint.sh /usr/local/bin/alembic_entrypoint.sh

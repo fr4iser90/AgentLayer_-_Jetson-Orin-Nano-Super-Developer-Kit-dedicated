@@ -1,7 +1,7 @@
 """
 Backend-driven Image Studio preset list for schema-driven UIs.
 
-Workflow JSON paths are relative to the repository root (Docker: /src).
+Workflow JSON paths are relative to the repository root (Docker: ``/app``).
 Job execution is implemented separately (see ``POST /v1/studio/jobs``).
 """
 
@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Any
 
-# Paths under repo root (same layout as tools use under /src in container).
-WORKFLOW_TXT2IMG = "workflows/external/image_generator/txt2image.json"
-WORKFLOW_IMAGE2IMAGE = "workflows/external/image_generator/image2image.json"
+# ComfyUI graph JSON under repo root — plug-and-play: add files under ``image_generation/workflows/``.
+WORKFLOW_TXT2IMG = "image_generation/workflows/txt2image.json"
+WORKFLOW_IMAGE2IMAGE = "image_generation/workflows/image2image.json"
 
 
 def studio_catalog_payload() -> dict[str, Any]:

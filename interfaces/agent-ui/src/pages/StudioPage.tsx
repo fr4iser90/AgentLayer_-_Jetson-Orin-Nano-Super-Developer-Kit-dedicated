@@ -179,10 +179,10 @@ export function StudioPage() {
       </aside>
 
       <div className="min-w-0 flex-1 overflow-y-auto p-8">
-        <h1 className="text-2xl font-semibold text-white">Image Studio</h1>
+        <h1 className="text-2xl font-semibold text-white">Image generation</h1>
         <p className="mt-1 max-w-2xl text-sm text-surface-muted">
-          Schema-driven forms from the Agent Layer. Configure ComfyUI / operator settings on the
-          server.
+          ComfyUI-backed workflows. Presets and checkpoints come from the server catalog; configure
+          ComfyUI URLs in operator settings / env.
         </p>
 
         {catalogError ? (
@@ -194,7 +194,7 @@ export function StudioPage() {
         {catalog && !catalogError ? (
           <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
             <span className="rounded-full bg-emerald-950/80 px-2 py-0.5 text-emerald-300">
-              Studio catalog from server
+              Catalog from server
             </span>
             <span className="text-surface-muted">v{catalog.studio_version ?? "?"}</span>
             <span className="text-surface-muted">
@@ -255,7 +255,7 @@ export function StudioPage() {
                 <p className="mb-2 text-sm text-neutral-300">Result</p>
                 <img
                   src={previewUrl}
-                  alt="Studio output"
+                  alt="Generated image"
                   className="max-h-[480px] max-w-full rounded-lg border border-surface-border"
                 />
               </div>

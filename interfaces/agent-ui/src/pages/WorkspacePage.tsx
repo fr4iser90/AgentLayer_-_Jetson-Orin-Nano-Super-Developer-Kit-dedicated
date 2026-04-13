@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
+import { WorkspaceEmbeddedChat } from "../features/workspace/WorkspaceEmbeddedChat";
 import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
 import type {
   UiLayout,
@@ -983,6 +984,7 @@ export function WorkspacePage() {
                   contentReadOnly={isViewer}
                   workspaceId={selectedId}
                 />
+                <WorkspaceEmbeddedChat workspaceId={selectedId} workspaceTitle={title || detail?.title} />
               </>
             )}
           </div>

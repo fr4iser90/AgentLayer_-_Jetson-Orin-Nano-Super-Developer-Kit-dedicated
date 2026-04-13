@@ -20,8 +20,10 @@ from typing import Any
 import httpx
 
 from src.core.config import config
+from src.domain.identity import get_identity
 from src.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from src.domain.plugin_system.registry import get_registry
+from src.workspace import db as workspace_db
 from src.domain.plugin_system.capability_governance import parse_user_capability_confirm
 from src.domain.plugin_system.capability_index import filter_merged_tools_by_capabilities
 from src.domain.plugin_system.tool_routing import (
@@ -181,6 +183,57 @@ def _inject_system_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]
         }
     else:
         out.insert(0, {"role": "system", "content": extra})
+    return out
+
+
+def _inject_workspace_context(
+    messages: list[dict[str, Any]], raw: Any
+) -> list[dict[str, Any]]:
+    """
+    Optional client hint: ``agent_workspace_context: { "workspace_id": "<uuid>" }``.
+    Resolved server-side so the model only sees workspaces the user may access.
+    """
+    if not isinstance(raw, dict):
+        return messages
+    wid_s = raw.get("workspace_id")
+    if not isinstance(wid_s, str) or not wid_s.strip():
+        return messages
+    try:
+        wid = uuid.UUID(wid_s.strip())
+    except ValueError:
+        return messages
+    ident = get_identity()
+    if ident[1] is None:
+        return messages
+    tid, uid = ident
+    ws = workspace_db.workspace_get(uid, tid, wid)
+    if ws is None:
+        note = (
+            "[Workspace context] The client requested a default workspace id but it is not "
+            "accessible to this user; do not assume a workspace id until tools return one."
+        )
+    else:
+        k = (ws.get("kind") or "").strip()
+        title = (ws.get("title") or "").strip()
+        role = (ws.get("access_role") or "").strip()
+        note = (
+            f"[Workspace context] The user opened this workspace in the app. "
+            f"workspace_id={wid!s}, kind={k!r}, title={title!r}, access_role={role!r}. "
+            f"For shopping_list_* tools, use this workspace_id when the user means 'this list' "
+            f"and does not clearly mean a different list. "
+            f"If unsure which list they mean, call shopping_list_workspaces first."
+        )
+    out = list(messages)
+    if not out:
+        return [{"role": "system", "content": note}]
+    if out[0].get("role") == "system":
+        existing = out[0].get("content") or ""
+        out[0] = {
+            **out[0],
+            "content": (existing + "\n\n" + note).strip() if existing else note,
+        }
+    else:
+        out.insert(0, {"role": "system", "content": note})
     return out
 
 
@@ -841,9 +894,11 @@ async def chat_completion(
     _cap_cf_tok = bind_capability_confirmed(
         parse_user_capability_confirm(body.pop("agent_capability_confirm", None))
     )
+    workspace_ctx = body.pop("agent_workspace_context", None)
     try:
 
         messages = _inject_system_prompt(list(body.get("messages") or []))
+        messages = _inject_workspace_context(messages, workspace_ctx)
         pf = body.get("tool_prefetch")
         if isinstance(pf, dict):
             _apply_tool_prefetch(messages, pf)

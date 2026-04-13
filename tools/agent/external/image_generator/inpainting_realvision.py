@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 from typing import Any, Callable
 import json
 import os
@@ -6,6 +7,8 @@ import uuid
 import time
 import httpx
 import base64
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # --- METADATA ---
 __version__ = "1.0.0"
@@ -16,13 +19,13 @@ TOOL_DESCRIPTION = "Bearbeitet Bilder via Inpainting (Bild + Maske) mit RealVisi
 TOOL_DOMAIN = "image_editor"
 TOOL_CAPABILITIES = ("image.edit",)
 
-WORKFLOW_PATH = "/src/workflows/external/image_generator/inpainting_realvision.json"
+WORKFLOW_PATH = _REPO_ROOT / "image_generation" / "workflows" / "inpainting_realvision.json"
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188")
 COMFYUI_CLIENT_ID = str(uuid.uuid4())
 
 
 def _load_workflow() -> dict:
-    with open(WORKFLOW_PATH, "r") as f:
+    with open(WORKFLOW_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

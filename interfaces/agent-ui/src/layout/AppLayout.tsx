@@ -36,7 +36,7 @@ export function AppLayout() {
                 Chat
               </NavLink>
               <NavLink to="/studio" className={linkClass}>
-                Studio
+                Image generation
               </NavLink>
               <NavLink to="/workspace" className={linkClass}>
                 Workspace

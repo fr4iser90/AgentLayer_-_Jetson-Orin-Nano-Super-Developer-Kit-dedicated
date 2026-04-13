@@ -1,5 +1,5 @@
 /**
- * Subset JSON-schema form for Image Studio presets (string, integer, number, enum).
+ * Subset JSON-schema form for image generation presets (string, integer, number, enum).
  * File fields (format byte) use file → base64 (raw) for inpaint uploads.
  */
 

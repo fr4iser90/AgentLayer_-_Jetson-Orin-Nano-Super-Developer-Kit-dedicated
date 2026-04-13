@@ -39,6 +39,18 @@ function wsUrl(token: string): string {
   return `${proto}//${window.location.host}/ws/v1/chat?token=${encodeURIComponent(token)}`;
 }
 
+/** `?workspace=<uuid>` — validated; server re-checks access. */
+function parseWorkspaceQueryParam(raw: string | null): string | null {
+  if (!raw || !raw.trim()) return null;
+  const s = raw.trim();
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+  ) {
+    return null;
+  }
+  return s;
+}
+
 function assistantFromCompletion(data: unknown): string {
   if (!data || typeof data !== "object") return "";
   const d = data as {
@@ -95,6 +107,19 @@ export function ChatPage() {
   const { accessToken, user } = auth;
   const userId = user?.id ?? "";
   const [searchParams, setSearchParams] = useSearchParams();
+
+  const workspaceChatId = useMemo(
+    () => parseWorkspaceQueryParam(searchParams.get("workspace")),
+    [searchParams]
+  );
+  const [workspaceChatTitle, setWorkspaceChatTitle] = useState<string | null>(null);
+  const agentWorkspacePayload = useMemo(
+    () =>
+      workspaceChatId
+        ? { agent_workspace_context: { workspace_id: workspaceChatId } }
+        : ({} as Record<string, unknown>),
+    [workspaceChatId]
+  );
 
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -155,6 +180,28 @@ export function ChatPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!workspaceChatId || !accessToken) {
+      setWorkspaceChatTitle(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch(`/v1/workspaces/${workspaceChatId}`, auth);
+        const j = (await res.json()) as { workspace?: { title?: string } };
+        if (cancelled) return;
+        if (res.ok && j.workspace?.title) setWorkspaceChatTitle(j.workspace.title);
+        else setWorkspaceChatTitle(null);
+      } catch {
+        if (!cancelled) setWorkspaceChatTitle(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceChatId, accessToken, auth]);
 
   useEffect(() => {
     if (!accessToken || !userId || chatsLoadedRef.current) return;
@@ -347,6 +394,7 @@ export function ChatPage() {
           model: t.model,
           messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
           stream: false,
+          ...agentWorkspacePayload,
           ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
         }),
       });
@@ -374,7 +422,7 @@ export function ChatPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeThreadId, auth, draft, pendingAttachments, patchThread, threads]);
+  }, [accessToken, activeThreadId, agentWorkspacePayload, auth, draft, pendingAttachments, patchThread, threads]);
 
   const ensureAgentWs = useCallback((): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
@@ -522,6 +570,7 @@ export function ChatPage() {
           body: {
             model: t.model,
             messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
+            ...agentWorkspacePayload,
             ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
           },
         })
@@ -530,7 +579,18 @@ export function ChatPage() {
       setError(e instanceof Error ? e.message : String(e));
       setLoading(false);
     }
-  }, [accessToken, activeThreadId, appendAgentLine, draft, pendingAttachments, ensureAgentWs, patchThread, threads, auth]);
+  }, [
+    accessToken,
+    activeThreadId,
+    agentWorkspacePayload,
+    appendAgentLine,
+    draft,
+    pendingAttachments,
+    ensureAgentWs,
+    patchThread,
+    threads,
+    auth,
+  ]);
 
   const onSend = () => {
     if (mode === "chat") void runChatHttp();
@@ -758,9 +818,22 @@ export function ChatPage() {
             </select>
             <p className="mt-1 text-xs text-surface-muted">
               Titles from the first message. Open a shared chat: URL query <code className="text-neutral-500">?c=&lt;id&gt;</code>
+              . From Workspaces: <code className="text-neutral-500">?workspace=&lt;uuid&gt;</code> sends{" "}
+              <code className="text-neutral-500">agent_workspace_context</code> to the agent.
             </p>
           </div>
         </div>
+
+        {workspaceChatId ? (
+          <div className="shrink-0 border-b border-sky-900/40 bg-sky-950/25 px-6 py-2 text-sm text-sky-100/90">
+            <span className="font-medium text-sky-200">Workspace context</span>
+            {": "}
+            {workspaceChatTitle ?? workspaceChatId}
+            <span className="ml-2 text-xs text-sky-300/80">
+              (this workspace id is passed to the agent; say &quot;add milk&quot; for this list)
+            </span>
+          </div>
+        ) : null}
 
         {error ? (
           <div className="shrink-0 border-b border-red-900/50 bg-red-950/40 px-6 py-2 text-sm text-red-300">

@@ -28,6 +28,7 @@ DOMAIN_CATEGORY_FALLBACK: dict[str, str] = {
     "gmail": "productivity",
     "productivity": "productivity",
     "calendar": "productivity",
+    "shopping": "productivity",
     "todos": "productivity",
     "clocks": "productivity",
     "kb": "knowledge",

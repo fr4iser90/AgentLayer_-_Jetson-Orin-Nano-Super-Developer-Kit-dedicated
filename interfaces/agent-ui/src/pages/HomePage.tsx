@@ -29,9 +29,9 @@ export function HomePage() {
             to="/studio"
             className="block rounded-xl border border-surface-border bg-surface-raised px-5 py-4 text-white hover:bg-white/5"
           >
-            <span className="font-medium">Image Studio</span>
+            <span className="font-medium">Image generation</span>
             <span className="mt-1 block text-sm text-surface-muted">
-              ComfyUI presets from GET /v1/studio/catalog
+              ComfyUI presets — GET /v1/studio/catalog
             </span>
           </Link>
         </li>

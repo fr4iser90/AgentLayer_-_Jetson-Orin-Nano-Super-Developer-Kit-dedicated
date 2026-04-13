@@ -9,6 +9,7 @@ ICON_MAP: dict[str, str] = {
     "gmail": "mail",
     "todos": "list-checks",
     "calendar_ics": "calendar",
+    "shopping_list": "shopping-cart",
     "clock": "clock",
     "kb": "notebook-pen",
     "rag": "search",

@@ -21,6 +21,12 @@ PACKAGE_UI_DEFAULTS: dict[str, dict[str, Any]] = {
         "display_name": "Calendar",
         "order": 30,
     },
+    "shopping_list": {
+        "category": "productivity",
+        "display_name": "Shopping list",
+        "order": 25,
+        "tagline": "List, read, and add items on shopping_list workspaces",
+    },
     "clock": {
         "category": "productivity",
         "display_name": "Clock",
