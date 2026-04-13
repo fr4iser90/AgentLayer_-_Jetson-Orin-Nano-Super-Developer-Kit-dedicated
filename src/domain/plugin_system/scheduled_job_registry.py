@@ -1,6 +1,8 @@
 """
-Separate Workflow Registry for cron jobs only.
-100% separated from Tool Registry. No mix. No tool pollution.
+Registry for **scheduled (cron) jobs** — not agent tools, not ComfyUI graphs.
+
+Scans the same tool directories as the tool registry, but only loads modules that define
+``HANDLERS`` + ``RUN_EVERY_MINUTES``. Those run on an interval in ``src/infrastructure/cron.py``.
 """
 
 from __future__ import annotations
@@ -17,11 +19,11 @@ from src.domain.plugin_system.registry import _stable_module_slug, _iter_tool_py
 
 logger = logging.getLogger(__name__)
 
-WorkflowHandler = Callable[[dict[str, Any]], str]
+ScheduledJobHandler = Callable[[dict[str, Any]], str]
 
 
-class WorkflowRegistry:
-    """Scans ONLY for cron workflows, no tools. 100% separate."""
+class ScheduledJobRegistry:
+    """Collects periodic background jobs from Python modules (HANDLERS + RUN_EVERY_MINUTES)."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -41,7 +43,7 @@ class WorkflowRegistry:
                 for path in _iter_tool_py_files(directory):
                     try:
                         slug = _stable_module_slug(directory, path, dir_idx)
-                        mod_name = f"agent_workflow_{slug}"
+                        mod_name = f"agent_scheduled_job_{slug}"
                         spec = importlib.util.spec_from_file_location(mod_name, path)
                         if spec is None or spec.loader is None:
                             continue
@@ -62,15 +64,21 @@ class WorkflowRegistry:
                     run_on_start = getattr(mod, "RUN_ON_STARTUP", False)
                     handler_name = next(iter(handlers.keys()))
 
-                    self._jobs.append({
-                        'name': handler_name,
-                        'handler': handlers[handler_name],
-                        'interval_seconds': minutes * 60,
-                        'last_run': 0.0,
-                        'run_on_start': run_on_start
-                    })
+                    self._jobs.append(
+                        {
+                            "name": handler_name,
+                            "handler": handlers[handler_name],
+                            "interval_seconds": minutes * 60,
+                            "last_run": 0.0,
+                            "run_on_start": run_on_start,
+                        }
+                    )
 
-                    logger.info(f"Registered workflow cron job: {handler_name} every {minutes} minutes [WORKFLOW ONLY, NO TOOLS]")
+                    logger.info(
+                        "Registered scheduled job: %s every %s minutes (cron, not LLM tools)",
+                        handler_name,
+                        minutes,
+                    )
 
     @property
     def jobs(self) -> list[dict[str, Any]]:
@@ -78,14 +86,14 @@ class WorkflowRegistry:
             return list(self._jobs)
 
 
-_workflow_registry: WorkflowRegistry | None = None
-_workflow_registry_lock = threading.Lock()
+_scheduled_job_registry: ScheduledJobRegistry | None = None
+_scheduled_job_registry_lock = threading.Lock()
 
 
-def get_workflow_registry() -> WorkflowRegistry:
-    global _workflow_registry
-    with _workflow_registry_lock:
-        if _workflow_registry is None:
-            _workflow_registry = WorkflowRegistry()
-            _workflow_registry.load_all()
-        return _workflow_registry
+def get_scheduled_job_registry() -> ScheduledJobRegistry:
+    global _scheduled_job_registry
+    with _scheduled_job_registry_lock:
+        if _scheduled_job_registry is None:
+            _scheduled_job_registry = ScheduledJobRegistry()
+            _scheduled_job_registry.load_all()
+        return _scheduled_job_registry

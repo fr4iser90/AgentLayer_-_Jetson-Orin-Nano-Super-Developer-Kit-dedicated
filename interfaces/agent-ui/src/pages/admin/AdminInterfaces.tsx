@@ -3,7 +3,6 @@ import { useAuth } from "../../auth/AuthContext";
 import { apiFetch } from "../../lib/api";
 
 type InterfaceHints = {
-  optional_connection_key: string;
   discord_application_id: string;
   agent_mode?: "" | "sandbox" | "host";
   agent_mode_effective?: "sandbox" | "host";
@@ -15,6 +14,10 @@ type OperatorPublic = {
   discord_bot_token_configured?: boolean;
   discord_trigger_prefix?: string;
   discord_chat_model?: string;
+  workspace_upload_max_file_mb?: number | null;
+  workspace_upload_allowed_mime?: string;
+  workspace_upload_effective_max_bytes?: number;
+  workspace_upload_effective_allowed_mime?: string[];
   detail?: unknown;
 };
 
@@ -29,7 +32,6 @@ function detailMessage(data: unknown): string {
 
 export function AdminInterfaces() {
   const auth = useAuth();
-  const [optionalConnectionKey, setOptionalConnectionKey] = useState("");
   const [discordAppId, setDiscordAppId] = useState("");
   const [agentMode, setAgentMode] = useState<"env" | "sandbox" | "host">("env");
   const [agentModeEnv, setAgentModeEnv] = useState<string>("sandbox");
@@ -39,10 +41,12 @@ export function AdminInterfaces() {
   const [triggerPrefix, setTriggerPrefix] = useState("!agent ");
   const [chatModel, setChatModel] = useState("");
   const [discordToken, setDiscordToken] = useState("");
+  const [uploadMaxMb, setUploadMaxMb] = useState("");
+  const [uploadMime, setUploadMime] = useState("");
+  const [uploadEffBytes, setUploadEffBytes] = useState<number | null>(null);
+  const [uploadEffMime, setUploadEffMime] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [copyMsg, setCopyMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
   const baseUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/v1`;
 
   const load = useCallback(async () => {
@@ -59,7 +63,6 @@ export function AdminInterfaces() {
         return;
       }
       const row = iData as InterfaceHints;
-      setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
       const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
       setAgentMode(am);
@@ -76,6 +79,19 @@ export function AdminInterfaces() {
       setTokenConfigured(!!op.discord_bot_token_configured);
       setTriggerPrefix(op.discord_trigger_prefix || "!agent ");
       setChatModel(op.discord_chat_model ?? "");
+      const umb = op.workspace_upload_max_file_mb;
+      setUploadMaxMb(umb != null && Number.isFinite(Number(umb)) ? String(umb) : "");
+      setUploadMime((op.workspace_upload_allowed_mime ?? "").trim());
+      setUploadEffBytes(
+        typeof op.workspace_upload_effective_max_bytes === "number"
+          ? op.workspace_upload_effective_max_bytes
+          : null
+      );
+      setUploadEffMime(
+        Array.isArray(op.workspace_upload_effective_allowed_mime)
+          ? op.workspace_upload_effective_allowed_mime
+          : []
+      );
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -89,12 +105,10 @@ export function AdminInterfaces() {
 
   async function save() {
     setSaveMsg(null);
-    setCopyMsg(null);
     try {
       const putRes = await apiFetch("/v1/admin/interfaces", auth, {
         method: "PUT",
         body: JSON.stringify({
-          optional_connection_key: optionalConnectionKey,
           discord_application_id: discordAppId.trim(),
           agent_mode: agentMode === "env" ? "" : agentMode,
         }),
@@ -105,7 +119,6 @@ export function AdminInterfaces() {
         return;
       }
       const row = putData as InterfaceHints;
-      setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
       const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
       setAgentMode(am);
@@ -117,6 +130,22 @@ export function AdminInterfaces() {
         discord_trigger_prefix: triggerPrefix.trim() || "!agent ",
         discord_chat_model: chatModel.trim() || null,
       };
+      const mbStr = uploadMaxMb.trim();
+      if (mbStr === "") {
+        patch.workspace_upload_max_file_mb = null;
+      } else {
+        const n = Number(mbStr);
+        if (!Number.isFinite(n) || n < 1) {
+          setSaveMsg({
+            ok: false,
+            text: "Workspace upload: max file MB must be empty (use env) or an integer ≥ 1.",
+          });
+          return;
+        }
+        patch.workspace_upload_max_file_mb = Math.min(512, Math.floor(n));
+      }
+      const mimeStr = uploadMime.trim();
+      patch.workspace_upload_allowed_mime = mimeStr === "" ? null : mimeStr;
       if (discordToken.trim()) {
         patch.discord_bot_token = discordToken.trim();
       }
@@ -162,26 +191,12 @@ export function AdminInterfaces() {
     }
   }
 
-  async function copyKey() {
-    setCopyMsg(null);
-    if (!optionalConnectionKey) {
-      setCopyMsg({ ok: false, text: "Nothing to copy." });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(optionalConnectionKey);
-      setCopyMsg({ ok: true, text: "Copied." });
-    } catch {
-      setCopyMsg({ ok: false, text: "Copy failed — select and copy manually." });
-    }
-  }
-
   return (
     <div className="mx-auto max-w-xl px-6 py-10">
       <h1 className="text-2xl font-semibold text-white">Interfaces</h1>
       <p className="mt-2 text-sm text-surface-muted">
         Point OpenAI-compatible clients at <span className="font-mono text-neutral-300">{baseUrl}</span>
-        . Full rules:{" "}
+        ; use a JWT or user API key as Bearer. Full rules:{" "}
         <a href="/auth/policy" className="text-sky-400 hover:underline">
           GET /auth/policy
         </a>
@@ -223,37 +238,43 @@ export function AdminInterfaces() {
           </section>
 
           <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
-            <h2 className="text-sm font-medium text-white">External clients</h2>
+            <h2 className="text-sm font-medium text-white">Workspace uploads</h2>
             <p className="mt-2 text-xs text-surface-muted">
-              Optional connection key: if empty and you save, selected routes may work without an{" "}
-              <span className="font-mono">Authorization</span> header. If set, clients must send that
-              value as Bearer, or use a normal JWT / API key.
+              Globale Grenzen für Galerie-Uploads (JPEG/PNG/GIF/WebP). Leer = Umgebungsvariablen{" "}
+              <span className="font-mono text-neutral-400">AGENT_WORKSPACE_UPLOAD_MAX_MB</span> /{" "}
+              <span className="font-mono text-neutral-400">AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME</span>
+              .
             </p>
-            <label className="mt-4 block text-xs text-surface-muted" htmlFor="opt-key">
-              Optional connection key
-            </label>
-            <input
-              id="opt-key"
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={optionalConnectionKey}
-              onChange={(e) => setOptionalConnectionKey(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="rounded-md bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/15"
-                onClick={() => void copyKey()}
-              >
-                Copy
-              </button>
-            </div>
-            {copyMsg ? (
-              <p className={`mt-2 text-sm ${copyMsg.ok ? "text-emerald-400" : "text-red-400"}`}>
-                {copyMsg.text}
+            {uploadEffBytes != null ? (
+              <p className="mt-2 text-xs text-surface-muted">
+                Aktuell wirksam: max{" "}
+                <span className="font-mono text-neutral-300">{uploadEffBytes}</span> Bytes · MIME:{" "}
+                <span className="font-mono text-neutral-300">{uploadEffMime.join(", ") || "—"}</span>
               </p>
             ) : null}
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="wu-mb">
+              Max. Dateigröße (MB), leer = nur Env/Standard
+            </label>
+            <input
+              id="wu-mb"
+              type="number"
+              min={1}
+              max={512}
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={uploadMaxMb}
+              onChange={(e) => setUploadMaxMb(e.target.value)}
+              placeholder="z. B. 10"
+            />
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="wu-mime">
+              Erlaubte MIME-Typen (kommagetrennt), leer = nur Env/Standard
+            </label>
+            <input
+              id="wu-mime"
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={uploadMime}
+              onChange={(e) => setUploadMime(e.target.value)}
+              placeholder="image/jpeg,image/png,image/gif,image/webp"
+            />
           </section>
 
           <section className="mt-6 rounded-xl border border-surface-border bg-surface-raised p-5">

@@ -219,6 +219,25 @@ WORKSPACE_SEARCH_MAX_FILE_BYTES = _env_int("AGENT_WORKSPACE_SEARCH_MAX_FILE_BYTE
 WORKSPACE_MAX_GLOB_FILES = _env_int("AGENT_WORKSPACE_MAX_GLOB_FILES", 2000)
 WORKSPACE_MAX_READ_LINES = _env_int("AGENT_WORKSPACE_MAX_READ_LINES", 8000)
 
+# Workspace UI: binary uploads (e.g. gallery). Operator may override max MB / MIME in DB.
+WORKSPACE_UPLOAD_MAX_FILE_MB = max(1, min(_env_int("AGENT_WORKSPACE_UPLOAD_MAX_MB", 10), 512))
+
+
+def workspace_upload_dir() -> Path:
+    raw = (os.environ.get("AGENT_WORKSPACE_UPLOAD_DIR") or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path(DATA_DIR) / "workspace_uploads"
+
+
+def workspace_upload_env_allowed_mime() -> frozenset[str]:
+    raw = (
+        os.environ.get("AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME")
+        or "image/jpeg,image/png,image/gif,image/webp"
+    ).strip()
+    return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
 # create_tool limits / codegen (CREATE_TOOL_ENABLED is set above with TOOLS_EXTRA_DIR).
 CREATE_TOOL_MAX_BYTES = _env_int("AGENT_CREATE_TOOL_MAX_BYTES", 120_000)
 # When create_tool is called without ``source``, Ollama generates the module (same base URL as chat).

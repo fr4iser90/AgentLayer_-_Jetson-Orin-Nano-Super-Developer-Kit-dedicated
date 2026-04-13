@@ -11,7 +11,11 @@ export async function apiFetch(
   const url = path.startsWith("/") ? path : `/${path}`;
   const run = async (token: string | null) => {
     const headers = new Headers(init?.headers);
-    if (init?.body != null && !headers.has("Content-Type")) {
+    if (
+      init?.body != null &&
+      !(init.body instanceof FormData) &&
+      !headers.has("Content-Type")
+    ) {
       headers.set("Content-Type", "application/json");
     }
     if (token) {

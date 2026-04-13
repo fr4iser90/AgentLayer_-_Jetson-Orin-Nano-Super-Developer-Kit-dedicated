@@ -1,6 +1,7 @@
 """
-Simple background cron scheduler for workflow jobs.
-Automatically scans tools for RUN_EVERY_MINUTES and executes them periodically.
+Background cron scheduler for **scheduled jobs** (HANDLERS + RUN_EVERY_MINUTES in tool dirs).
+
+Not the same as: LLM tools, ComfyUI graphs, or future user-defined step workflows.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import time
 import logging
 from typing import Any
 
-from src.domain.plugin_system.workflow_registry import get_workflow_registry
+from src.domain.plugin_system.scheduled_job_registry import get_scheduled_job_registry
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def stop_cron_scheduler() -> None:
 
 def _cron_worker() -> None:
     logger.info("Cron scheduler started")
-    registry = get_workflow_registry()
+    registry = get_scheduled_job_registry()
     cron_jobs = registry.jobs
 
     if not cron_jobs:

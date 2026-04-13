@@ -1,7 +1,7 @@
 """
 WebSocket chat: full-duplex control + real-time agent events per LLM/tool round.
 
-Connect: ``GET /ws/v1/chat?token=<JWT_or_API_key>`` (or send ``Authorization: Bearer`` on handshake).
+Connect: ``GET /ws/v1/chat?token=<JWT_or_user_API_key>`` (or send ``Authorization: Bearer`` on handshake).
 
 Client → server JSON:
   - ``{"type":"ping"}`` → ``{"type":"pong"}``
@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import secrets
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -32,7 +31,6 @@ from src.domain.agent import AgentChatCancelled, chat_completion
 from src.domain.http_identity import resolve_chat_identity_ws
 from src.domain.identity import reset_identity, set_identity
 from src.infrastructure.auth import get_user_for_bearer_token
-from src.infrastructure.operator_settings import stored_optional_connection_key
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +46,9 @@ def _bearer_from_ws(websocket: WebSocket) -> str:
 
 
 def _ws_connection_authorized(websocket: WebSocket) -> bool:
-    """Require JWT/API key, or optional shared secret when configured (same idea as HTTP)."""
+    """Require JWT or user API key (same material as HTTP Bearer)."""
     bearer = _bearer_from_ws(websocket)
-    if get_user_for_bearer_token(bearer):
-        return True
-    expected = stored_optional_connection_key()
-    if expected is None:
-        return False
-    try:
-        return secrets.compare_digest(bearer, expected)
-    except (TypeError, ValueError):
-        return False
+    return bool(get_user_for_bearer_token(bearer))
 
 
 @router.websocket("/ws/v1/chat")

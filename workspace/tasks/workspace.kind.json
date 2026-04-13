@@ -2,6 +2,6 @@
   "kind": "todo",
   "label": "Task list",
   "description": "Checkbox tasks with optional due hints and a notes area — same pattern as shopping list.",
-  "template": "todo.template.json",
+  "template": "tasks.template.json",
   "schema_sql": "migrations/001_user_workspaces.sql"
 }

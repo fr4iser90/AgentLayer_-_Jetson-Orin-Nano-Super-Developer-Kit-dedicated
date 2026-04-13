@@ -5,13 +5,21 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from src.infrastructure.auth import get_current_user
+from src.core.config import config
+from src.infrastructure.auth import get_current_user, get_user_by_email
 from src.infrastructure.db import db
+from src.infrastructure.operator_settings import (
+    effective_workspace_upload_max_bytes,
+    effective_workspace_upload_mime,
+)
 from src.workspace import db as workspace_db
+from src.workspace import file_storage, files_db
 from src.workspace.bootstrap import ensure_workspace_schema, workspace_tables_exist
+from src.workspace.upload_bytes import normalized_content_type, sniff_image_mime
 
 router = APIRouter(prefix="/v1/workspaces", tags=["workspaces"])
 
@@ -35,6 +43,11 @@ class WorkspacePatchBody(BaseModel):
     title: str | None = Field(default=None, max_length=500)
     ui_layout: dict[str, Any] | None = None
     data: dict[str, Any] | None = None
+
+
+class WorkspaceMemberAddBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    role: str = Field(default="viewer", max_length=16)
 
 
 class WorkspaceInstallBody(BaseModel):
@@ -116,6 +129,130 @@ async def workspace_install_templates(request: Request, body: WorkspaceInstallBo
     return {"ok": True, "installed_template_kinds": merged}
 
 
+@router.get("/upload-limits")
+async def workspace_upload_limits(request: Request):
+    """Effective max size and MIME allowlist (env + operator DB overrides)."""
+    _require_schema()
+    await get_current_user(request)
+    return {
+        "ok": True,
+        "max_file_bytes": effective_workspace_upload_max_bytes(),
+        "allowed_mime": sorted(effective_workspace_upload_mime()),
+    }
+
+
+@router.get("/files/{file_id}/content")
+async def workspace_file_content(request: Request, file_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    meta = files_db.file_get_with_access(file_id, user.id, tid)
+    if not meta:
+        raise HTTPException(status_code=404, detail="file not found")
+    try:
+        data = file_storage.read_bytes(config.workspace_upload_dir(), meta["storage_relpath"])
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="file not found") from None
+    return Response(
+        content=data,
+        media_type=meta.get("content_type") or "application/octet-stream",
+    )
+
+
+@router.delete("/files/{file_id}")
+async def workspace_file_delete(request: Request, file_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    rel = files_db.file_delete_with_access(file_id, user.id, tid)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="file not found")
+    file_storage.unlink_if_exists(config.workspace_upload_dir(), rel)
+    return {"ok": True, "deleted": True}
+
+
+@router.post("/{workspace_id}/files")
+async def workspace_file_upload(
+    request: Request, workspace_id: uuid.UUID, file: UploadFile = File(...)
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    ws = workspace_db.workspace_get(user.id, tid, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    role = ws.get("access_role")
+    if role not in ("owner", "editor"):
+        raise HTTPException(status_code=403, detail="upload not allowed for this role")
+
+    max_b = effective_workspace_upload_max_bytes()
+    allowed = effective_workspace_upload_mime()
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        block = await file.read(1024 * 64)
+        if not block:
+            break
+        total += len(block)
+        if total > max_b:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file too large (max {max_b} bytes)",
+            )
+        chunks.append(block)
+    data = b"".join(chunks)
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    sniff = sniff_image_mime(data[:64])
+    declared = normalized_content_type(file.content_type)
+    if sniff is None or sniff not in allowed:
+        raise HTTPException(
+            status_code=415,
+            detail="unsupported or invalid image type",
+        )
+    if declared and declared not in allowed:
+        raise HTTPException(status_code=415, detail="content type not allowed")
+    if declared and declared != sniff:
+        raise HTTPException(
+            status_code=400,
+            detail=f"content type mismatch (declared {declared}, actual {sniff})",
+        )
+
+    fid = uuid.uuid4()
+    relpath = f"{tid}/{fid}"
+    name = (file.filename or "").strip()[:500]
+    try:
+        file_storage.write_bytes(config.workspace_upload_dir(), relpath, data)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"storage failed: {e!s}") from e
+
+    try:
+        row = files_db.file_insert(
+            tenant_id=tid,
+            owner_user_id=user.id,
+            workspace_id=workspace_id,
+            storage_relpath=relpath,
+            content_type=sniff,
+            size_bytes=len(data),
+            original_name=name,
+        )
+    except Exception:
+        file_storage.unlink_if_exists(config.workspace_upload_dir(), relpath)
+        raise
+
+    return {
+        "ok": True,
+        "file": {
+            "id": row["id"],
+            "workspace_id": row["workspace_id"],
+            "content_type": row["content_type"],
+            "size_bytes": row["size_bytes"],
+            "gallery_ref": f"wsfile:{row['id']}",
+        },
+    }
+
+
 @router.get("")
 async def list_workspaces(request: Request):
     from src.workspace.bundle import kind_catalog, kinds_with_schema_sql, kinds_with_templates
@@ -161,6 +298,57 @@ async def create_workspace(request: Request, body: WorkspaceCreateBody):
         data=body.data,
     )
     return {"ok": True, "workspace": row}
+
+
+@router.get("/{workspace_id}/members")
+async def list_workspace_members(request: Request, workspace_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    acc = workspace_db.workspace_access(user.id, tid, workspace_id)
+    if acc is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    if acc != "owner":
+        raise HTTPException(status_code=403, detail="only owner can list members")
+    items = workspace_db.members_list(user.id, tid, workspace_id)
+    return {"ok": True, "members": items}
+
+
+@router.post("/{workspace_id}/members")
+async def add_workspace_member(
+    request: Request, workspace_id: uuid.UUID, body: WorkspaceMemberAddBody
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if workspace_db.workspace_access(user.id, tid, workspace_id) != "owner":
+        raise HTTPException(status_code=403, detail="only owner can add members")
+    target = get_user_by_email(body.email.strip().lower())
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found for this email")
+    if db.user_tenant_id(target.id) != tid:
+        raise HTTPException(status_code=400, detail="user must be in the same tenant")
+    role = (body.role or "viewer").strip().lower()
+    if role not in ("viewer", "editor"):
+        raise HTTPException(status_code=400, detail="role must be viewer or editor")
+    ok = workspace_db.member_add(user.id, tid, workspace_id, target.id, role)
+    if not ok:
+        raise HTTPException(status_code=400, detail="could not add member")
+    return {"ok": True, "members": workspace_db.members_list(user.id, tid, workspace_id)}
+
+
+@router.delete("/{workspace_id}/members/{member_user_id}")
+async def remove_workspace_member(
+    request: Request, workspace_id: uuid.UUID, member_user_id: uuid.UUID
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if workspace_db.workspace_access(user.id, tid, workspace_id) != "owner":
+        raise HTTPException(status_code=403, detail="only owner can remove members")
+    if not workspace_db.member_remove(user.id, tid, workspace_id, member_user_id):
+        raise HTTPException(status_code=404, detail="member not found")
+    return {"ok": True, "removed": True}
 
 
 @router.get("/{workspace_id}")

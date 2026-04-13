@@ -39,10 +39,10 @@ export function AdminLayout() {
             Users
           </NavLink>
           <NavLink
-            to="/admin/workflows"
+            to="/admin/scheduled-jobs"
             className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
           >
-            Workflows
+            Scheduled jobs
           </NavLink>
         </nav>
         <NavLink

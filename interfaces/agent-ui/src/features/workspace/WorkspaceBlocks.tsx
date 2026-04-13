@@ -1,4 +1,7 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { ChangeEvent, Dispatch, SetStateAction } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../../auth/AuthContext";
+import { apiFetch } from "../../lib/api";
 import type { UiBlock, UiLayout } from "./types";
 
 function getPath(obj: Record<string, unknown>, path: string): unknown {
@@ -43,16 +46,305 @@ export function WorkspaceBlockTile(props: {
   block: UiBlock;
   data: Record<string, unknown>;
   setData: Dispatch<SetStateAction<Record<string, unknown>>>;
+  readOnly?: boolean;
+  workspaceId?: string | null;
 }) {
-  return <BlockView block={props.block} data={props.data} setData={props.setData} />;
+  return (
+    <BlockView
+      block={props.block}
+      data={props.data}
+      setData={props.setData}
+      readOnly={props.readOnly === true}
+      workspaceId={props.workspaceId ?? null}
+    />
+  );
+}
+
+const WS_FILE_PREFIX = "wsfile:";
+
+function GalleryImage(props: { url: string; alt: string }) {
+  const auth = useAuth();
+  const { url, alt } = props;
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const blobRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!url.startsWith(WS_FILE_PREFIX)) {
+      if (blobRef.current) {
+        URL.revokeObjectURL(blobRef.current);
+        blobRef.current = null;
+      }
+      setBlobUrl(null);
+      return;
+    }
+    const id = url.slice(WS_FILE_PREFIX.length).trim();
+    if (!id) {
+      if (blobRef.current) {
+        URL.revokeObjectURL(blobRef.current);
+        blobRef.current = null;
+      }
+      setBlobUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await apiFetch(`/v1/workspaces/files/${id}/content`, auth);
+      if (!res.ok || cancelled) return;
+      const b = await res.blob();
+      if (cancelled) return;
+      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+      const created = URL.createObjectURL(b);
+      blobRef.current = created;
+      setBlobUrl(created);
+    })();
+    return () => {
+      cancelled = true;
+      if (blobRef.current) {
+        URL.revokeObjectURL(blobRef.current);
+        blobRef.current = null;
+      }
+    };
+  }, [url, auth, auth.accessToken]);
+
+  if (url.startsWith(WS_FILE_PREFIX)) {
+    if (!blobUrl) {
+      return (
+        <div className="flex h-full items-center justify-center text-xs text-surface-muted">
+          Laden…
+        </div>
+      );
+    }
+    return <img src={blobUrl} alt={alt} className="h-full w-full object-cover" />;
+  }
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className="h-full w-full object-cover"
+      onError={(e) => {
+        (e.target as HTMLImageElement).style.display = "none";
+      }}
+    />
+  );
+}
+
+function GalleryBlockBody(props: {
+  dp: string;
+  data: Record<string, unknown>;
+  setData: Dispatch<SetStateAction<Record<string, unknown>>>;
+  sectionTitle: string;
+  workspaceId: string | null;
+  readOnly: boolean;
+}) {
+  const { dp, data, setData, sectionTitle, workspaceId, readOnly } = props;
+  const auth = useAuth();
+  const rowsUnknown = dp ? getPath(data, dp) : [];
+  const photos: Row[] = Array.isArray(rowsUnknown) ? (rowsUnknown as Row[]) : [];
+
+  const updatePhoto = (index: number, field: string, value: unknown) => {
+    setData((d) => {
+      const list = [...((getPath(d, dp) as Row[]) || [])];
+      const row = { ...(list[index] || {}) };
+      row[field] = value;
+      list[index] = row;
+      return setPath(d, dp, list);
+    });
+  };
+
+  const addPhoto = () => {
+    setData((d) => {
+      const list = [...((getPath(d, dp) as Row[]) || [])];
+      list.push({ id: newRowId(), url: "", caption: "" });
+      return setPath(d, dp, list);
+    });
+  };
+
+  const removePhoto = (index: number) => {
+    setData((d) => {
+      const list = [...((getPath(d, dp) as Row[]) || [])];
+      list.splice(index, 1);
+      return setPath(d, dp, list);
+    });
+  };
+
+  return (
+    <section className="rounded-xl border border-surface-border bg-surface-raised/60 p-4">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-white">{sectionTitle}</h3>
+        {!readOnly ? (
+          <button
+            type="button"
+            className="rounded-md bg-violet-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500"
+            onClick={addPhoto}
+          >
+            Foto +
+          </button>
+        ) : null}
+      </div>
+      {photos.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-white/15 py-10 text-center text-sm text-surface-muted">
+          {readOnly
+            ? "Noch keine Fotos in diesem Bereich."
+            : "Einträge hinzufügen — Bild hochladen (Workspace speichern) oder externe URL eintragen."}
+        </p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {photos.map((row, ri) => (
+            <GalleryPhotoCard
+              key={String(row.id ?? ri)}
+              ri={ri}
+              url={String(row.url ?? "").trim()}
+              caption={String(row.caption ?? "")}
+              workspaceId={workspaceId}
+              auth={auth}
+              readOnly={readOnly}
+              updatePhoto={updatePhoto}
+              removePhoto={removePhoto}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GalleryPhotoCard(props: {
+  ri: number;
+  url: string;
+  caption: string;
+  workspaceId: string | null;
+  auth: ReturnType<typeof useAuth>;
+  readOnly: boolean;
+  updatePhoto: (index: number, field: string, value: unknown) => void;
+  removePhoto: (index: number) => void;
+}) {
+  const { ri, url, caption, workspaceId, auth, readOnly, updatePhoto, removePhoto } = props;
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+
+  const onPickFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f || !workspaceId) {
+      if (!workspaceId) setUploadErr("Workspace speichern, dann Upload möglich.");
+      return;
+    }
+    setUploading(true);
+    setUploadErr(null);
+    const fd = new FormData();
+    fd.append("file", f);
+    void (async () => {
+      try {
+        const res = await apiFetch(`/v1/workspaces/${workspaceId}/files`, auth, {
+          method: "POST",
+          body: fd,
+        });
+        const raw = await res.text();
+        let j: { file?: { gallery_ref?: string }; detail?: unknown } = {};
+        try {
+          j = JSON.parse(raw) as typeof j;
+        } catch {
+          j = {};
+        }
+        if (!res.ok) {
+          const msg =
+            typeof j.detail === "string"
+              ? j.detail
+              : `Upload fehlgeschlagen (${res.status})`;
+          setUploadErr(msg);
+          return;
+        }
+        const ref = j.file?.gallery_ref;
+        if (ref) updatePhoto(ri, "url", ref);
+      } catch (err) {
+        setUploadErr(err instanceof Error ? err.message : String(err));
+      } finally {
+        setUploading(false);
+      }
+    })();
+  };
+
+  if (readOnly) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-surface-border bg-black/25 shadow-sm">
+        <div className="aspect-video bg-gradient-to-br from-white/5 to-black/40">
+          {url ? (
+            <GalleryImage url={url} alt={caption} />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-surface-muted">
+              Kein Bild
+            </div>
+          )}
+        </div>
+        {caption ? (
+          <p className="border-t border-white/5 p-3 text-xs text-neutral-200">{caption}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-surface-border bg-black/25 shadow-sm">
+      <div className="aspect-video bg-gradient-to-br from-white/5 to-black/40">
+        {url ? (
+          <GalleryImage url={url} alt={caption} />
+        ) : (
+          <div className="flex h-full items-center justify-center text-xs text-surface-muted">
+            URL oder Upload
+          </div>
+        )}
+      </div>
+      <div className="space-y-2 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="workspace-grid-no-drag cursor-pointer rounded-md bg-white/10 px-2 py-1 text-xs text-white hover:bg-white/15">
+            {uploading ? "…" : "Hochladen"}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              disabled={uploading || !workspaceId}
+              onChange={onPickFile}
+            />
+          </label>
+          {!workspaceId ? (
+            <span className="text-[10px] text-amber-200/90">Speichern für Upload</span>
+          ) : null}
+        </div>
+        {uploadErr ? <p className="text-[10px] text-red-400">{uploadErr}</p> : null}
+        <input
+          type="url"
+          placeholder="https://… oder wsfile:…"
+          className="w-full rounded-md border border-surface-border bg-black/40 px-2 py-1.5 text-xs text-neutral-100 placeholder:text-white/25"
+          value={url}
+          onChange={(e) => updatePhoto(ri, "url", e.target.value)}
+        />
+        <input
+          type="text"
+          placeholder="Beschriftung"
+          className="w-full rounded-md border border-surface-border bg-black/40 px-2 py-1.5 text-xs text-neutral-100"
+          value={caption}
+          onChange={(e) => updatePhoto(ri, "caption", e.target.value)}
+        />
+        <button
+          type="button"
+          className="w-full rounded-md py-1 text-xs text-red-400 hover:bg-red-950/30"
+          onClick={() => removePhoto(ri)}
+        >
+          Entfernen
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function BlockView(props: {
   block: UiBlock;
   data: Record<string, unknown>;
   setData: Dispatch<SetStateAction<Record<string, unknown>>>;
+  workspaceId: string | null;
+  readOnly: boolean;
 }) {
-  const { block, data, setData } = props;
+  const { block, data, setData, workspaceId, readOnly } = props;
   const dp = block.props.dataPath || "";
 
   if (block.type === "markdown") {
@@ -64,7 +356,8 @@ function BlockView(props: {
           {block.props.placeholder || dp || "Text"}
         </label>
         <textarea
-          className="min-h-[120px] w-full resize-y rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-500/50"
+          readOnly={readOnly}
+          className="min-h-[120px] w-full resize-y rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-500/50 read-only:cursor-default read-only:opacity-90"
           value={text}
           placeholder={block.props.placeholder || ""}
           onChange={(e) =>
@@ -76,108 +369,15 @@ function BlockView(props: {
   }
 
   if (block.type === "gallery") {
-    const rowsUnknown = dp ? getPath(data, dp) : [];
-    const photos: Row[] = Array.isArray(rowsUnknown)
-      ? (rowsUnknown as Row[])
-      : [];
-    const sectionTitle = block.props.title || "Fotos";
-
-    const updatePhoto = (index: number, field: string, value: unknown) => {
-      setData((d) => {
-        const list = [...((getPath(d, dp) as Row[]) || [])];
-        const row = { ...(list[index] || {}) };
-        row[field] = value;
-        list[index] = row;
-        return setPath(d, dp, list);
-      });
-    };
-
-    const addPhoto = () => {
-      setData((d) => {
-        const list = [...((getPath(d, dp) as Row[]) || [])];
-        list.push({ id: newRowId(), url: "", caption: "" });
-        return setPath(d, dp, list);
-      });
-    };
-
-    const removePhoto = (index: number) => {
-      setData((d) => {
-        const list = [...((getPath(d, dp) as Row[]) || [])];
-        list.splice(index, 1);
-        return setPath(d, dp, list);
-      });
-    };
-
     return (
-      <section className="rounded-xl border border-surface-border bg-surface-raised/60 p-4">
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-white">{sectionTitle}</h3>
-          <button
-            type="button"
-            className="rounded-md bg-violet-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500"
-            onClick={addPhoto}
-          >
-            Foto +
-          </button>
-        </div>
-        {photos.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-white/15 py-10 text-center text-sm text-surface-muted">
-            Noch keine Einträge — Bild-URL und optional Beschriftung hinzufügen.
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {photos.map((row, ri) => {
-              const url = String(row.url ?? "").trim();
-              return (
-                <div
-                  key={String(row.id ?? ri)}
-                  className="overflow-hidden rounded-xl border border-surface-border bg-black/25 shadow-sm"
-                >
-                  <div className="aspect-video bg-gradient-to-br from-white/5 to-black/40">
-                    {url ? (
-                      <img
-                        src={url}
-                        alt={String(row.caption ?? "")}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-surface-muted">
-                        URL eintragen
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-y-2 p-3">
-                    <input
-                      type="url"
-                      placeholder="https://…"
-                      className="w-full rounded-md border border-surface-border bg-black/40 px-2 py-1.5 text-xs text-neutral-100 placeholder:text-white/25"
-                      value={url}
-                      onChange={(e) => updatePhoto(ri, "url", e.target.value)}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Beschriftung"
-                      className="w-full rounded-md border border-surface-border bg-black/40 px-2 py-1.5 text-xs text-neutral-100"
-                      value={String(row.caption ?? "")}
-                      onChange={(e) => updatePhoto(ri, "caption", e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="w-full rounded-md py-1 text-xs text-red-400 hover:bg-red-950/30"
-                      onClick={() => removePhoto(ri)}
-                    >
-                      Entfernen
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      <GalleryBlockBody
+        dp={dp}
+        data={data}
+        setData={setData}
+        sectionTitle={block.props.title || "Fotos"}
+        workspaceId={workspaceId}
+        readOnly={readOnly}
+      />
     );
   }
 
@@ -227,13 +427,15 @@ function BlockView(props: {
           <span className="text-xs font-medium uppercase tracking-wide text-surface-muted">
             Tabelle ({dp})
           </span>
-          <button
-            type="button"
-            className="rounded-md bg-sky-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
-            onClick={addRow}
-          >
-            Zeile +
-          </button>
+          {!readOnly ? (
+            <button
+              type="button"
+              className="rounded-md bg-sky-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={addRow}
+            >
+              Zeile +
+            </button>
+          ) : null}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-left text-sm">
@@ -244,17 +446,17 @@ function BlockView(props: {
                     {c.label || c.field}
                   </th>
                 ))}
-                <th className="w-10 px-2 py-2" />
+                {!readOnly ? <th className="w-10 px-2 py-2" /> : null}
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={cols.length + 1}
+                    colSpan={cols.length + (readOnly ? 0 : 1)}
                     className="px-2 py-6 text-center text-surface-muted"
                   >
-                    Noch keine Zeilen — „Zeile +“.
+                    {readOnly ? "Noch keine Einträge." : "Noch keine Zeilen — „Zeile +“."}
                   </td>
                 </tr>
               ) : (
@@ -265,20 +467,23 @@ function BlockView(props: {
                         <CellInput
                           col={c}
                           value={row[c.field]}
+                          readOnly={readOnly}
                           onChange={(v) => updateRow(ri, c.field, v)}
                         />
                       </td>
                     ))}
-                    <td className="px-1">
-                      <button
-                        type="button"
-                        className="rounded p-1 text-xs text-red-400 hover:bg-white/5"
-                        onClick={() => removeRow(ri)}
-                        title="Zeile löschen"
-                      >
-                        ✕
-                      </button>
-                    </td>
+                    {!readOnly ? (
+                      <td className="px-1">
+                        <button
+                          type="button"
+                          className="rounded p-1 text-xs text-red-400 hover:bg-white/5"
+                          onClick={() => removeRow(ri)}
+                          title="Zeile löschen"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    ) : null}
                   </tr>
                 ))
               )}
@@ -299,14 +504,16 @@ function BlockView(props: {
 function CellInput(props: {
   col: { field: string; kind: string; options?: string[] };
   value: unknown;
+  readOnly?: boolean;
   onChange: (v: unknown) => void;
 }) {
-  const { col, value, onChange } = props;
+  const { col, value, readOnly = false, onChange } = props;
   if (col.kind === "checkbox") {
     return (
       <input
         type="checkbox"
-        className="h-4 w-4 rounded border-surface-border"
+        disabled={readOnly}
+        className="h-4 w-4 rounded border-surface-border disabled:cursor-not-allowed disabled:opacity-60"
         checked={Boolean(value)}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -316,7 +523,8 @@ function CellInput(props: {
     return (
       <input
         type="number"
-        className="w-full min-w-[4rem] rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100"
+        readOnly={readOnly}
+        className="w-full min-w-[4rem] rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100 read-only:cursor-default read-only:opacity-90"
         value={typeof value === "number" ? value : Number(value) || 0}
         onChange={(e) => onChange(Number(e.target.value))}
       />
@@ -325,7 +533,8 @@ function CellInput(props: {
   if (col.kind === "select" && col.options?.length) {
     return (
       <select
-        className="w-full rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100"
+        disabled={readOnly}
+        className="w-full rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -340,7 +549,8 @@ function CellInput(props: {
   return (
     <input
       type="text"
-      className="w-full rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100"
+      readOnly={readOnly}
+      className="w-full rounded border border-surface-border bg-black/30 px-2 py-1 text-neutral-100 read-only:cursor-default read-only:opacity-90"
       value={value == null ? "" : String(value)}
       onChange={(e) => onChange(e.target.value)}
     />

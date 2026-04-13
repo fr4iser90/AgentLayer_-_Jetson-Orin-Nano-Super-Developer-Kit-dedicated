@@ -1,0 +1,50 @@
+{
+  "kind": "pets",
+  "description": "Haustier-Steckbrief mit Gesundheits- und Termin-Feldern.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "pets-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 10 },
+        "props": {
+          "dataPath": "pets",
+          "columns": [
+            { "field": "name", "kind": "text", "label": "Name" },
+            { "field": "species", "kind": "text", "label": "Art / Rasse" },
+            { "field": "birthday", "kind": "text", "label": "Geburtstag (YYYY-MM-DD)" },
+            {
+              "field": "vaccinations",
+              "kind": "text",
+              "label": "Impfungen (letzte / nächste)"
+            },
+            {
+              "field": "deworming",
+              "kind": "text",
+              "label": "Entwurmung (letzte / nächste)"
+            },
+            {
+              "field": "vet",
+              "kind": "text",
+              "label": "Tierarzt / Sonstiges"
+            }
+          ]
+        }
+      },
+      {
+        "id": "pets-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 10, "w": 12, "h": 4 },
+        "props": {
+          "dataPath": "notes",
+          "placeholder": "Notizen zu Futter, Medikamenten, Verhalten…"
+        }
+      }
+    ]
+  },
+  "initial_data": {
+    "pets": [],
+    "notes": ""
+  }
+}

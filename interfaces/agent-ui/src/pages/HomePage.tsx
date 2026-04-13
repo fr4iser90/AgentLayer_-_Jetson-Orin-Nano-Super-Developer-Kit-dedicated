@@ -42,7 +42,7 @@ export function HomePage() {
           >
             <span className="font-medium">Workspace</span>
             <span className="mt-1 block text-sm text-surface-muted">
-              Projects (ui_layout + data)
+              Mehrere Arten (u. a. Aufgaben, Freunde, Haustiere) — Schema einmal installieren, dann anlegen
             </span>
           </Link>
         </li>

@@ -47,9 +47,8 @@ from src.infrastructure.operator_settings import (
     public_dict as operator_settings_public,
 )
 from src.api.optional_http_access import (
-    is_optional_connection_route,
+    is_identity_deferred_route,
     middleware_path_is_public,
-    optional_connection_allows,
     public_http_auth_policy,
 )
 from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed
@@ -339,7 +338,7 @@ async def admin_create_user(request: Request, body: AdminCreateUserBody):
 
 @app.get("/auth/policy")
 def http_auth_policy():
-    """Public JSON: path classes, optional connection key behavior, admin routes."""
+    """Public JSON: path classes, middleware auth behavior, admin routes."""
     return public_http_auth_policy()
 
 
@@ -368,6 +367,7 @@ if _agent_index.is_file():
     @app.get("/app/admin/interfaces")
     @app.get("/app/admin/tools")
     @app.get("/app/admin/users")
+    @app.get("/app/admin/scheduled-jobs")
     @app.get("/app/admin/workflows")
     async def agent_ui_spa_shell():
         """Serve SPA index for client-side routes (must register before mount /app)."""
@@ -405,11 +405,9 @@ async def auth_middleware(request: Request, call_next):
     if middleware_path_is_public(path, request.method):
         return await call_next(request)
 
-    # Selected routes: optional operator connection key or JWT/API key
-    if is_optional_connection_route(path, request.method):
-        if await optional_connection_allows(request):
-            return await call_next(request)
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    # Handlers resolve Bearer (JWT / API key) themselves; see public_http_auth_policy
+    if is_identity_deferred_route(path, request.method):
+        return await call_next(request)
 
     # All other endpoints require valid auth
     try:

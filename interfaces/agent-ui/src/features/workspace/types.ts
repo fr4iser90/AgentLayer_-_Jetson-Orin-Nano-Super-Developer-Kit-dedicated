@@ -38,9 +38,18 @@ export interface WorkspaceSummary {
   title: string;
   updated_at: string;
   created_at: string;
+  /** owner | editor | viewer — absent on older APIs (treat as owner) */
+  access_role?: string;
 }
 
 export interface WorkspaceDetail extends WorkspaceSummary {
   ui_layout: UiLayout | Record<string, unknown>;
   data: Record<string, unknown>;
+}
+
+export interface WorkspaceMemberRow {
+  user_id: string;
+  email: string;
+  role: string;
+  created_at: string | null;
 }

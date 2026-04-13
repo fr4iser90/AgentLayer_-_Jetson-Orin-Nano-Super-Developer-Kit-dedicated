@@ -284,6 +284,8 @@ CREATE TABLE operator_settings (
   discord_bot_agent_bearer TEXT,
   discord_trigger_prefix TEXT NOT NULL DEFAULT '!agent ',
   discord_chat_model TEXT,
+  workspace_upload_max_file_mb INTEGER,
+  workspace_upload_allowed_mime TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -311,6 +313,35 @@ COMMENT ON COLUMN operator_tool_policies.allowed_tenant_ids IS
 
 COMMENT ON COLUMN operator_settings.agent_mode IS
   'sandbox | host; NULL = use AGENT_MODE from environment.';
+COMMENT ON COLUMN operator_settings.workspace_upload_max_file_mb IS
+  'Max upload size per file (MB); NULL = use AGENT_WORKSPACE_UPLOAD_MAX_MB.';
+COMMENT ON COLUMN operator_settings.workspace_upload_allowed_mime IS
+  'Comma-separated MIME allowlist; NULL = use AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME.';
+
+CREATE TABLE workspace_files (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id UUID NOT NULL,
+  storage_relpath TEXT NOT NULL UNIQUE,
+  content_type TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  original_name TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_workspace_files_owner ON workspace_files (owner_user_id, created_at DESC);
+CREATE INDEX idx_workspace_files_workspace ON workspace_files (workspace_id);
+
+CREATE TABLE workspace_members (
+  workspace_id UUID NOT NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, user_id)
+);
+
+CREATE INDEX idx_workspace_members_user ON workspace_members (user_id);
 
 -- Server-side chat threads (first-party UI sync; per user, per tenant).
 

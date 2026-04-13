@@ -100,8 +100,11 @@ export function WorkspaceGridCanvas(props: {
   data: Record<string, unknown>;
   setData: Dispatch<SetStateAction<Record<string, unknown>>>;
   editMode: boolean;
+  /** When true, table/markdown/gallery cells are not editable (layout may still use editMode for owner/editor). */
+  contentReadOnly?: boolean;
+  workspaceId?: string | null;
 }) {
-  const { layout, setLayout, data, setData, editMode } = props;
+  const { layout, setLayout, data, setData, editMode, contentReadOnly = false, workspaceId } = props;
   const { width, containerRef, mounted } = useContainerWidth();
 
   const rglLayout = useMemo(
@@ -254,7 +257,13 @@ export function WorkspaceGridCanvas(props: {
                     </div>
                   ) : null}
                   <div className="min-h-0 flex-1 p-2">
-                    <WorkspaceBlockTile block={b} data={data} setData={setData} />
+                    <WorkspaceBlockTile
+                      block={b}
+                      data={data}
+                      setData={setData}
+                      readOnly={contentReadOnly}
+                      workspaceId={workspaceId ?? null}
+                    />
                   </div>
                 </div>
               </div>

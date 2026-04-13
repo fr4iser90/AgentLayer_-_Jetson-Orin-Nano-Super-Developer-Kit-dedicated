@@ -1,20 +1,14 @@
 """
-Optional operator-configured value for selected public-style HTTP routes.
+HTTP auth middleware helpers: fully public paths vs routes that defer Bearer checks.
 
-Any client that speaks OpenAI-compatible HTTP (or calls these paths) may use the same
-``optional_connection_key``: send ``Authorization: Bearer <value>`` when the key is set.
-Not tied to a single product name (Web UI, bots, scripts, etc.).
+Some API routes skip the global ``get_current_user`` middleware gate; each handler
+still enforces JWT / user API key (or anonymous catalog where explicitly supported)
+via ``http_identity``.
 """
 
 from __future__ import annotations
 
-import secrets
 from typing import Any
-
-from fastapi import HTTPException, Request
-
-from src.infrastructure.auth import get_current_user
-from src.infrastructure.operator_settings import stored_optional_connection_key
 
 _MIDDLEWARE_PUBLIC_EXACT: frozenset[str] = frozenset(
     {
@@ -47,8 +41,8 @@ def middleware_path_is_public(path: str, method: str) -> bool:
     return False
 
 
-def is_optional_connection_route(path: str, method: str) -> bool:
-    """Routes that honor ``optional_connection_key`` when set (see operator_settings)."""
+def is_identity_deferred_route(path: str, method: str) -> bool:
+    """Routes that skip global JWT middleware; handlers resolve Bearer themselves."""
     m = (method or "").upper()
     if m == "POST" and path == "/v1/chat/completions":
         return True
@@ -75,35 +69,13 @@ def is_optional_connection_route(path: str, method: str) -> bool:
     return False
 
 
-async def optional_connection_allows(request: Request) -> bool:
-    """
-    No key configured → allow without Authorization.
-    Key configured → require matching Bearer value, or valid JWT / API key.
-    """
-    expected = stored_optional_connection_key()
-    auth = request.headers.get("authorization") or ""
-    token = auth.removeprefix("Bearer ").strip()
-    if expected is None:
-        return True
-    if not token:
-        return False
-    try:
-        if secrets.compare_digest(token, expected):
-            return True
-    except (TypeError, ValueError):
-        pass
-    try:
-        await get_current_user(request)
-        return True
-    except HTTPException:
-        return False
-
-
 def public_http_auth_policy() -> dict[str, Any]:
     """Machine-readable policy for ``GET /auth/policy``."""
-    configured = stored_optional_connection_key() is not None
     return {
-        "description": "Middleware order: public paths → optional connection routes → JWT/API key.",
+        "description": (
+            "Middleware order: public paths → identity-deferred routes (no global JWT) → "
+            "JWT/API key for all other routes."
+        ),
         "middleware": {
             "options_preflight": "OPTIONS passes without Authorization.",
             "no_authorization": {
@@ -111,19 +83,18 @@ def public_http_auth_policy() -> dict[str, Any]:
                 "path_prefixes": ["/js/", "/app/"],
                 "post_path": "/v1/user/secrets/register-with-otp",
             },
-            "optional_connection_key": {
-                "operator_settings_column": "optional_connection_key",
-                "configured": configured,
-                "when_not_configured": "Listed routes accept requests without Authorization.",
-                "when_configured": (
-                    "Same routes require Authorization: Bearer matching the stored value, "
-                    "or a valid JWT / API key."
+            "identity_deferred_routes": {
+                "note": (
+                    "These skip the global middleware Bearer check; each handler requires "
+                    "JWT or user API key where applicable (e.g. chat), or serves anonymous "
+                    "data where documented (e.g. tool catalog)."
                 ),
                 "routes": [
                     {"method": "WebSocket", "path": "/ws/v1/chat"},
                     {"method": "POST", "path": "/v1/chat/completions"},
                     {"method": "POST", "path": "/tools/run"},
                     {"method": "GET", "path": "/v1/tools"},
+                    {"method": "GET", "path": "/v1/capabilities"},
                     {"method": "GET", "path": "/v1/router/categories"},
                     {"method": "GET", "path": "/v1/studio/catalog"},
                     {"method": "GET", "path": "/v1/studio/comfy/checkpoints"},
@@ -146,7 +117,7 @@ def public_http_auth_policy() -> dict[str, Any]:
         ],
         "note_admin": "Bearer must resolve to a user with role=admin; then require_admin().",
         "note_identity": (
-            "User/tenant for chat, tools, RAG, user APIs: JWT or API key only; tenant = users.tenant_id. "
-            "Optional connection Bearer maps to AGENT_OPTIONAL_KEY_USER_ID. Identity headers are not used."
+            "User/tenant for chat, tools, RAG, user APIs: JWT or API key only; "
+            "tenant = users.tenant_id. Identity headers are not used."
         ),
     }

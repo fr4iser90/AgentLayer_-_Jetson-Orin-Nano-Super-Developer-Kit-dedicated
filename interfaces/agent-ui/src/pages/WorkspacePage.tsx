@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
 import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
-import type { UiLayout, WorkspaceDetail, WorkspaceSummary } from "../features/workspace/types";
+import type {
+  UiLayout,
+  WorkspaceDetail,
+  WorkspaceMemberRow,
+  WorkspaceSummary,
+} from "../features/workspace/types";
 
 function asUiLayout(raw: unknown): UiLayout | null {
   if (!raw || typeof raw !== "object") return null;
@@ -87,7 +92,7 @@ function relativeActivityEn(iso: string): string {
   return `${d}d ago`;
 }
 
-type HubPanel = "home" | "marketplace";
+type HubPanel = "home" | "catalog";
 
 export function WorkspacePage() {
   const auth = useAuth();
@@ -100,7 +105,7 @@ export function WorkspacePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hubPanel, setHubPanel] = useState<HubPanel>("home");
   const [newWsModalOpen, setNewWsModalOpen] = useState(false);
-  const [marketplaceQuery, setMarketplaceQuery] = useState("");
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [detail, setDetail] = useState<WorkspaceDetail | null>(null);
   const [data, setData] = useState<Record<string, unknown>>({});
   const [title, setTitle] = useState("");
@@ -109,6 +114,16 @@ export function WorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [layoutEditMode, setLayoutEditMode] = useState(false);
   const [layoutDraft, setLayoutDraft] = useState<UiLayout>({ version: 1, blocks: [] });
+  const [members, setMembers] = useState<WorkspaceMemberRow[]>([]);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberRole, setMemberRole] = useState<"viewer" | "editor">("viewer");
+  const [membersBusy, setMembersBusy] = useState(false);
+  const [membersErr, setMembersErr] = useState<string | null>(null);
+
+  const accessRole = detail?.access_role ?? "owner";
+  const isViewer = accessRole === "viewer";
+  const isOwner = accessRole === "owner";
+  const canEditContent = !isViewer;
 
   const uiLayout = useMemo(() => asUiLayout(detail?.ui_layout), [detail]);
   const gridLayout = useMemo(
@@ -271,14 +286,42 @@ export function WorkspacePage() {
     setLayoutDraft(ul ?? { version: 1, blocks: [] });
   }, [detail, layoutEditMode]);
 
+  useEffect(() => {
+    if (detail?.access_role === "viewer") setLayoutEditMode(false);
+  }, [detail?.access_role]);
+
+  useEffect(() => {
+    if (!selectedId || detail?.access_role !== "owner") {
+      setMembers([]);
+      setMembersErr(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/members`, auth);
+      if (!res.ok) {
+        if (!cancelled) setMembersErr(await res.text());
+        return;
+      }
+      const j = (await res.json()) as { members?: WorkspaceMemberRow[] };
+      if (!cancelled) {
+        setMembersErr(null);
+        setMembers(j.members ?? []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, detail?.access_role, auth]);
+
   const recentActivity = useMemo(() => {
     return [...list]
       .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
       .slice(0, 5);
   }, [list]);
 
-  const marketplaceRows = useMemo(() => {
-    const q = marketplaceQuery.trim().toLowerCase();
+  const catalogRows = useMemo(() => {
+    const q = catalogQuery.trim().toLowerCase();
     return installableCatalog.filter((r) => {
       if (!q) return true;
       return (
@@ -287,10 +330,57 @@ export function WorkspacePage() {
         r.description.toLowerCase().includes(q)
       );
     });
-  }, [installableCatalog, marketplaceQuery]);
+  }, [installableCatalog, catalogQuery]);
+
+  const addWorkspaceMember = async () => {
+    if (!selectedId || !memberEmail.trim()) return;
+    setMembersBusy(true);
+    setMembersErr(null);
+    try {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/members`, auth, {
+        method: "POST",
+        body: JSON.stringify({ email: memberEmail.trim().toLowerCase(), role: memberRole }),
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        setMembersErr(raw);
+        return;
+      }
+      let j: { members?: WorkspaceMemberRow[] } = {};
+      try {
+        j = JSON.parse(raw) as { members?: WorkspaceMemberRow[] };
+      } catch {
+        j = {};
+      }
+      setMembers(j.members ?? []);
+      setMemberEmail("");
+    } catch (e) {
+      setMembersErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMembersBusy(false);
+    }
+  };
+
+  const removeWorkspaceMember = async (userId: string) => {
+    if (!selectedId) return;
+    setMembersBusy(true);
+    setMembersErr(null);
+    try {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/members/${userId}`, auth, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setMembersErr(await res.text());
+        return;
+      }
+      setMembers((prev) => prev.filter((m) => m.user_id !== userId));
+    } finally {
+      setMembersBusy(false);
+    }
+  };
 
   const save = async () => {
-    if (!selectedId || !detail) return;
+    if (!selectedId || !detail || !canEditContent) return;
     setSaving(true);
     setError(null);
     try {
@@ -366,7 +456,7 @@ export function WorkspacePage() {
   };
 
   const removeWs = async () => {
-    if (!selectedId) return;
+    if (!selectedId || !isOwner) return;
     if (!window.confirm("Delete this workspace?")) return;
     const res = await apiFetch(`/v1/workspaces/${selectedId}`, auth, {
       method: "DELETE",
@@ -382,6 +472,8 @@ export function WorkspacePage() {
   const deleteWsEntry = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const row = list.find((x) => x.id === id);
+    if ((row?.access_role ?? "owner") !== "owner") return;
     if (!window.confirm("Delete this workspace?")) return;
     setError(null);
     const res = await apiFetch(`/v1/workspaces/${id}`, auth, { method: "DELETE" });
@@ -393,9 +485,9 @@ export function WorkspacePage() {
     await loadList();
   };
 
-  const openMarketplace = () => {
+  const openCatalog = () => {
     setSelectedId(null);
-    setHubPanel("marketplace");
+    setHubPanel("catalog");
   };
 
   const selectWorkspace = (id: string) => {
@@ -403,7 +495,7 @@ export function WorkspacePage() {
     setHubPanel("home");
   };
 
-  const confirmInstallMarketRow = (row: KindCatalogRow) => {
+  const confirmInstallCatalogRow = (row: KindCatalogRow) => {
     if (!row.has_schema) return;
     setInstallModalRow(row);
   };
@@ -418,7 +510,7 @@ export function WorkspacePage() {
     return (
       <div className="h-full min-h-0 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-6 py-10">
-          <h1 className="text-xl font-semibold text-white">Marketplace</h1>
+          <h1 className="text-xl font-semibold text-white">Catalog</h1>
           <p className="mt-1 text-sm text-surface-muted">
             Install packs to enable storage. Nothing is created until you add workspaces afterward.
           </p>
@@ -431,7 +523,7 @@ export function WorkspacePage() {
                 <li key={row.kind}>
                   <button
                     type="button"
-                    onClick={() => confirmInstallMarketRow(row)}
+                    onClick={() => confirmInstallCatalogRow(row)}
                     className="flex h-full min-h-[148px] w-full flex-col rounded-xl border border-surface-border bg-surface-raised p-5 text-left transition hover:border-sky-500/35 hover:bg-white/[0.03]"
                   >
                     <span className="text-base font-medium text-white">{row.label}</span>
@@ -519,7 +611,9 @@ export function WorkspacePage() {
     <aside className="flex w-full shrink-0 flex-col border-surface-border bg-surface-raised/40 md:w-56 md:border-r">
       <div className="border-b border-surface-border p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">Workspaces</p>
-        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">My areas</p>
+        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+          Yours &amp; shared
+        </p>
         <div className="mt-1 max-h-48 min-h-0 overflow-y-auto">
           {list.length === 0 ? (
             <p className="py-2 text-xs text-surface-muted">None yet.</p>
@@ -544,16 +638,23 @@ export function WorkspacePage() {
                       <span className="block truncate font-medium">{w.title || w.kind}</span>
                       <span className="block truncate text-[10px] text-white/35">
                         {subtitleForWorkspaceKind(w.kind, kindCatalog)}
+                        {w.access_role === "viewer"
+                          ? " · read-only"
+                          : w.access_role === "editor"
+                            ? " · shared"
+                            : ""}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      title="Delete"
-                      className="shrink-0 px-2 text-sm text-red-300/90 hover:bg-red-950/50 hover:text-red-200"
-                      onClick={(e) => void deleteWsEntry(w.id, e)}
-                    >
-                      ×
-                    </button>
+                    {(w.access_role ?? "owner") === "owner" ? (
+                      <button
+                        type="button"
+                        title="Delete"
+                        className="shrink-0 px-2 text-sm text-red-300/90 hover:bg-red-950/50 hover:text-red-200"
+                        onClick={(e) => void deleteWsEntry(w.id, e)}
+                      >
+                        ×
+                      </button>
+                    ) : null}
                   </div>
                 </li>
               ))}
@@ -583,13 +684,13 @@ export function WorkspacePage() {
         </button>
         <button
           type="button"
-          onClick={() => openMarketplace()}
+          onClick={() => openCatalog()}
           className={[
             "rounded-lg px-2.5 py-2 text-left text-xs transition hover:bg-white/5",
-            !selectedId && hubPanel === "marketplace" ? "bg-white/10 text-white" : "text-neutral-200",
+            !selectedId && hubPanel === "catalog" ? "bg-white/10 text-white" : "text-neutral-200",
           ].join(" ")}
         >
-          Marketplace
+          Catalog
         </button>
       </div>
     </aside>
@@ -608,10 +709,10 @@ export function WorkspacePage() {
         </button>
         <button
           type="button"
-          onClick={() => openMarketplace()}
+          onClick={() => openCatalog()}
           className="flex flex-col rounded-xl border border-surface-border bg-surface-raised p-6 text-left transition hover:border-sky-500/35 hover:bg-white/[0.03]"
         >
-          <span className="text-base font-semibold text-white">Marketplace</span>
+          <span className="text-base font-semibold text-white">Catalog</span>
           <span className="mt-2 text-sm text-surface-muted">Install template packs and extensions.</span>
         </button>
       </div>
@@ -639,7 +740,7 @@ export function WorkspacePage() {
     </div>
   );
 
-  const marketplaceMain = (
+  const catalogMain = (
     <div className="min-h-0 flex-1 space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-end gap-3">
         <button
@@ -650,13 +751,13 @@ export function WorkspacePage() {
           ← Workspaces
         </button>
       </div>
-      <h1 className="text-xl font-semibold text-white">Marketplace</h1>
+      <h1 className="text-xl font-semibold text-white">Catalog</h1>
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[200px] flex-1">
           <label className="mb-1 block text-xs text-surface-muted">Search</label>
           <input
-            value={marketplaceQuery}
-            onChange={(e) => setMarketplaceQuery(e.target.value)}
+            value={catalogQuery}
+            onChange={(e) => setCatalogQuery(e.target.value)}
             placeholder="Filter by name…"
             className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
           />
@@ -673,11 +774,11 @@ export function WorkspacePage() {
           </select>
         </div>
       </div>
-      {marketplaceRows.length === 0 ? (
+      {catalogRows.length === 0 ? (
         <p className="text-sm text-surface-muted">No packs match this search.</p>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {marketplaceRows.map((row) => {
+          {catalogRows.map((row) => {
             const isInstalled = installedKindSet.has(row.kind);
             return (
               <li
@@ -698,7 +799,7 @@ export function WorkspacePage() {
                       type="button"
                       disabled={installBusy || !row.has_schema}
                       className="rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                      onClick={() => confirmInstallMarketRow(row)}
+                      onClick={() => confirmInstallCatalogRow(row)}
                     >
                       Install
                     </button>
@@ -741,50 +842,134 @@ export function WorkspacePage() {
               <p className="text-sm text-surface-muted">Loading…</p>
             ) : (
               <>
+                {isViewer ? (
+                  <p className="mb-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-surface-muted">
+                    Read-only: you can view lists and pet photos here. Ask the owner for editor access if you
+                    should change something.
+                  </p>
+                ) : null}
                 <div className="mb-4 flex flex-wrap items-end gap-3">
                   <div className="min-w-[200px] flex-1">
                     <label className="mb-1 block text-xs text-surface-muted">Title</label>
                     <input
-                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
+                      readOnly={isViewer}
+                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50 read-only:cursor-default read-only:opacity-90"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                     />
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {!layoutEditMode ? (
+                    {canEditContent ? (
+                      !layoutEditMode ? (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                          onClick={() => startLayoutEdit()}
+                        >
+                          Edit layout
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                          onClick={() => cancelLayoutEdit()}
+                        >
+                          Cancel
+                        </button>
+                      )
+                    ) : null}
+                    {canEditContent ? (
                       <button
                         type="button"
-                        className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
-                        onClick={() => startLayoutEdit()}
+                        disabled={saving}
+                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                        onClick={() => void save()}
                       >
-                        Edit layout
+                        {saving ? "Saving…" : layoutEditMode ? "Save" : "Save"}
                       </button>
-                    ) : (
+                    ) : null}
+                    {isOwner ? (
                       <button
                         type="button"
-                        className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
-                        onClick={() => cancelLayoutEdit()}
+                        className="rounded-lg border border-white/10 px-4 py-2 text-sm text-red-300 hover:bg-red-950/40"
+                        onClick={() => void removeWs()}
                       >
-                        Cancel
+                        Delete
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      disabled={saving}
-                      className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                      onClick={() => void save()}
-                    >
-                      {saving ? "Saving…" : layoutEditMode ? "Save" : "Save"}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/10 px-4 py-2 text-sm text-red-300 hover:bg-red-950/40"
-                      onClick={() => void removeWs()}
-                    >
-                      Delete
-                    </button>
+                    ) : null}
                   </div>
                 </div>
+                {isOwner ? (
+                  <div className="mb-4 rounded-xl border border-surface-border bg-surface-raised/50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                      Share workspace
+                    </p>
+                    <p className="mt-1 text-xs text-surface-muted">
+                      Same-tenant accounts only. <span className="text-white/70">Viewer</span> sees pet photos
+                      and lists; <span className="text-white/70">editor</span> can change content (not delete
+                      the workspace).
+                    </p>
+                    {membersErr ? (
+                      <p className="mt-2 text-xs text-red-300">{membersErr}</p>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                      <div className="min-w-[200px] flex-1">
+                        <label className="mb-1 block text-[10px] text-surface-muted">Email</label>
+                        <input
+                          type="email"
+                          value={memberEmail}
+                          onChange={(e) => setMemberEmail(e.target.value)}
+                          placeholder="colleague@example.com"
+                          className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] text-surface-muted">Role</label>
+                        <select
+                          value={memberRole}
+                          onChange={(e) => setMemberRole(e.target.value as "viewer" | "editor")}
+                          className="rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white"
+                        >
+                          <option value="viewer">Viewer</option>
+                          <option value="editor">Editor</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={membersBusy || !memberEmail.trim()}
+                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                        onClick={() => void addWorkspaceMember()}
+                      >
+                        {membersBusy ? "…" : "Add"}
+                      </button>
+                    </div>
+                    {members.length === 0 ? (
+                      <p className="mt-3 text-xs text-surface-muted">No members yet.</p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-white/5 text-sm">
+                        {members.map((m) => (
+                          <li
+                            key={m.user_id}
+                            className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
+                          >
+                            <span className="text-neutral-200">
+                              {m.email}{" "}
+                              <span className="text-surface-muted">({m.role})</span>
+                            </span>
+                            <button
+                              type="button"
+                              disabled={membersBusy}
+                              className="text-xs text-red-300 hover:underline disabled:opacity-50"
+                              onClick={() => void removeWorkspaceMember(m.user_id)}
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : null}
                 <p className="mb-4 text-xs text-surface-muted">
                   Template:{" "}
                   <span className="text-white/80">{subtitleForWorkspaceKind(detail.kind, kindCatalog)}</span>
@@ -794,7 +979,9 @@ export function WorkspacePage() {
                   setLayout={setLayoutDraft}
                   data={data}
                   setData={setData}
-                  editMode={layoutEditMode}
+                  editMode={layoutEditMode && canEditContent}
+                  contentReadOnly={isViewer}
+                  workspaceId={selectedId}
                 />
               </>
             )}
@@ -802,8 +989,8 @@ export function WorkspacePage() {
         </div>
       </div>
     );
-  } else if (hubPanel === "marketplace") {
-    main = marketplaceMain;
+  } else if (hubPanel === "catalog") {
+    main = catalogMain;
   } else {
     main = (
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
@@ -849,7 +1036,7 @@ export function WorkspacePage() {
             <p className="mt-2 text-sm text-surface-muted">Pick a type (only installed templates).</p>
             <ul className="mt-4 flex flex-col gap-2">
               {kindsAllowedForNewWorkspace.length === 0 ? (
-                <li className="text-sm text-surface-muted">Install a pack in Marketplace first.</li>
+                <li className="text-sm text-surface-muted">Install a pack from the Catalog first.</li>
               ) : (
                 kindsAllowedForNewWorkspace.map((row) => (
                   <li key={row.kind}>

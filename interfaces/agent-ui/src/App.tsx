@@ -9,7 +9,7 @@ import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AdminInterfaces } from "./pages/admin/AdminInterfaces";
 import { AdminTools } from "./pages/admin/AdminTools";
 import { AdminUsers } from "./pages/admin/AdminUsers";
-import { AdminWorkflows } from "./pages/admin/AdminWorkflows";
+import { AdminScheduledJobs } from "./pages/admin/AdminScheduledJobs";
 import { ChatPage } from "./pages/ChatPage";
 import { DocsPage } from "./pages/DocsPage";
 import { HomePage } from "./pages/HomePage";
@@ -48,7 +48,8 @@ export function App() {
                 <Route path="discord" element={<Navigate to="../interfaces" replace />} />
                 <Route path="tools" element={<AdminTools />} />
                 <Route path="users" element={<AdminUsers />} />
-                <Route path="workflows" element={<AdminWorkflows />} />
+                <Route path="scheduled-jobs" element={<AdminScheduledJobs />} />
+                <Route path="workflows" element={<Navigate to="../scheduled-jobs" replace />} />
               </Route>
             </Route>
           </Route>

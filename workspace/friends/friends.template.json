@@ -1,0 +1,49 @@
+{
+  "kind": "friends",
+  "description": "Freundesliste mit Metadaten für Geschenke, Geburtstage und Discord-Anbindung.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "friends-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 10 },
+        "props": {
+          "dataPath": "friends",
+          "columns": [
+            { "field": "name", "kind": "text", "label": "Name" },
+            { "field": "birthday", "kind": "text", "label": "Geburtstag (YYYY-MM-DD)" },
+            {
+              "field": "discord_user_id",
+              "kind": "text",
+              "label": "Discord User ID"
+            },
+            {
+              "field": "interests",
+              "kind": "text",
+              "label": "Vorlieben / Geschenk-Hinweise"
+            },
+            {
+              "field": "reminders",
+              "kind": "text",
+              "label": "Erinnerungen (z. B. Jahrestag)"
+            }
+          ]
+        }
+      },
+      {
+        "id": "friends-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 10, "w": 12, "h": 4 },
+        "props": {
+          "dataPath": "notes",
+          "placeholder": "Allgemeine Notizen zu dieser Freundesliste…"
+        }
+      }
+    ]
+  },
+  "initial_data": {
+    "friends": [],
+    "notes": ""
+  }
+}

@@ -335,9 +335,12 @@ class ToolRegistry:
         tools.extend(pending_specs)
 
         if not tool_names:
-            # Only cron workflows, no tools → DO NOT ADD TO TOOL REGISTRY
+            # HANDLERS present but no TOOLS → cron-only module; scheduled_job_registry may pick it up
             logger.info(
-                "skipping workflow %s v%s (%d handlers) - separate workflow registry will load this", pid, ver, len(mod_handlers)
+                "skipping cron-only module %s v%s (%d HANDLERS keys, no TOOLS) — not in tool registry",
+                pid,
+                ver,
+                len(mod_handlers),
             )
             return
 

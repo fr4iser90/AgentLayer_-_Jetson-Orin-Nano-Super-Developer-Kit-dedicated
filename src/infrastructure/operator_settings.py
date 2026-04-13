@@ -1,4 +1,4 @@
-"""Persisted operator preferences: integrations, optional connection key, agent execution class."""
+"""Persisted operator preferences: integrations, agent execution class."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core import config as app_config
 from src.core.config import config
 from src.infrastructure.db import db
 
@@ -30,6 +31,8 @@ def _fetch_row() -> dict[str, Any]:
         "discord_bot_agent_bearer": None,
         "discord_trigger_prefix": "!agent ",
         "discord_chat_model": None,
+        "workspace_upload_max_file_mb": None,
+        "workspace_upload_allowed_mime": None,
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -38,7 +41,8 @@ def _fetch_row() -> dict[str, Any]:
                 SELECT discord_application_id, integration_notes,
                        optional_connection_key, agent_mode,
                        discord_bot_enabled, discord_bot_token, discord_bot_agent_bearer,
-                       discord_trigger_prefix, discord_chat_model
+                       discord_trigger_prefix, discord_chat_model,
+                       workspace_upload_max_file_mb, workspace_upload_allowed_mime
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -55,6 +59,8 @@ def _fetch_row() -> dict[str, Any]:
         "discord_bot_agent_bearer": row[6],
         "discord_trigger_prefix": (str(row[7]).strip() if row[7] is not None else "") or "!agent ",
         "discord_chat_model": row[8],
+        "workspace_upload_max_file_mb": row[9],
+        "workspace_upload_allowed_mime": row[10],
     }
 
 
@@ -80,10 +86,27 @@ def resolved_agent_mode() -> Literal["sandbox", "host"]:
     return "sandbox"
 
 
-def stored_optional_connection_key() -> str | None:
-    """Optional value for selected HTTP routes; None means no Authorization required there."""
-    v = (_cached_row().get("optional_connection_key") or "").strip()
-    return v if v else None
+def effective_workspace_upload_max_bytes() -> int:
+    """DB override (MB) when set; else ``WORKSPACE_UPLOAD_MAX_FILE_MB`` from env."""
+    r = _cached_row()
+    v = r.get("workspace_upload_max_file_mb")
+    if v is not None:
+        try:
+            mb = int(v)
+            if mb > 0:
+                return mb * 1024 * 1024
+        except (TypeError, ValueError):
+            pass
+    return app_config.WORKSPACE_UPLOAD_MAX_FILE_MB * 1024 * 1024
+
+
+def effective_workspace_upload_mime() -> frozenset[str]:
+    """Comma allowlist from DB when set; else env ``AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME``."""
+    r = _cached_row()
+    raw = r.get("workspace_upload_allowed_mime")
+    if isinstance(raw, str) and raw.strip():
+        return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
+    return app_config.workspace_upload_env_allowed_mime()
 
 
 def public_dict() -> dict[str, Any]:
@@ -103,6 +126,10 @@ def public_dict() -> dict[str, Any]:
         "discord_bot_token_configured": bool(dtok),
         "discord_trigger_prefix": (r.get("discord_trigger_prefix") or "!agent ")[:64],
         "discord_chat_model": (str(r.get("discord_chat_model") or "").strip())[:256],
+        "workspace_upload_max_file_mb": r.get("workspace_upload_max_file_mb"),
+        "workspace_upload_allowed_mime": (r.get("workspace_upload_allowed_mime") or "").strip(),
+        "workspace_upload_effective_max_bytes": effective_workspace_upload_max_bytes(),
+        "workspace_upload_effective_allowed_mime": sorted(effective_workspace_upload_mime()),
     }
 
 
@@ -124,6 +151,8 @@ class OperatorSettingsPatch(BaseModel):
     discord_bot_token: str | None = Field(default=None, max_length=256)
     discord_trigger_prefix: str | None = Field(default=None, max_length=64)
     discord_chat_model: str | None = Field(default=None, max_length=256)
+    workspace_upload_max_file_mb: int | None = None
+    workspace_upload_allowed_mime: str | None = Field(default=None, max_length=2000)
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -131,7 +160,6 @@ def interface_hints_public() -> dict[str, Any]:
     am = r.get("agent_mode")
     am_s = am.strip().lower() if isinstance(am, str) else ""
     return {
-        "optional_connection_key": r.get("optional_connection_key") or "",
         "discord_application_id": r.get("discord_application_id") or "",
         "agent_mode": am_s if am_s in ("sandbox", "host") else "",
         "agent_mode_effective": resolved_agent_mode(),
@@ -140,16 +168,13 @@ def interface_hints_public() -> dict[str, Any]:
 
 
 class InterfaceHintsPayload(BaseModel):
-    """Optional HTTP connection key + Discord application ID + agent execution class."""
+    """Discord application ID + agent execution class."""
 
-    optional_connection_key: str = Field(default="", max_length=8000)
     discord_application_id: str = Field(default="", max_length=128)
     agent_mode: str = Field(default="", max_length=16)
 
 
 def apply_interface_hints(body: InterfaceHintsPayload) -> None:
-    key_new = body.optional_connection_key.strip()
-    key_v = key_new if key_new else None
     disc_v = body.discord_application_id.strip() or None
     raw_mode = body.agent_mode.strip().lower()
     mode_v: str | None = raw_mode if raw_mode in ("sandbox", "host") else None
@@ -159,13 +184,13 @@ def apply_interface_hints(body: InterfaceHintsPayload) -> None:
             cur.execute(
                 """
                 UPDATE operator_settings SET
-                  optional_connection_key = %s,
+                  optional_connection_key = NULL,
                   discord_application_id = %s,
                   agent_mode = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
-                (key_v, disc_v, mode_v),
+                (disc_v, mode_v),
             )
         conn.commit()
     _invalidate()
@@ -202,6 +227,23 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
     if "discord_chat_model" in patch:
         v = patch["discord_chat_model"]
         r["discord_chat_model"] = None if v is None else (str(v).strip() or None)
+    if "workspace_upload_max_file_mb" in patch:
+        v = patch["workspace_upload_max_file_mb"]
+        if v is None:
+            r["workspace_upload_max_file_mb"] = None
+        else:
+            try:
+                mb = int(v)
+                r["workspace_upload_max_file_mb"] = mb if mb > 0 else None
+            except (TypeError, ValueError):
+                r["workspace_upload_max_file_mb"] = None
+    if "workspace_upload_allowed_mime" in patch:
+        v = patch["workspace_upload_allowed_mime"]
+        if v is None:
+            r["workspace_upload_allowed_mime"] = None
+        else:
+            s = str(v).strip()
+            r["workspace_upload_allowed_mime"] = s or None
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -218,6 +260,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   discord_bot_agent_bearer = %s,
                   discord_trigger_prefix = %s,
                   discord_chat_model = %s,
+                  workspace_upload_max_file_mb = %s,
+                  workspace_upload_allowed_mime = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -231,6 +275,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("discord_bot_agent_bearer"),
                     r.get("discord_trigger_prefix") or "!agent ",
                     r.get("discord_chat_model"),
+                    r.get("workspace_upload_max_file_mb"),
+                    r.get("workspace_upload_allowed_mime"),
                 ),
             )
         conn.commit()
