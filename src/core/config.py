@@ -210,6 +210,12 @@ SECRETS_MASTER_KEY = (os.environ.get("AGENT_SECRETS_MASTER_KEY") or "").strip()
 PUBLIC_BASE_URL = (os.environ.get("AGENT_PUBLIC_URL") or "").strip().rstrip("/")
 HTTP_EXAMPLE_PORT = (os.environ.get("AGENT_HTTP_PORT") or "8088").strip() or "8088"
 
+# POST /v1/user/secrets/register-with-otp: sliding window (per process; client = first X-Forwarded-For or remote).
+OTP_REGISTER_RATE_LIMIT_MAX = max(5, min(_env_int("AGENT_OTP_REGISTER_RATE_LIMIT_MAX", 30), 500))
+OTP_REGISTER_RATE_LIMIT_WINDOW_SEC = max(
+    15, min(_env_int("AGENT_OTP_REGISTER_RATE_LIMIT_WINDOW_SEC", 60), 3600)
+)
+
 # Local files tools (local_files / fs_*): size/list limits; path scope is admin/OS (no AGENT_WORKSPACE_ROOT).
 WORKSPACE_MAX_FILE_BYTES = _env_int("AGENT_WORKSPACE_MAX_FILE_BYTES", 1_200_000)
 WORKSPACE_MAX_LIST_ENTRIES = _env_int("AGENT_WORKSPACE_MAX_LIST_ENTRIES", 500)

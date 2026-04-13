@@ -36,4 +36,4 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/alembic_entrypoint.sh"]
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]

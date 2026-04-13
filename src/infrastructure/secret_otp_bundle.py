@@ -7,6 +7,7 @@ import re
 import shlex
 import types
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from src.core.config import config
 from src.infrastructure.db import db
@@ -30,6 +31,29 @@ def ttl_clamp(raw_ttl: Any, default: int = 600) -> int:
     return default
 
 
+def public_base_url_for_otp_curl() -> str:
+    """
+    Origin for ``register-with-otp`` curl examples.
+
+    Non-loopback ``http://`` in ``AGENT_PUBLIC_URL`` is rewritten to ``https://`` so users are not
+    steered onto cleartext. If unset, ``http://127.0.0.1:<port>`` for local dev only.
+    """
+    raw = (config.PUBLIC_BASE_URL or "").strip().rstrip("/")
+    if not raw:
+        return f"http://127.0.0.1:{config.HTTP_EXAMPLE_PORT}"
+    if "://" not in raw:
+        raw = f"https://{raw}"
+    u = urlparse(raw)
+    host = (u.hostname or "").lower()
+    scheme = (u.scheme or "").lower()
+    if scheme == "http" and host not in ("127.0.0.1", "localhost", "::1"):
+        u = u._replace(scheme="https")
+    elif scheme not in ("http", "https"):
+        u = u._replace(scheme="https")
+    origin = urlunparse((u.scheme, u.netloc, "", "", "", "")).rstrip("/")
+    return origin or f"http://127.0.0.1:{config.HTTP_EXAMPLE_PORT}"
+
+
 def build_otp_curl_payload(service_key: str, ttl_seconds: int = 600) -> dict[str, Any]:
     """
     Mint OTP for current identity user; return the same fields as register_secrets (without top-level ok).
@@ -43,7 +67,7 @@ def build_otp_curl_payload(service_key: str, ttl_seconds: int = 600) -> dict[str
             "no user identity — use chat with user headers so register_secrets can bind the OTP"
         )
     otp = db.secret_upload_otp_create(user_id, ttl_seconds=ttl)
-    base = config.PUBLIC_BASE_URL or f"http://127.0.0.1:{config.HTTP_EXAMPLE_PORT}"
+    base = public_base_url_for_otp_curl()
     if raw_svc == "gmail":
         secret_blob = '{"email":"du@gmail.com","app_password":"DEIN_APP_PASSWORT"}'
     elif raw_svc == "github_pat":
@@ -123,7 +147,7 @@ def build_otp_curl_payload(service_key: str, ttl_seconds: int = 600) -> dict[str
         ),
         "expires_in_seconds": ttl,
         "service_key": raw_svc,
-        "resolved_user_id": uid,
+        "resolved_user_id": str(user_id),
         "curl_bash": curl_bash,
         "steps_de": (
             [

@@ -75,7 +75,7 @@ export function StudioPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accessToken]);
 
   useEffect(() => {
     if (!preset) return;

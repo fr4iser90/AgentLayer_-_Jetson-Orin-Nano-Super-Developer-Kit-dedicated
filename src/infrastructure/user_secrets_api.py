@@ -10,8 +10,12 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from src.core.config import config
-from src.infrastructure.db import db
 from src.domain.http_identity import resolve_chat_identity
+from src.infrastructure.db import db
+from src.infrastructure.otp_register_guard import (
+    enforce_otp_register_rate_limit,
+    require_https_or_loopback_for_otp_register,
+)
 
 router = APIRouter(prefix="/v1/user/secrets", tags=["user-secrets"])
 
@@ -79,12 +83,14 @@ class RegisterWithOtpBody(BaseModel):
 
 
 @router.post("/register-with-otp")
-def register_secret_with_otp(body: RegisterWithOtpBody):
+def register_secret_with_otp(request: Request, body: RegisterWithOtpBody):
     """
     Store a secret using a one-time code from the ``register_secrets`` tool (chat).
     Body ``secret`` may be a **string** (JSON text) or a **JSON object** (e.g. gmail credentials).
     No Bearer token or user headers — the OTP binds to the chat user who minted it.
     """
+    enforce_otp_register_rate_limit(request)
+    require_https_or_loopback_for_otp_register(request)
     _require_user_secrets_enabled()
     sk = _norm_service_key(body.service_key)
     try:

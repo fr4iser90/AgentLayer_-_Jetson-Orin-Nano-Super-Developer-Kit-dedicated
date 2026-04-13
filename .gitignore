@@ -12,3 +12,6 @@ logs/
 # First-party Agent UI (Vite): deps + production build output
 interfaces/agent-ui/node_modules/
 interfaces/agent-ui/dist/
+
+# Traefik
+compose.traefik.yaml
