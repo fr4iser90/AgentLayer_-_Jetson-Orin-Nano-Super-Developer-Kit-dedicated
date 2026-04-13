@@ -1,0 +1,16 @@
+# GitLeaks reads this natively. Tight allowlist for known false positives (studio preset JSON).
+title = "agent-layer"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "run_key / preset strings match generic-api-key heuristic"
+regexTarget = "line"
+regexes = [
+  '''(?i)"run_key"\s*:\s*"comfy_txt2img_default"''',
+]
+paths = [
+  "src/domain/studio_catalog.py",
+  "src/domain/studio_jobs.py",
+]

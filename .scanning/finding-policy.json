@@ -1,133 +1,154 @@
 {
-  "$comment": "Triage for Bandit, CodeQL, GitLeaks, Semgrep. CI may read FINDING_POLICY_FILE and match tool + rule_id + path_regex (and optional message_regex). Review quarterly.",
-  "version": 1,
-  "project": "agent-layer",
-  "false_positives": [
-    {
-      "id": "bandit-b101-asserts",
-      "tools": ["bandit"],
-      "rule_ids": ["B101"],
-      "path_regex": "^(interfaces/discord/bot\\.py|src/integrations/discord_bridge\\.py|tools/agent/core/tool_factory/[^/]+\\.py|tests/.*\\.py)$",
-      "reason": "Asserts are internal invariants or pytest assertions; not relied on as a production security gate under python -O in these paths."
+    "dedupe": {
+        "enabled": true,
+        "line_window": 2
     },
-    {
-      "id": "bandit-b110-b112-swallow-continue",
-      "tools": ["bandit"],
-      "rule_ids": ["B110", "B112"],
-      "path_regex": "^(src/api/(chat_websocket|main)\\.py|src/domain/plugin_system/(scheduled_job_registry|tool_policy)\\.py|tools/agent/external/web_search/web_search\\.py|tools/agent/productivity/(calendar/calendar_ics|gmail/gmail)\\.py)$",
-      "reason": "Broad try/except pass/continue is used for optional shutdown paths, optional integrations, or best-effort parsing; errors are logged where relevant or failure is benign."
+    "semgrep": {
+        "accepted_findings": [
+            {
+                "rule_id": "dockerfile.security.missing-user-entrypoint.missing-user-entrypoint",
+                "path_regex": ".*/Dockerfile$",
+                "message_regex": "By not specifying a USER",
+                "reason": "Single-tenant operator image: root simplifies bind mounts and entrypoint (Alembic, uvicorn). Non-root USER can be added later when volume UIDs are aligned."
+            },
+            {
+                "rule_id": "dockerfile.security.missing-user.missing-user",
+                "path_regex": ".*/Dockerfile$",
+                "message_regex": "By not specifying a USER",
+                "reason": "Same as missing-user-entrypoint: intentional root in this image; restrict exposure at the network / orchestration layer."
+            },
+            {
+                "rule_id": "python.fastapi.security.wildcard-cors.wildcard-cors",
+                "path_regex": ".*/src/api/main\\.py$",
+                "message_regex": "CORS policy allows any origin|wildcard '\\*'",
+                "reason": "Default AGENT_CORS_ORIGINS=* is for local/dev; production sets explicit origins via env. Documented in .env.example and lifespan warning."
+            },
+            {
+                "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
+                "message_regex": "Avoiding SQL string concatenation|raw query",
+                "reason": "Dynamic SET lists only join fixed assignment fragments (e.g. title = %s); all user values are passed as bound parameters, not interpolated into SQL keywords."
+            },
+            {
+                "rule_id": "scanner.plugins.semgrep.rules.prompt-injection-detect",
+                "path_regex": ".*/workflows/.*\\.py$",
+                "message_regex": "prompt injection|user input in prompt",
+                "reason": "Workflow modules build LLM prompts for the product; user-derived content is inherent to an agent server and bounded by auth and tool policies."
+            }
+        ]
     },
-    {
-      "id": "bandit-b105-oauth-and-placeholders",
-      "tools": ["bandit"],
-      "rule_ids": ["B105"],
-      "path_regex": "^src/api/main\\.py$",
-      "message_regex": "(?i)bearer",
-      "reason": "Literal 'bearer' is OAuth token_type string, not a password."
+    "bandit": {
+        "accepted_findings": [
+            {
+                "rule_id": "B101",
+                "path_regex": ".*/tests/.*\\.py$",
+                "message_regex": "Use of assert detected",
+                "reason": "Pytest and unit tests use asserts; excluded from production Bandit scope via pyproject.toml exclude_dirs as well."
+            },
+            {
+                "rule_id": "B101",
+                "path_regex": ".*/(interfaces/discord/bot\\.py|src/integrations/discord_bridge\\.py|tools/agent/core/tool_factory/[^/]+\\.py)$",
+                "message_regex": "Use of assert detected",
+                "reason": "Internal invariants or operator-only tool paths; not a production security boundary under python -O."
+            },
+            {
+                "rule_id": "B110",
+                "path_regex": ".*/(src/api/(chat_websocket|main)\\.py|src/domain/plugin_system/tool_policy\\.py|tools/agent/external/web_search/web_search\\.py|tools/agent/productivity/calendar/calendar_ics\\.py|tools/agent/productivity/gmail/gmail\\.py)$",
+                "message_regex": "Try, Except, Pass detected",
+                "reason": "Optional shutdown (incl. lifespan / bridge stop), best-effort parsing, or non-fatal cleanup; failures are logged where relevant or impact is benign."
+            },
+            {
+                "rule_id": "B112",
+                "path_regex": ".*/src/domain/plugin_system/scheduled_job_registry\\.py$",
+                "message_regex": "Try, Except, Continue detected",
+                "reason": "Scheduled job discovery skips broken modules intentionally."
+            },
+            {
+                "rule_id": "B112",
+                "path_regex": ".*/tools/agent/productivity/gmail/gmail\\.py$",
+                "message_regex": "Try, Except, Continue detected",
+                "reason": "Message iteration skips malformed parts; bounded IMAP parsing."
+            },
+            {
+                "rule_id": "B105",
+                "path_regex": ".*/src/api/main\\.py$",
+                "message_regex": "bearer|Bearer",
+                "reason": "OAuth token_type string 'bearer' in JSON responses, not a password."
+            },
+            {
+                "rule_id": "B105",
+                "path_regex": ".*/src/infrastructure/operator_settings\\.py$",
+                "message_regex": "None|password",
+                "reason": "Heuristic false positive on JSON null / display text 'None', not a credential."
+            },
+            {
+                "rule_id": "B105",
+                "path_regex": ".*/src/infrastructure/secret_otp_bundle\\.py$",
+                "message_regex": "DEIN_|du@gmail|github_pat|calendar\\.ics|SECRET",
+                "reason": "User-facing curl examples and placeholder JSON for OTP registration, not real secrets."
+            },
+            {
+                "rule_id": "B105",
+                "path_regex": ".*/tools/agent/external/github/github\\.py$",
+                "message_regex": "github_pat",
+                "reason": "User secret service_key name for stored PAT, not an embedded credential."
+            },
+            {
+                "rule_id": "B105",
+                "path_regex": ".*/tools/agent/productivity/gmail/gmail\\.py$",
+                "message_regex": "gmail",
+                "reason": "Service key / tool domain identifier, not a password string."
+            },
+            {
+                "rule_id": "B311",
+                "path_regex": ".*/src/domain/studio_jobs\\.py$",
+                "message_regex": "pseudo-random|random\\.randint",
+                "reason": "random.randint used for ComfyUI KSampler seed variation, not cryptography."
+            },
+            {
+                "rule_id": "B608",
+                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
+                "message_regex": "SQL injection|string-based query",
+                "reason": "f-string only joins fixed SET clause fragments; values use %s placeholders with separate args list—no user-controlled SQL keywords."
+            }
+        ]
     },
-    {
-      "id": "bandit-b105-operator-none",
-      "tools": ["bandit"],
-      "rule_ids": ["B105"],
-      "path_regex": "^src/infrastructure/operator_settings\\.py$",
-      "reason": "Heuristic matched the word 'None' in non-credential context (e.g. JSON null / display), not an authentication secret."
+    "codeql": {
+        "accepted_findings": [
+            {
+                "rule_id": "py/path-injection",
+                "path_regex": ".*/tools/agent/core/tool_factory/(create_tool|_tool_factory_common)\\.py$",
+                "message_regex": "user-provided|path depends",
+                "reason": "Paths resolved under configured tool roots (AGENT_TOOLS_EXTRA_DIR / image tools); authenticated admin/tool-governed surface, not arbitrary anonymous FS write."
+            },
+            {
+                "rule_id": "py/incomplete-url-substring-sanitization",
+                "path_regex": ".*/tools/agent/productivity/calendar/calendar_ics\\.py$",
+                "message_regex": "calendar\\.google\\.com|substring",
+                "reason": "Allowlist-style host checks for ICS fetch policy; documented residual heuristic limitation."
+            },
+            {
+                "rule_id": "py/stack-trace-exposure",
+                "path_regex": ".*/(src/api/main\\.py|src/domain/plugin_system/tools_api\\.py)$",
+                "message_regex": "Stack trace|may be exposed|flows to",
+                "reason": "Handlers use logger.exception server-side; HTTP responses expose str(e) or JSON tool output, not full Python tracebacks. Hardening: generic 500 bodies in production."
+            }
+        ]
     },
-    {
-      "id": "bandit-b105-secret-otp-placeholders",
-      "tools": ["bandit"],
-      "rule_ids": ["B105"],
-      "path_regex": "^src/infrastructure/secret_otp_bundle\\.py$",
-      "reason": "DEIN_* / example JSON blobs are user-facing curl templates, not real credentials."
-    },
-    {
-      "id": "bandit-b105-service-key-names",
-      "tools": ["bandit"],
-      "rule_ids": ["B105"],
-      "path_regex": "^tools/agent/(external/github/github|productivity/gmail/gmail)\\.py$",
-      "message_regex": "github_pat|gmail",
-      "reason": "Service key identifiers (e.g. gmail, github_pat) for user_secrets rows, not passwords."
-    },
-    {
-      "id": "bandit-b311-studio-seed",
-      "tools": ["bandit"],
-      "rule_ids": ["B311"],
-      "path_regex": "^src/domain/studio_jobs\\.py$",
-      "reason": "random.randint seeds ComfyUI KSampler for image variation, not cryptographic use."
-    },
-    {
-      "id": "bandit-b608-dynamic-set-clauses",
-      "tools": ["bandit"],
-      "rule_ids": ["B608"],
-      "path_regex": "^(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
-      "reason": "f-string only joins fixed column assignment fragments (e.g. title = %s); user data is bound via parameterized args, not concatenated into SQL keywords."
-    },
-    {
-      "id": "codeql-path-injection-tool-factory",
-      "tools": ["codeql"],
-      "rule_ids": ["py/path-injection"],
-      "path_regex": "^tools/agent/core/tool_factory/(create_tool|_tool_factory_common)\\.py$",
-      "reason": "Paths are resolved under configured tool roots and validated for this product; risk is bounded by operator-controlled AGENT_TOOLS_EXTRA_DIR / registry policy, not arbitrary filesystem writes from anonymous users."
-    },
-    {
-      "id": "codeql-calendar-url-substring",
-      "tools": ["codeql"],
-      "rule_ids": ["py/incomplete-url-substring-sanitization"],
-      "path_regex": "^tools/agent/productivity/calendar/calendar_ics\\.py$",
-      "reason": "Allowlist checks calendar host substrings for ICS fetch policy; remaining risk accepted with documented allowlist behavior."
-    },
-    {
-      "id": "codeql-stack-trace-main-tools",
-      "tools": ["codeql"],
-      "rule_ids": ["py/stack-trace-exposure"],
-      "path_regex": "^(src/api/main\\.py|src/domain/plugin_system/tools_api\\.py)$",
-      "reason": "Handlers return str(e) or JSON tool output after logger.exception; full tracebacks are not attached to HTTP responses. Residual risk is verbose error text only—tracked for hardening, suppressed for noisy CodeQL path."
-    },
-    {
-      "id": "gitleaks-run-key-json",
-      "tools": ["gitleaks"],
-      "rule_ids": ["generic-api-key"],
-      "path_regex": "^(src/domain/studio_jobs\\.py|src/domain/studio_catalog\\.py)$",
-      "message_regex": "run_key|comfy_txt2img",
-      "reason": "JSON preset field names/values (e.g. run_key) matched generic secret heuristics; not API credentials."
-    },
-    {
-      "id": "semgrep-dockerfile-nonroot",
-      "tools": ["semgrep"],
-      "rule_ids": [
-        "dockerfile.security.missing-user-entrypoint.missing-user-entrypoint",
-        "dockerfile.security.missing-user.missing-user"
-      ],
-      "path_regex": "^Dockerfile$",
-      "reason": "Container runs as root by design for bind mounts, port binding, and single-tenant operator images; non-root USER is a future hardening item, not an active exploit without another vulnerability."
-    },
-    {
-      "id": "semgrep-cors-wildcard-configurable",
-      "tools": ["semgrep"],
-      "rule_ids": ["python.fastapi.security.wildcard-cors.wildcard-cors"],
-      "path_regex": "^src/api/main\\.py$",
-      "reason": "Default AGENT_CORS_ORIGINS=* is documented for dev; production must set explicit origins via env—policy documents accepted configuration surface."
-    },
-    {
-      "id": "semgrep-sqlalchemy-raw-dynamic-update",
-      "tools": ["semgrep"],
-      "rule_ids": ["python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query"],
-      "path_regex": "^(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
-      "reason": "Same as Bandit B608: SET clause list is built from fixed fragments; values are parameterized."
-    },
-    {
-      "id": "semgrep-workflow-prompt-injection",
-      "tools": ["semgrep"],
-      "rule_ids": ["scanner.plugins.semgrep.rules.prompt-injection-detect"],
-      "path_regex": "^workflows/.*\\.py$",
-      "reason": "Workflow modules compose LLM prompts for the product; user-derived content is an inherent part of agent workloads and is governed by tool/auth boundaries, not eliminable by substring rules."
+    "gitleaks": {
+        "accepted_findings": [
+            {
+                "rule_id": "generic-api-key",
+                "file_regex": ".*/src/domain/studio_catalog\\.py$",
+                "description_regex": ".*",
+                "reason": "JSON preset field run_key / comfy_txt2img_default matches generic secret heuristic; not an API key."
+            },
+            {
+                "rule_id": "generic-api-key",
+                "file_regex": ".*/src/domain/studio_jobs\\.py$",
+                "description_regex": ".*",
+                "reason": "Same studio preset JSON / run_key false positive as studio_catalog.py."
+            }
+        ]
     }
-  ],
-  "notes": {
-    "hardening_not_false_positives": [
-      "Prefer generic HTTP 500 bodies in production (avoid detail=str(e)) for run_tool_* in src/api/main.py.",
-      "Set AGENT_CORS_ORIGINS to explicit https origins when exposing the API publicly.",
-      "Consider non-root USER in Dockerfile when volume permissions allow."
-    ],
-    "gitleaks": "Run `gitleaks detect --report-path gitleaks.json` and add report `Fingerprint` lines to `.gitleaksignore`, or use a repo `.gitleaks.toml` allowlist for `generic-api-key` on studio preset files only."
-  }
 }

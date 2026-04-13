@@ -197,7 +197,8 @@ def workspace_update(
     args.extend([workspace_id, tenant_id, user_id, user_id])
     with db.pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
+            # SET fragments are fixed literals; values are always %s-bound (not SQL keyword injection).
+            cur.execute(  # nosec B608  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query
                 f"""
                 UPDATE user_workspaces w
                 SET {", ".join(sets)}

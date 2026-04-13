@@ -201,7 +201,8 @@ def conversation_replace(
                 args.append(Json(agent_log))
             parts.append("updated_at = now()")
             args.extend([conversation_id, user_id])
-            cur.execute(
+            # SET fragments are fixed literals; values are always %s-bound (not SQL keyword injection).
+            cur.execute(  # nosec B608  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query
                 f"""
                 UPDATE chat_conversations SET {", ".join(parts)}
                 WHERE id = %s AND user_id = %s
