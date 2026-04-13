@@ -75,9 +75,21 @@ REFRESH_COOKIE_MAX_AGE = 7 * 24 * 3600
 
 
 def _cookie_secure(request: Request) -> bool:
-    if os.environ.get("AGENT_COOKIE_SECURE", "").lower() in ("1", "true", "yes"):
+    """
+    Refresh cookie ``Secure`` flag.
+
+    If ``AGENT_COOKIE_SECURE`` is unset, derive from HTTPS: ``request.url.scheme`` or
+    ``X-Forwarded-Proto`` (reverse proxy). Set env ``true``/``false`` to force when needed.
+    """
+    raw = (os.environ.get("AGENT_COOKIE_SECURE") or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
         return True
-    return request.url.scheme == "https"
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if (request.url.scheme or "").lower() == "https":
+        return True
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return proto == "https"
 
 
 def _bearer_user_role_from_request(request: Request) -> str | None:
