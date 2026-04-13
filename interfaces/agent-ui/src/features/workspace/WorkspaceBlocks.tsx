@@ -26,20 +26,25 @@ export function WorkspaceBlocks(props: {
 }) {
   const { uiLayout, data, setData } = props;
   if (!uiLayout?.blocks?.length) {
-    return (
-      <p className="text-sm text-surface-muted">
-        Keine Blöcke in ui_layout.
-      </p>
-    );
+    return <p className="text-sm text-surface-muted">No blocks in this layout.</p>;
   }
 
   return (
     <div className="flex flex-col gap-6">
       {uiLayout.blocks.map((block) => (
-        <BlockView key={block.id} block={block} data={data} setData={setData} />
+        <WorkspaceBlockTile key={block.id} block={block} data={data} setData={setData} />
       ))}
     </div>
   );
+}
+
+/** Single block (used by list view and by the drag grid). */
+export function WorkspaceBlockTile(props: {
+  block: UiBlock;
+  data: Record<string, unknown>;
+  setData: Dispatch<SetStateAction<Record<string, unknown>>>;
+}) {
+  return <BlockView block={props.block} data={props.data} setData={props.setData} />;
 }
 
 function BlockView(props: {

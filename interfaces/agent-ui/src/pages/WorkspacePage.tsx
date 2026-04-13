@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
-import { WorkspaceBlocks } from "../features/workspace/WorkspaceBlocks";
+import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
 import type { UiLayout, WorkspaceDetail, WorkspaceSummary } from "../features/workspace/types";
 
 function asUiLayout(raw: unknown): UiLayout | null {
@@ -107,8 +107,14 @@ export function WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [layoutEditMode, setLayoutEditMode] = useState(false);
+  const [layoutDraft, setLayoutDraft] = useState<UiLayout>({ version: 1, blocks: [] });
 
   const uiLayout = useMemo(() => asUiLayout(detail?.ui_layout), [detail]);
+  const gridLayout = useMemo(
+    () => (layoutEditMode ? layoutDraft : uiLayout ?? { version: 1, blocks: [] }),
+    [layoutEditMode, layoutDraft, uiLayout]
+  );
 
   const installableCatalog = useMemo(
     () => kindCatalog.filter((r) => r.has_schema),
@@ -249,6 +255,7 @@ export function WorkspacePage() {
   }, [loadList]);
 
   useEffect(() => {
+    setLayoutEditMode(false);
     if (!selectedId) {
       setDetail(null);
       setData({});
@@ -257,6 +264,12 @@ export function WorkspacePage() {
     }
     void loadDetail(selectedId);
   }, [selectedId, loadDetail]);
+
+  useEffect(() => {
+    if (!detail || layoutEditMode) return;
+    const ul = asUiLayout(detail.ui_layout);
+    setLayoutDraft(ul ?? { version: 1, blocks: [] });
+  }, [detail, layoutEditMode]);
 
   const recentActivity = useMemo(() => {
     return [...list]
@@ -281,12 +294,16 @@ export function WorkspacePage() {
     setSaving(true);
     setError(null);
     try {
+      const body: Record<string, unknown> = {
+        title: title.trim() || detail.title,
+        data,
+      };
+      if (layoutEditMode) {
+        body.ui_layout = layoutDraft;
+      }
       const res = await apiFetch(`/v1/workspaces/${selectedId}`, auth, {
         method: "PATCH",
-        body: JSON.stringify({
-          title: title.trim() || detail.title,
-          data,
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         setError(await res.text());
@@ -298,11 +315,32 @@ export function WorkspacePage() {
         setData(
           j.workspace.data && typeof j.workspace.data === "object" ? { ...j.workspace.data } : {}
         );
+        setLayoutEditMode(false);
+        const ul = asUiLayout(j.workspace.ui_layout);
+        setLayoutDraft(ul ?? { version: 1, blocks: [] });
       }
       await loadList();
     } finally {
       setSaving(false);
     }
+  };
+
+  const startLayoutEdit = () => {
+    if (!detail) return;
+    const ul = asUiLayout(detail.ui_layout) ?? { version: 1, blocks: [] };
+    setLayoutDraft(JSON.parse(JSON.stringify(ul)) as UiLayout);
+    setLayoutEditMode(true);
+  };
+
+  const cancelLayoutEdit = () => {
+    if (!detail) {
+      setLayoutEditMode(false);
+      return;
+    }
+    setLayoutEditMode(false);
+    const ul = asUiLayout(detail.ui_layout) ?? { version: 1, blocks: [] };
+    setLayoutDraft(ul);
+    setData(detail.data && typeof detail.data === "object" ? { ...detail.data } : {});
   };
 
   const createWs = async (kind: string) => {
@@ -692,22 +730,7 @@ export function WorkspacePage() {
             Workspace / <span className="text-white">{detail?.title || title || "…"}</span>
           </p>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-          <nav className="flex shrink-0 gap-1 border-surface-border p-2 md:w-44 md:flex-col md:border-r">
-            {(["Overview", "Tasks", "Calendar", "Settings"] as const).map((label, i) => (
-              <button
-                key={label}
-                type="button"
-                disabled={i > 0}
-                className={[
-                  "rounded-md px-3 py-2 text-left text-sm",
-                  i === 0 ? "bg-white/10 text-white" : "cursor-not-allowed text-white/35",
-                ].join(" ")}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+        <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             {error ? (
               <div className="mb-4 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
@@ -727,14 +750,31 @@ export function WorkspacePage() {
                       onChange={(e) => setTitle(e.target.value)}
                     />
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {!layoutEditMode ? (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                        onClick={() => startLayoutEdit()}
+                      >
+                        Edit layout
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                        onClick={() => cancelLayoutEdit()}
+                      >
+                        Cancel
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={saving}
                       className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
                       onClick={() => void save()}
                     >
-                      {saving ? "Saving…" : "Save"}
+                      {saving ? "Saving…" : layoutEditMode ? "Save" : "Save"}
                     </button>
                     <button
                       type="button"
@@ -749,7 +789,13 @@ export function WorkspacePage() {
                   Template:{" "}
                   <span className="text-white/80">{subtitleForWorkspaceKind(detail.kind, kindCatalog)}</span>
                 </p>
-                <WorkspaceBlocks uiLayout={uiLayout} data={data} setData={setData} />
+                <WorkspaceGridCanvas
+                  layout={gridLayout}
+                  setLayout={setLayoutDraft}
+                  data={data}
+                  setData={setData}
+                  editMode={layoutEditMode}
+                />
               </>
             )}
           </div>
