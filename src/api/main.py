@@ -38,8 +38,10 @@ from src.infrastructure.auth import (
 )
 from src.infrastructure.operator_settings import (
     InterfaceHintsPayload,
+    OperatorSettingsPatch,
     OperatorSettingsPayload,
     apply_interface_hints,
+    apply_operator_settings_patch,
     apply_update as operator_settings_apply,
     interface_hints_public,
     public_dict as operator_settings_public,
@@ -89,6 +91,7 @@ def _bearer_user_role_from_request(request: Request) -> str | None:
 
 
 from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
+from src.integrations import discord_bridge
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -106,7 +109,15 @@ async def lifespan(_app: FastAPI):
         )
     get_registry()
     start_cron_scheduler()
+    try:
+        discord_bridge.start_background()
+    except Exception:
+        logger.exception("Discord bridge failed to start (optional)")
     yield
+    try:
+        discord_bridge.stop_background()
+    except Exception:
+        pass
     stop_cron_scheduler()
     db.close_pool()
 
@@ -216,23 +227,21 @@ async def get_current_user_info(request: Request):
     bare ``user`` parameter as request-body injection (that caused 422).
     """
     user = await get_current_user(request)
-    if user.role != "admin":
-        id_token = set_identity(1, user.id)
-        try:
-            return {
-                "id": str(user.id),
-                "email": user.email,
-                "role": user.role,
-                "created_at": user.created_at.isoformat(),
-            }
-        finally:
-            reset_identity(id_token)
-    return {
+    discord_uid = db.user_discord_user_id_get(user.id)
+    base = {
         "id": str(user.id),
         "email": user.email,
         "role": user.role,
         "created_at": user.created_at.isoformat(),
+        "discord_user_id": discord_uid,
     }
+    if user.role != "admin":
+        id_token = set_identity(1, user.id)
+        try:
+            return base
+        finally:
+            reset_identity(id_token)
+    return base
 
 
 @app.get("/v1/admin/operator-settings")
@@ -245,6 +254,13 @@ async def get_operator_settings(request: Request):
 async def put_operator_settings(request: Request, body: OperatorSettingsPayload):
     await require_admin(request)
     operator_settings_apply(body)
+    return operator_settings_public()
+
+
+@app.patch("/v1/admin/operator-settings")
+async def patch_operator_settings(request: Request, body: OperatorSettingsPatch):
+    await require_admin(request)
+    apply_operator_settings_patch(body)
     return operator_settings_public()
 
 

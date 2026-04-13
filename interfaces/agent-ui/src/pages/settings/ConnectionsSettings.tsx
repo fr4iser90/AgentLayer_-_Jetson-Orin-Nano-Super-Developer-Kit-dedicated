@@ -59,6 +59,8 @@ export function ConnectionsSettings() {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [rawJson, setRawJson] = useState("");
   const [saving, setSaving] = useState(false);
+  const [discordUserId, setDiscordUserId] = useState("");
+  const [discordSaving, setDiscordSaving] = useState(false);
 
   const formsByKey = useMemo(() => mergeSecretForms(meta), [meta]);
 
@@ -66,7 +68,23 @@ export function ConnectionsSettings() {
     setLoading(true);
     setMsg(null);
     try {
-      const tres = await apiFetch("/v1/tools", auth);
+      const [tres, sres, mres] = await Promise.all([
+        apiFetch("/v1/tools", auth),
+        apiFetch("/v1/user/secrets", auth),
+        apiFetch("/auth/me", auth),
+      ]);
+
+      const mdata = (await mres.json().catch(() => ({}))) as {
+        discord_user_id?: string | null;
+        detail?: unknown;
+      };
+      if (mres.ok) {
+        const d = mdata.discord_user_id;
+        setDiscordUserId(d != null && String(d).trim() ? String(d).trim() : "");
+      } else {
+        setDiscordUserId("");
+      }
+
       const tdata = (await tres.json()) as { tools_meta?: ToolsMeta[] };
       if (tres.ok) {
         setMeta(Array.isArray(tdata.tools_meta) ? tdata.tools_meta : []);
@@ -75,7 +93,6 @@ export function ConnectionsSettings() {
         setMsg("Could not load tool catalog.");
       }
 
-      const sres = await apiFetch("/v1/user/secrets", auth);
       const sdata = (await sres.json()) as { ok?: boolean; services?: string[]; detail?: unknown };
       if (sres.status === 503) {
         setSecretsUnavailable(true);
@@ -101,6 +118,30 @@ export function ConnectionsSettings() {
       setLoading(false);
     }
   }, [auth]);
+
+  async function saveDiscordLink() {
+    setMsg(null);
+    setDiscordSaving(true);
+    try {
+      const res = await apiFetch("/v1/user/discord", auth, {
+        method: "PUT",
+        body: JSON.stringify({ discord_user_id: discordUserId.trim() }),
+      });
+      const data = (await res.json()) as { ok?: boolean; discord_user_id?: string | null; detail?: unknown };
+      if (!res.ok) {
+        const d = data.detail;
+        setMsg(typeof d === "string" ? d : "Could not save Discord link");
+        return;
+      }
+      const d = data.discord_user_id;
+      setDiscordUserId(d != null && String(d).trim() ? String(d).trim() : "");
+      setMsg("Discord link saved.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDiscordSaving(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -227,7 +268,9 @@ export function ConnectionsSettings() {
       <div>
         <h1 className="text-lg font-semibold text-white">Connections</h1>
         <p className="mt-2 text-sm text-surface-muted">
-          Credentials are stored per <span className="font-mono">service_key</span> (encrypted on the server).{" "}
+          Link Discord below so your bridge bot can map your Discord account to this AgentLayer user (same{" "}
+          <span className="font-mono">tenant_id</span> as in Admin → Users). Tool credentials are stored per{" "}
+          <span className="font-mono">service_key</span> (encrypted on the server).{" "}
           <strong className="font-medium text-neutral-300">Known tools</strong> can ship a small form schema in the tool
           module (<span className="font-mono">TOOL_USER_SECRET_FORMS</span>) so this page shows the right fields — e.g. Gmail
           wants your address plus a Google <strong>App Password</strong>, not your normal login password. Keys like{" "}
@@ -239,6 +282,72 @@ export function ConnectionsSettings() {
       </div>
 
       {loading ? <p className="text-sm text-surface-muted">Loading…</p> : null}
+
+      <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
+        <h2 className="text-sm font-medium text-white">Discord</h2>
+        <p className="mt-2 text-xs text-surface-muted">
+          Paste your numeric Discord user id (Developer Mode → right‑click your profile → Copy User ID). The Discord
+          gateway runs <strong className="text-neutral-300">inside agent-layer</strong> when an admin enables it under{" "}
+          <Link to="/admin/interfaces" className="text-sky-400 hover:underline">
+            Admin → Interfaces
+          </Link>
+          . This field only links <em>your</em> Discord account to your AgentLayer user; it does not replace normal login.
+        </p>
+        <label className="mt-4 block text-xs text-surface-muted" htmlFor="discord-user-id">
+          Discord numeric user ID
+        </label>
+        <input
+          id="discord-user-id"
+          className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+          value={discordUserId}
+          onChange={(e) => setDiscordUserId(e.target.value.replace(/\D/g, ""))}
+          autoComplete="off"
+          inputMode="numeric"
+          placeholder="e.g. 123456789012345678"
+          spellCheck={false}
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={discordSaving}
+            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+            onClick={() => void saveDiscordLink()}
+          >
+            {discordSaving ? "Saving…" : "Save Discord link"}
+          </button>
+          <button
+            type="button"
+            disabled={discordSaving || !discordUserId}
+            className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            onClick={() => {
+              setDiscordUserId("");
+              void (async () => {
+                setDiscordSaving(true);
+                setMsg(null);
+                try {
+                  const res = await apiFetch("/v1/user/discord", auth, {
+                    method: "PUT",
+                    body: JSON.stringify({ discord_user_id: "" }),
+                  });
+                  const data = (await res.json()) as { detail?: unknown };
+                  if (!res.ok) {
+                    setMsg(typeof data.detail === "string" ? data.detail : "Could not clear link");
+                    await load();
+                    return;
+                  }
+                  setMsg("Discord link removed.");
+                } catch (e) {
+                  setMsg(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setDiscordSaving(false);
+                }
+              })();
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </section>
 
       {msg ? (
         <p

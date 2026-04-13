@@ -14,6 +14,7 @@ type UserRow = {
   display_name?: string | null;
   tenant_id?: number;
   tenant_name?: string | null;
+  discord_user_id?: string | null;
 };
 
 function rowLabel(r: UserRow): string {
@@ -219,25 +220,26 @@ export function AdminUsers() {
                 <th className="px-4 py-3 font-medium">Email / identity</th>
                 <th className="px-4 py-3 font-medium">Tenant</th>
                 <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Discord id</th>
                 <th className="px-4 py-3 font-medium">Created</th>
               </tr>
             </thead>
             <tbody>
               {listLoading ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={5} className="px-4 py-6 text-center text-surface-muted">
                     Loading…
                   </td>
                 </tr>
               ) : listErr ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-red-400">
+                  <td colSpan={5} className="px-4 py-6 text-center text-red-400">
                     {listErr}
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={5} className="px-4 py-6 text-center text-surface-muted">
                     No users found.
                   </td>
                 </tr>
@@ -286,6 +288,9 @@ export function AdminUsers() {
                         >
                           {r.role}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-neutral-400">
+                        {r.discord_user_id?.trim() ? r.discord_user_id.trim() : "—"}
                       </td>
                       <td className="px-4 py-3 text-surface-muted">
                         {r.created_at

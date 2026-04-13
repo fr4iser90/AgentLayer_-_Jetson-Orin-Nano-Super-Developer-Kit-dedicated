@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -136,6 +137,100 @@ def user_tenant_id(user_id: uuid.UUID) -> int:
     except (TypeError, ValueError):
         return 1
     return t if t >= 1 else 1
+
+
+_DISCORD_NUMERIC_USER_ID = re.compile(r"^[0-9]{15,22}$")
+
+
+def discord_user_id_normalize(raw: str) -> str:
+    s = (raw or "").strip()
+    if not _DISCORD_NUMERIC_USER_ID.match(s):
+        raise ValueError("Discord user id must be a numeric id (15–22 digits), from Copy User ID in Discord.")
+    return s
+
+
+def user_discord_user_id_get(user_id: uuid.UUID) -> str | None:
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT discord_user_id FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+        conn.commit()
+    if not row or row[0] is None:
+        return None
+    out = str(row[0]).strip()
+    return out or None
+
+
+def user_discord_user_id_set(user_id: uuid.UUID, tenant_id: int, raw: str) -> str | None:
+    """
+    Set or clear ``users.discord_user_id``. Empty / whitespace ``raw`` clears the link.
+    Returns the stored value (or None if cleared).
+    """
+    stripped = (raw or "").strip()
+    new_val: str | None = None if not stripped else discord_user_id_normalize(stripped)
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE users SET discord_user_id = %s
+                WHERE id = %s AND tenant_id = %s
+                """,
+                (new_val, user_id, tenant_id),
+            )
+            if (cur.rowcount or 0) < 1:
+                raise ValueError("user not found")
+        conn.commit()
+    return new_val
+
+
+def user_id_for_discord_user_id(tenant_id: int, discord_user_id: str) -> uuid.UUID | None:
+    """Resolve AgentLayer user id from Discord numeric user id within a tenant (for bots with DB access)."""
+    sid = discord_user_id_normalize(discord_user_id)
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM users WHERE tenant_id = %s AND discord_user_id = %s",
+                (tenant_id, sid),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return None
+    uid = row[0]
+    return uid if isinstance(uid, uuid.UUID) else uuid.UUID(str(uid))
+
+
+def user_id_tenant_for_discord_global(discord_user_id: str) -> tuple[uuid.UUID, int] | None:
+    """
+    Resolve (user_id, tenant_id) from a linked Discord numeric user id (any tenant).
+    Returns None if unlinked, invalid id, or more than one row (ambiguous).
+    """
+    try:
+        sid = discord_user_id_normalize(discord_user_id)
+    except ValueError:
+        return None
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, tenant_id FROM users WHERE discord_user_id = %s",
+                (sid,),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    if not rows:
+        return None
+    if len(rows) > 1:
+        logger.warning(
+            "multiple users share the same discord_user_id; Discord bridge refuses ambiguous resolution"
+        )
+        return None
+    uid, tid = rows[0]
+    user_uuid = uid if isinstance(uid, uuid.UUID) else uuid.UUID(str(uid))
+    try:
+        tenant_id = int(tid) if tid is not None else 1
+    except (TypeError, ValueError):
+        tenant_id = 1
+    return user_uuid, tenant_id if tenant_id >= 1 else 1
 
 
 def user_role(user_id: uuid.UUID | None) -> str:

@@ -136,7 +136,7 @@ def public_http_auth_policy() -> dict[str, Any]:
             "all_other_routes": "Valid JWT access token or api_keys entry in Authorization: Bearer.",
         },
         "admin_routes": [
-            "GET/PUT /v1/admin/operator-settings",
+            "GET/PUT/PATCH /v1/admin/operator-settings",
             "GET/PUT /v1/admin/interfaces",
             "GET/POST /v1/admin/tenants",
             "GET /v1/admin/users",

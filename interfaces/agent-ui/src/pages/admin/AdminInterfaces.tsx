@@ -10,6 +10,14 @@ type InterfaceHints = {
   agent_mode_env?: "sandbox" | "host";
 };
 
+type OperatorPublic = {
+  discord_bot_enabled?: boolean;
+  discord_bot_token_configured?: boolean;
+  discord_trigger_prefix?: string;
+  discord_chat_model?: string;
+  detail?: unknown;
+};
+
 function detailMessage(data: unknown): string {
   if (data && typeof data === "object" && "detail" in data) {
     const d = (data as { detail: unknown }).detail;
@@ -26,6 +34,11 @@ export function AdminInterfaces() {
   const [agentMode, setAgentMode] = useState<"env" | "sandbox" | "host">("env");
   const [agentModeEnv, setAgentModeEnv] = useState<string>("sandbox");
   const [agentModeEffective, setAgentModeEffective] = useState<string>("sandbox");
+  const [bridgeEnabled, setBridgeEnabled] = useState(false);
+  const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [triggerPrefix, setTriggerPrefix] = useState("!agent ");
+  const [chatModel, setChatModel] = useState("");
+  const [discordToken, setDiscordToken] = useState("");
   const [loading, setLoading] = useState(true);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copyMsg, setCopyMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -36,19 +49,33 @@ export function AdminInterfaces() {
     setLoading(true);
     setSaveMsg(null);
     try {
-      const res = await apiFetch("/v1/admin/interfaces", auth);
-      const data = (await res.json()) as InterfaceHints | { detail?: unknown };
-      if (!res.ok) {
-        setSaveMsg({ ok: false, text: detailMessage(data) });
+      const [iRes, oRes] = await Promise.all([
+        apiFetch("/v1/admin/interfaces", auth),
+        apiFetch("/v1/admin/operator-settings", auth),
+      ]);
+      const iData = (await iRes.json()) as InterfaceHints | { detail?: unknown };
+      if (!iRes.ok) {
+        setSaveMsg({ ok: false, text: detailMessage(iData) });
         return;
       }
-      const row = data as InterfaceHints;
+      const row = iData as InterfaceHints;
       setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
       const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
       setAgentMode(am);
       setAgentModeEnv(row.agent_mode_env ?? "sandbox");
       setAgentModeEffective(row.agent_mode_effective ?? row.agent_mode_env ?? "sandbox");
+
+      const oData = (await oRes.json()) as OperatorPublic | { detail?: unknown };
+      if (!oRes.ok) {
+        setSaveMsg({ ok: false, text: detailMessage(oData) });
+        return;
+      }
+      const op = oData as OperatorPublic;
+      setBridgeEnabled(!!op.discord_bot_enabled);
+      setTokenConfigured(!!op.discord_bot_token_configured);
+      setTriggerPrefix(op.discord_trigger_prefix || "!agent ");
+      setChatModel(op.discord_chat_model ?? "");
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -62,8 +89,9 @@ export function AdminInterfaces() {
 
   async function save() {
     setSaveMsg(null);
+    setCopyMsg(null);
     try {
-      const res = await apiFetch("/v1/admin/interfaces", auth, {
+      const putRes = await apiFetch("/v1/admin/interfaces", auth, {
         method: "PUT",
         body: JSON.stringify({
           optional_connection_key: optionalConnectionKey,
@@ -71,19 +99,64 @@ export function AdminInterfaces() {
           agent_mode: agentMode === "env" ? "" : agentMode,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setSaveMsg({ ok: false, text: detailMessage(data) });
+      const putData = await putRes.json();
+      if (!putRes.ok) {
+        setSaveMsg({ ok: false, text: detailMessage(putData) });
         return;
       }
-      const row = data as InterfaceHints;
+      const row = putData as InterfaceHints;
       setOptionalConnectionKey(row.optional_connection_key ?? "");
       setDiscordAppId(row.discord_application_id ?? "");
       const am = row.agent_mode === "sandbox" || row.agent_mode === "host" ? row.agent_mode : "env";
       setAgentMode(am);
       setAgentModeEnv(row.agent_mode_env ?? "sandbox");
       setAgentModeEffective(row.agent_mode_effective ?? row.agent_mode_env ?? "sandbox");
-      setSaveMsg({ ok: true, text: "Saved." });
+
+      const patch: Record<string, unknown> = {
+        discord_bot_enabled: bridgeEnabled,
+        discord_trigger_prefix: triggerPrefix.trim() || "!agent ",
+        discord_chat_model: chatModel.trim() || null,
+      };
+      if (discordToken.trim()) {
+        patch.discord_bot_token = discordToken.trim();
+      }
+      const patchRes = await apiFetch("/v1/admin/operator-settings", auth, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      const patchData = await patchRes.json();
+      if (!patchRes.ok) {
+        setSaveMsg({
+          ok: false,
+          text: `Interfaces saved, but Discord bridge failed: ${detailMessage(patchData)}`,
+        });
+        return;
+      }
+      setDiscordToken("");
+      await load();
+      setSaveMsg({
+        ok: true,
+        text: "Saved. In-process Discord bridge picks up token/enable changes after the current Discord session reconnects (or restart the container).",
+      });
+    } catch (e) {
+      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  async function clearDiscordToken() {
+    setSaveMsg(null);
+    try {
+      const res = await apiFetch("/v1/admin/operator-settings", auth, {
+        method: "PATCH",
+        body: JSON.stringify({ discord_bot_token: null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveMsg({ ok: false, text: detailMessage(data) });
+        return;
+      }
+      await load();
+      setSaveMsg({ ok: true, text: "Discord bot token cleared." });
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     }
@@ -112,7 +185,7 @@ export function AdminInterfaces() {
         <a href="/auth/policy" className="text-sky-400 hover:underline">
           GET /auth/policy
         </a>
-        .
+        . Discord gateway and application id live here too (not on a separate admin page).
       </p>
 
       {loading ? (
@@ -185,7 +258,13 @@ export function AdminInterfaces() {
 
           <section className="mt-6 rounded-xl border border-surface-border bg-surface-raised p-5">
             <h2 className="text-sm font-medium text-white">Discord</h2>
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="discord-id">
+            <p className="mt-2 text-xs text-surface-muted">
+              Application id is a hint for integrations. The in-process bridge runs inside agent-layer; users link their
+              numeric Discord user id under <strong className="text-neutral-300">Settings → Connections</strong>. In
+              server channels, messages must start with the trigger prefix; chat runs in-process as the linked
+              AgentLayer user.
+            </p>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="discord-id">
               Discord application ID
             </label>
             <input
@@ -196,11 +275,57 @@ export function AdminInterfaces() {
               autoComplete="off"
               inputMode="numeric"
             />
-            <p className="mt-2 text-xs text-surface-muted">
-              In the bot, set <span className="font-mono">Authorization: Bearer …</span>. Per request
-              add <span className="font-mono">X-Agent-User-Sub: discord:&lt;snowflake&gt;</span> for the
-              message author.
-            </p>
+
+            <h3 className="mt-6 text-xs font-medium uppercase tracking-wide text-surface-muted">In-process bridge</h3>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={bridgeEnabled}
+                onChange={(e) => setBridgeEnabled(e.target.checked)}
+              />
+              Enable Discord bridge
+            </label>
+            <p className="mt-2 text-xs text-surface-muted">Token stored: {tokenConfigured ? "yes" : "no"}</p>
+            <label className="mt-3 block text-xs text-surface-muted" htmlFor="d-token">
+              Discord bot token (Developer Portal)
+            </label>
+            <input
+              id="d-token"
+              type="password"
+              autoComplete="off"
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={discordToken}
+              onChange={(e) => setDiscordToken(e.target.value)}
+              placeholder={tokenConfigured ? "•••••• (enter new value to replace)" : "paste token"}
+            />
+            <label className="mt-3 block text-xs text-surface-muted" htmlFor="prefix">
+              Message prefix in servers (must match start of message)
+            </label>
+            <input
+              id="prefix"
+              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={triggerPrefix}
+              onChange={(e) => setTriggerPrefix(e.target.value)}
+            />
+            <label className="mt-3 block text-xs text-surface-muted" htmlFor="model">
+              Ollama model id (empty = server default)
+            </label>
+            <input
+              id="model"
+              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={chatModel}
+              onChange={(e) => setChatModel(e.target.value)}
+              placeholder="e.g. nemotron-3-nano:4b"
+            />
+            <button
+              type="button"
+              className="mt-3 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+              disabled={!tokenConfigured}
+              onClick={() => void clearDiscordToken()}
+            >
+              Clear Discord token
+            </button>
           </section>
 
           <div className="mt-6 flex flex-wrap gap-2">

@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
+from psycopg.errors import UniqueViolation
 
 from src.domain.http_identity import resolve_chat_identity
 from src.infrastructure.db import db
@@ -236,3 +237,37 @@ def delete_kb_note_share(share_id: int, request: Request) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="share not found or not owner")
     return {"ok": True, "deleted": share_id}
+
+
+class DiscordLinkBody(BaseModel):
+    """Discord numeric user id for this AgentLayer user (same tenant must stay unique)."""
+
+    discord_user_id: str = Field(default="", max_length=32)
+
+
+@router.put("/discord")
+def put_user_discord_link(request: Request, body: DiscordLinkBody) -> dict:
+    """
+    Link or unlink your Discord user id for bridge bots (stored on ``users.discord_user_id``).
+    Empty string clears the link. Auth for API calls remains Bearer/JWT or API keys — this field
+    is metadata so a bot with database access can map Discord → AgentLayer ``users.id``.
+    """
+    uid, tid = resolve_chat_identity(request)
+    try:
+        stored = db.user_discord_user_id_set(uid, tid, body.discord_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except UniqueViolation as e:
+        raise HTTPException(
+            status_code=409,
+            detail="This Discord user id is already linked to another account in your tenant.",
+        ) from e
+    except Exception as e:
+        cause = getattr(e, "__cause__", None)
+        if isinstance(cause, UniqueViolation):
+            raise HTTPException(
+                status_code=409,
+                detail="This Discord user id is already linked to another account in your tenant.",
+            ) from e
+        raise
+    return {"ok": True, "discord_user_id": stored}

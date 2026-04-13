@@ -26,11 +26,14 @@ CREATE TABLE users (
   role TEXT NOT NULL DEFAULT 'user',
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  discord_user_id TEXT,
   UNIQUE (tenant_id, external_sub)
 );
 
 CREATE INDEX idx_users_tenant ON users (tenant_id);
 CREATE INDEX idx_users_tenant_sub ON users (tenant_id, external_sub);
+CREATE UNIQUE INDEX idx_users_tenant_discord_user ON users (tenant_id, discord_user_id)
+  WHERE discord_user_id IS NOT NULL AND btrim(discord_user_id) <> '';
 
 CREATE TABLE todos (
   id BIGSERIAL PRIMARY KEY,
@@ -276,6 +279,11 @@ CREATE TABLE operator_settings (
   integration_notes TEXT,
   optional_connection_key TEXT,
   agent_mode TEXT,
+  discord_bot_enabled BOOLEAN NOT NULL DEFAULT false,
+  discord_bot_token TEXT,
+  discord_bot_agent_bearer TEXT,
+  discord_trigger_prefix TEXT NOT NULL DEFAULT '!agent ',
+  discord_chat_model TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

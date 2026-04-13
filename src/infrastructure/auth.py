@@ -152,7 +152,7 @@ def list_all_users() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT u.id, u.email, u.role, u.created_at, u.external_sub, u.display_name,
-                       u.tenant_id, t.name AS tenant_name
+                       u.tenant_id, t.name AS tenant_name, u.discord_user_id
                 FROM users u
                 LEFT JOIN tenants t ON t.id = u.tenant_id
                 ORDER BY u.created_at ASC NULLS LAST, u.email ASC NULLS LAST, u.external_sub ASC
@@ -161,8 +161,9 @@ def list_all_users() -> list[dict[str, Any]]:
             rows = cur.fetchall()
     out: list[dict[str, Any]] = []
     for row in rows:
-        uid, email, role, created_at, external_sub, display_name, tenant_id, tenant_name = row
+        uid, email, role, created_at, external_sub, display_name, tenant_id, tenant_name, discord_uid = row
         tid = int(tenant_id) if tenant_id is not None else 1
+        du = str(discord_uid).strip() if discord_uid is not None else ""
         out.append(
             {
                 "id": str(uid),
@@ -173,6 +174,7 @@ def list_all_users() -> list[dict[str, Any]]:
                 "display_name": display_name,
                 "tenant_id": tid,
                 "tenant_name": (tenant_name or "") if tenant_name is not None else "",
+                "discord_user_id": du or None,
             }
         )
     return out

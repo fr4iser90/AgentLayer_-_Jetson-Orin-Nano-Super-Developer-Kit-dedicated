@@ -45,6 +45,7 @@ export function App() {
               <Route element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="interfaces" element={<AdminInterfaces />} />
+                <Route path="discord" element={<Navigate to="../interfaces" replace />} />
                 <Route path="tools" element={<AdminTools />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="workflows" element={<AdminWorkflows />} />

@@ -1,4 +1,4 @@
--- Shared user_workspaces table (same DDL as other bundles). Idempotent.
+-- Shared user_workspaces table. Idempotent (safe if referenced from multiple bundles).
 
 CREATE TABLE IF NOT EXISTS user_workspaces (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

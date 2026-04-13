@@ -1,5 +1,6 @@
 {
   "kind": "todo",
+  "description": "Template for kind todo — copied into DB on create.",
   "ui_layout": {
     "version": 1,
     "blocks": [
@@ -11,16 +12,16 @@
           "dataPath": "tasks",
           "columns": [
             { "field": "done", "kind": "checkbox", "label": "" },
-            { "field": "title", "kind": "text", "label": "Aufgabe" },
-            { "field": "due", "kind": "text", "label": "Fällig" }
+            { "field": "title", "kind": "text", "label": "Task" },
+            { "field": "due", "kind": "text", "label": "Due" }
           ]
         }
       },
       {
-        "id": "todo-notes",
+        "id": "task-notes",
         "type": "markdown",
         "grid": { "x": 0, "y": 9, "w": 12, "h": 4 },
-        "props": { "dataPath": "notes", "placeholder": "Notizen zur Liste…" }
+        "props": { "dataPath": "notes", "placeholder": "Notes for this list…" }
       }
     ]
   },
