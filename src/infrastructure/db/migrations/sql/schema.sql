@@ -336,7 +336,7 @@ CREATE INDEX idx_workspace_files_workspace ON workspace_files (workspace_id);
 CREATE TABLE workspace_members (
   workspace_id UUID NOT NULL,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+  role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'co_owner')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, user_id)
 );
@@ -349,16 +349,25 @@ CREATE TABLE chat_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  workspace_id UUID REFERENCES user_workspaces(id) ON DELETE SET NULL,
   title TEXT NOT NULL DEFAULT '',
   mode TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'agent')),
   model TEXT NOT NULL DEFAULT '',
   agent_log JSONB NOT NULL DEFAULT '[]'::jsonb,
+  shared BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_chat_conv_user_updated ON chat_conversations (user_id, updated_at DESC);
 CREATE INDEX idx_chat_conv_tenant ON chat_conversations (tenant_id);
+CREATE INDEX idx_chat_conv_workspace ON chat_conversations (workspace_id);
+CREATE UNIQUE INDEX uq_chat_conv_user_workspace_personal
+  ON chat_conversations (user_id, workspace_id)
+  WHERE workspace_id IS NOT NULL AND shared = false;
+CREATE UNIQUE INDEX uq_chat_conv_workspace_shared
+  ON chat_conversations (workspace_id)
+  WHERE workspace_id IS NOT NULL AND shared = true;
 
 CREATE TABLE chat_messages (
   id BIGSERIAL PRIMARY KEY,

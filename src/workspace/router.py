@@ -182,7 +182,7 @@ async def workspace_file_upload(
     if not ws:
         raise HTTPException(status_code=404, detail="workspace not found")
     role = ws.get("access_role")
-    if role not in ("owner", "editor"):
+    if role not in ("owner", "co_owner", "editor"):
         raise HTTPException(status_code=403, detail="upload not allowed for this role")
 
     max_b = effective_workspace_upload_max_bytes()
@@ -308,8 +308,8 @@ async def list_workspace_members(request: Request, workspace_id: uuid.UUID):
     acc = workspace_db.workspace_access(user.id, tid, workspace_id)
     if acc is None:
         raise HTTPException(status_code=404, detail="workspace not found")
-    if acc != "owner":
-        raise HTTPException(status_code=403, detail="only owner can list members")
+    if not workspace_db.workspace_can_manage_members(user.id, tid, workspace_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can list members")
     items = workspace_db.members_list(user.id, tid, workspace_id)
     return {"ok": True, "members": items}
 
@@ -321,16 +321,16 @@ async def add_workspace_member(
     _require_schema()
     user = await get_current_user(request)
     tid = db.user_tenant_id(user.id)
-    if workspace_db.workspace_access(user.id, tid, workspace_id) != "owner":
-        raise HTTPException(status_code=403, detail="only owner can add members")
+    if not workspace_db.workspace_can_manage_members(user.id, tid, workspace_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can add members")
     target = get_user_by_email(body.email.strip().lower())
     if target is None:
         raise HTTPException(status_code=404, detail="user not found for this email")
     if db.user_tenant_id(target.id) != tid:
         raise HTTPException(status_code=400, detail="user must be in the same tenant")
     role = (body.role or "viewer").strip().lower()
-    if role not in ("viewer", "editor"):
-        raise HTTPException(status_code=400, detail="role must be viewer or editor")
+    if role not in ("viewer", "editor", "co_owner"):
+        raise HTTPException(status_code=400, detail="role must be viewer, editor, or co_owner")
     ok = workspace_db.member_add(user.id, tid, workspace_id, target.id, role)
     if not ok:
         raise HTTPException(status_code=400, detail="could not add member")
@@ -344,8 +344,8 @@ async def remove_workspace_member(
     _require_schema()
     user = await get_current_user(request)
     tid = db.user_tenant_id(user.id)
-    if workspace_db.workspace_access(user.id, tid, workspace_id) != "owner":
-        raise HTTPException(status_code=403, detail="only owner can remove members")
+    if not workspace_db.workspace_can_manage_members(user.id, tid, workspace_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can remove members")
     if not workspace_db.member_remove(user.id, tid, workspace_id, member_user_id):
         raise HTTPException(status_code=404, detail="member not found")
     return {"ok": True, "removed": True}

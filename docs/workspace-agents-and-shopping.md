@@ -18,7 +18,7 @@ There is no separate agent process per workspace. What you can do today:
 
 1. **Narrow tools** — HTTP header `X-Agent-Tool-Domain` or body `TOOL_DOMAIN` restricts which tools are sent to the model (see tool registry and `TOOL_DOMAIN` on modules).
 2. **Strong tool descriptions** — Shopping-related tools should state that they require a `workspace_id` and how to obtain it (list workspaces first).
-3. **Optional UI context (implemented)** — Chat requests may include `agent_workspace_context: { "workspace_id": "<uuid>" }`. The server loads that workspace with the current user’s access rights and appends a `[Workspace context]` line to the system prompt (title, kind, role). The web app sends this when you open **Chat** from a workspace (`/app/chat?workspace=<uuid>` or **“Chat with this workspace”** on the workspace page). If the id is inaccessible, the prompt says so and the model must not assume an id.
+3. **Optional UI context (implemented)** — Chat requests may include `agent_workspace_context: { "workspace_id": "<uuid>" }`. The server loads that workspace with the current user’s access rights and appends a `[Workspace context]` line to the system prompt (title, kind, role). The workspace UI embeds an assistant panel that **persists** messages in `chat_conversations` with a **unique `(user_id, workspace_id)`** thread (see migration `schema_006`), so reload keeps history. The standalone Chat page can still use `/app/chat?workspace=<uuid>` for the same context header.
 
 ## Shopping list (`kind: shopping_list`)
 

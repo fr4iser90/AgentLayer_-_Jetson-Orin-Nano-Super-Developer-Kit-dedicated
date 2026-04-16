@@ -117,13 +117,14 @@ export function WorkspacePage() {
   const [layoutDraft, setLayoutDraft] = useState<UiLayout>({ version: 1, blocks: [] });
   const [members, setMembers] = useState<WorkspaceMemberRow[]>([]);
   const [memberEmail, setMemberEmail] = useState("");
-  const [memberRole, setMemberRole] = useState<"viewer" | "editor">("viewer");
+  const [memberRole, setMemberRole] = useState<"viewer" | "editor" | "co_owner">("viewer");
   const [membersBusy, setMembersBusy] = useState(false);
   const [membersErr, setMembersErr] = useState<string | null>(null);
 
   const accessRole = detail?.access_role ?? "owner";
   const isViewer = accessRole === "viewer";
-  const isOwner = accessRole === "owner";
+  const isPrimaryOwner = accessRole === "owner";
+  const canManageMembers = accessRole === "owner" || accessRole === "co_owner";
   const canEditContent = !isViewer;
 
   const uiLayout = useMemo(() => asUiLayout(detail?.ui_layout), [detail]);
@@ -292,7 +293,7 @@ export function WorkspacePage() {
   }, [detail?.access_role]);
 
   useEffect(() => {
-    if (!selectedId || detail?.access_role !== "owner") {
+    if (!selectedId || !canManageMembers) {
       setMembers([]);
       setMembersErr(null);
       return;
@@ -313,7 +314,7 @@ export function WorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, detail?.access_role, auth]);
+  }, [selectedId, canManageMembers, auth]);
 
   const recentActivity = useMemo(() => {
     return [...list]
@@ -457,7 +458,7 @@ export function WorkspacePage() {
   };
 
   const removeWs = async () => {
-    if (!selectedId || !isOwner) return;
+    if (!selectedId || !isPrimaryOwner) return;
     if (!window.confirm("Delete this workspace?")) return;
     const res = await apiFetch(`/v1/workspaces/${selectedId}`, auth, {
       method: "DELETE",
@@ -643,7 +644,9 @@ export function WorkspacePage() {
                           ? " · read-only"
                           : w.access_role === "editor"
                             ? " · shared"
-                            : ""}
+                            : w.access_role === "co_owner"
+                              ? " · co-owner"
+                              : ""}
                       </span>
                     </button>
                     {(w.access_role ?? "owner") === "owner" ? (
@@ -832,8 +835,9 @@ export function WorkspacePage() {
             Workspace / <span className="text-white">{detail?.title || title || "…"}</span>
           </p>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
             {error ? (
               <div className="mb-4 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
                 {error}
@@ -889,7 +893,7 @@ export function WorkspacePage() {
                         {saving ? "Saving…" : layoutEditMode ? "Save" : "Save"}
                       </button>
                     ) : null}
-                    {isOwner ? (
+                    {isPrimaryOwner ? (
                       <button
                         type="button"
                         className="rounded-lg border border-white/10 px-4 py-2 text-sm text-red-300 hover:bg-red-950/40"
@@ -900,15 +904,16 @@ export function WorkspacePage() {
                     ) : null}
                   </div>
                 </div>
-                {isOwner ? (
+                {canManageMembers ? (
                   <div className="mb-4 rounded-xl border border-surface-border bg-surface-raised/50 p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
                       Share workspace
                     </p>
                     <p className="mt-1 text-xs text-surface-muted">
-                      Same-tenant accounts only. <span className="text-white/70">Viewer</span> sees pet photos
-                      and lists; <span className="text-white/70">editor</span> can change content (not delete
-                      the workspace).
+                      Same-tenant accounts only. <span className="text-white/70">Viewer</span> is read-only.
+                      <span className="text-white/70"> Editor</span> can edit content.{" "}
+                      <span className="text-white/70">Co-owner</span> can edit and manage members. Only the
+                      primary owner can delete the workspace.
                     </p>
                     {membersErr ? (
                       <p className="mt-2 text-xs text-red-300">{membersErr}</p>
@@ -928,11 +933,14 @@ export function WorkspacePage() {
                         <label className="mb-1 block text-[10px] text-surface-muted">Role</label>
                         <select
                           value={memberRole}
-                          onChange={(e) => setMemberRole(e.target.value as "viewer" | "editor")}
+                          onChange={(e) =>
+                            setMemberRole(e.target.value as "viewer" | "editor" | "co_owner")
+                          }
                           className="rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white"
                         >
                           <option value="viewer">Viewer</option>
                           <option value="editor">Editor</option>
+                          <option value="co_owner">Co-owner</option>
                         </select>
                       </div>
                       <button
@@ -984,10 +992,21 @@ export function WorkspacePage() {
                   contentReadOnly={isViewer}
                   workspaceId={selectedId}
                 />
-                <WorkspaceEmbeddedChat workspaceId={selectedId} workspaceTitle={title || detail?.title} />
               </>
             )}
+            </div>
           </div>
+          {detail ? (
+            <aside className="flex min-h-[min(380px,50vh)] w-full shrink-0 flex-col border-t border-surface-border bg-[#0d0d0d]/80 lg:min-h-0 lg:w-[min(400px,36vw)] lg:max-w-md lg:border-t-0 lg:border-l lg:border-surface-border">
+              <div className="flex min-h-[280px] flex-1 flex-col p-3 md:p-4 lg:min-h-0 lg:max-h-[calc(100vh-7rem)]">
+                <WorkspaceEmbeddedChat
+                  workspaceId={selectedId}
+                  workspaceTitle={title || detail?.title}
+                  readOnly={isViewer}
+                />
+              </div>
+            </aside>
+          ) : null}
         </div>
       </div>
     );

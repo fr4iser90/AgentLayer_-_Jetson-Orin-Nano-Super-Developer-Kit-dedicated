@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.infrastructure.auth import get_current_user
+from src.infrastructure.db import db as db_mod
 from src.infrastructure.conversations_db import (
     conversation_create,
     conversation_delete,
@@ -16,6 +17,7 @@ from src.infrastructure.conversations_db import (
     conversation_replace,
     conversations_list,
 )
+from src.workspace import db as workspace_db
 
 router = APIRouter(prefix="/v1/user/conversations", tags=["conversations"])
 
@@ -31,6 +33,9 @@ class ConversationCreateBody(BaseModel):
     model: str = Field(default="", max_length=512)
     messages: list[MessageItem] = Field(default_factory=list)
     agent_log: list[Any] = Field(default_factory=list)
+    workspace_id: uuid.UUID | None = None
+    """When true with ``workspace_id``, creates the one shared thread per workspace (all members see it)."""
+    shared: bool = False
 
 
 class ConversationUpdateBody(BaseModel):
@@ -42,22 +47,43 @@ class ConversationUpdateBody(BaseModel):
 
 
 @router.get("")
-async def list_conversations(request: Request):
+async def list_conversations(request: Request, workspace_id: uuid.UUID | None = None):
     user = await get_current_user(request)
-    return {"ok": True, "conversations": conversations_list(user.id)}
+    if workspace_id is not None:
+        tid = db_mod.user_tenant_id(user.id)
+        if workspace_db.workspace_get(user.id, tid, workspace_id) is None:
+            raise HTTPException(status_code=403, detail="workspace not accessible")
+    return {
+        "ok": True,
+        "conversations": conversations_list(user.id, workspace_id=workspace_id),
+    }
 
 
 @router.post("")
 async def create_conversation(request: Request, body: ConversationCreateBody):
     user = await get_current_user(request)
-    data = conversation_create(
-        user.id,
-        title=body.title,
-        mode=body.mode,
-        model=body.model,
-        messages=[m.model_dump() for m in body.messages],
-        agent_log=body.agent_log,
-    )
+    ws_id = body.workspace_id
+    if body.shared and ws_id is None:
+        raise HTTPException(status_code=400, detail="shared requires workspace_id")
+    if ws_id is not None:
+        tid = db_mod.user_tenant_id(user.id)
+        if workspace_db.workspace_get(user.id, tid, ws_id) is None:
+            raise HTTPException(status_code=403, detail="workspace not accessible")
+    try:
+        data = conversation_create(
+            user.id,
+            title=body.title,
+            mode=body.mode,
+            model=body.model,
+            messages=[m.model_dump() for m in body.messages],
+            agent_log=body.agent_log,
+            workspace_id=ws_id,
+            shared=body.shared,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="not allowed to create this conversation") from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "conversation": data}
 
 

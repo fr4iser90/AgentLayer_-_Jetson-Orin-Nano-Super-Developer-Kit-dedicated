@@ -10,6 +10,7 @@ from typing import Any
 from psycopg.types.json import Json
 
 from src.infrastructure.db import db
+from src.workspace import db as workspace_db
 
 
 def _serialize_message_content(content: Any) -> str:
@@ -47,36 +48,104 @@ def _user_tenant_id(user_id: uuid.UUID) -> int:
             return int(row[0])
 
 
-def conversations_list(user_id: uuid.UUID) -> list[dict[str, Any]]:
+def _shared_chat_can_write(user_id: uuid.UUID, tenant_id: int, workspace_id: uuid.UUID) -> bool:
+    role = workspace_db.workspace_access(user_id, tenant_id, workspace_id)
+    return role is not None and role != "viewer"
+
+
+def _row_to_list_item(
+    r: tuple[Any, ...],
+) -> dict[str, Any]:
+    cid = r[0]
+    if not isinstance(cid, uuid.UUID):
+        cid = uuid.UUID(str(cid))
+    wid = r[6]
+    ws_out: str | None = None
+    if wid is not None:
+        ws_out = str(wid) if isinstance(wid, uuid.UUID) else str(uuid.UUID(str(wid)))
+    shared = bool(r[7])
+    return {
+        "id": str(cid),
+        "title": r[1] or "",
+        "mode": r[2],
+        "model": r[3] or "",
+        "updated_at": r[4].isoformat() if isinstance(r[4], datetime) else str(r[4]),
+        "message_count": int(r[5] or 0),
+        "workspace_id": ws_out,
+        "shared": shared,
+    }
+
+
+def conversations_list(
+    user_id: uuid.UUID, *, workspace_id: uuid.UUID | None = None
+) -> list[dict[str, Any]]:
+    tenant_id = _user_tenant_id(user_id)
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT c.id, c.title, c.mode, c.model, c.updated_at,
-                  (SELECT COUNT(*)::int FROM chat_messages m WHERE m.conversation_id = c.id)
-                FROM chat_conversations c
-                WHERE c.user_id = %s
-                ORDER BY c.updated_at DESC
-                """,
-                (user_id,),
-            )
+            if workspace_id is not None:
+                cur.execute(
+                    """
+                    SELECT c.id, c.title, c.mode, c.model, c.updated_at,
+                      (SELECT COUNT(*)::int FROM chat_messages m WHERE m.conversation_id = c.id),
+                      c.workspace_id, c.shared
+                    FROM chat_conversations c
+                    WHERE c.workspace_id = %s
+                      AND (
+                        (c.shared = true)
+                        OR (c.shared = false AND c.user_id = %s)
+                      )
+                    ORDER BY c.shared DESC, c.updated_at DESC
+                    """,
+                    (workspace_id, user_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT c.id, c.title, c.mode, c.model, c.updated_at,
+                      (SELECT COUNT(*)::int FROM chat_messages m WHERE m.conversation_id = c.id),
+                      c.workspace_id, c.shared
+                    FROM chat_conversations c
+                    WHERE c.tenant_id = %s
+                      AND (
+                        (c.user_id = %s AND c.shared = false)
+                        OR (
+                          c.shared = true
+                          AND c.workspace_id IS NOT NULL
+                          AND (
+                            EXISTS (
+                              SELECT 1 FROM user_workspaces w
+                              WHERE w.id = c.workspace_id
+                                AND w.tenant_id = c.tenant_id
+                                AND w.owner_user_id = %s
+                            )
+                            OR EXISTS (
+                              SELECT 1 FROM workspace_members m
+                              WHERE m.workspace_id = c.workspace_id AND m.user_id = %s
+                            )
+                          )
+                        )
+                      )
+                    ORDER BY c.updated_at DESC
+                    """,
+                    (tenant_id, user_id, user_id, user_id),
+                )
             rows = cur.fetchall()
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        cid = r[0]
-        if not isinstance(cid, uuid.UUID):
-            cid = uuid.UUID(str(cid))
-        out.append(
-            {
-                "id": str(cid),
-                "title": r[1] or "",
-                "mode": r[2],
-                "model": r[3] or "",
-                "updated_at": r[4].isoformat() if isinstance(r[4], datetime) else str(r[4]),
-                "message_count": int(r[5] or 0),
-            }
-        )
-    return out
+    return [_row_to_list_item(r) for r in rows]
+
+
+def _fetch_messages(cur: Any, conversation_id: uuid.UUID) -> list[dict[str, Any]]:
+    cur.execute(
+        """
+        SELECT role, content FROM chat_messages
+        WHERE conversation_id = %s
+        ORDER BY position ASC
+        """,
+        (conversation_id,),
+    )
+    mrows = cur.fetchall()
+    return [
+        {"role": mr[0], "content": _deserialize_message_content(mr[1])} for mr in mrows
+    ]
 
 
 def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str, Any] | None:
@@ -84,38 +153,39 @@ def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, title, mode, model, agent_log, updated_at, created_at
+                SELECT id, title, mode, model, agent_log, updated_at, created_at, workspace_id,
+                       user_id, tenant_id, shared
                 FROM chat_conversations
-                WHERE id = %s AND user_id = %s
+                WHERE id = %s
                 """,
-                (conversation_id, user_id),
+                (conversation_id,),
             )
             crow = cur.fetchone()
             if not crow:
                 return None
-            cur.execute(
-                """
-                SELECT role, content FROM chat_messages
-                WHERE conversation_id = %s
-                ORDER BY position ASC
-                """,
-                (conversation_id,),
-            )
-            mrows = cur.fetchall()
+            cid_raw = crow[0]
+            wid = crow[7]
+            row_user = crow[8]
+            tenant_id = int(crow[9])
+            shared = bool(crow[10])
+            if shared and wid is not None:
+                if workspace_db.workspace_access(user_id, tenant_id, wid) is None:
+                    return None
+            elif row_user != user_id:
+                return None
+            messages = _fetch_messages(cur, conversation_id)
     agent_log = crow[4]
     if isinstance(agent_log, str):
-        import json
-
         try:
             agent_log = json.loads(agent_log)
         except Exception:
             agent_log = []
     if not isinstance(agent_log, list):
         agent_log = []
-    messages = [
-        {"role": mr[0], "content": _deserialize_message_content(mr[1])} for mr in mrows
-    ]
-    cid = crow[0]
+    cid = cid_raw
+    ws_out: str | None = None
+    if wid is not None:
+        ws_out = str(wid) if isinstance(wid, uuid.UUID) else str(uuid.UUID(str(wid)))
     return {
         "id": str(cid if isinstance(cid, uuid.UUID) else uuid.UUID(str(cid))),
         "title": crow[1] or "",
@@ -125,6 +195,8 @@ def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str
         "messages": messages,
         "updated_at": crow[5].isoformat() if isinstance(crow[5], datetime) else str(crow[5]),
         "created_at": crow[6].isoformat() if isinstance(crow[6], datetime) else str(crow[6]),
+        "workspace_id": ws_out,
+        "shared": shared,
     }
 
 
@@ -136,17 +208,97 @@ def conversation_create(
     model: str,
     messages: list[dict[str, Any]],
     agent_log: list[Any],
+    workspace_id: uuid.UUID | None = None,
+    shared: bool = False,
 ) -> dict[str, Any]:
     tenant_id = _user_tenant_id(user_id)
+    if shared:
+        if workspace_id is None:
+            raise ValueError("shared conversation requires workspace_id")
+        if not _shared_chat_can_write(user_id, tenant_id, workspace_id):
+            raise PermissionError("cannot create shared workspace chat for this user")
+        with db.pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id FROM chat_conversations
+                    WHERE workspace_id = %s AND shared = true
+                    LIMIT 1
+                    """,
+                    (workspace_id,),
+                )
+                existing = cur.fetchone()
+                if existing is not None:
+                    eid = existing[0]
+                    if not isinstance(eid, uuid.UUID):
+                        eid = uuid.UUID(str(eid))
+                    conn.commit()
+                    got = conversation_get(user_id, eid)
+                    if got:
+                        return got
+                    raise RuntimeError("conversation_create: existing shared row invisible")
+                cur.execute(
+                    """
+                    SELECT owner_user_id, tenant_id FROM user_workspaces
+                    WHERE id = %s AND tenant_id = %s
+                    """,
+                    (workspace_id, tenant_id),
+                )
+                ws_row = cur.fetchone()
+                if ws_row is None:
+                    conn.commit()
+                    raise ValueError("workspace not found")
+                owner_uid = ws_row[0]
+                if not isinstance(owner_uid, uuid.UUID):
+                    owner_uid = uuid.UUID(str(owner_uid))
+                conv_id = uuid.uuid4()
+                cur.execute(
+                    """
+                    INSERT INTO chat_conversations (
+                      id, user_id, tenant_id, workspace_id, title, mode, model, agent_log, shared
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, true)
+                    """,
+                    (
+                        conv_id,
+                        owner_uid,
+                        tenant_id,
+                        workspace_id,
+                        title,
+                        mode,
+                        model,
+                        Json(agent_log),
+                    ),
+                )
+                for i, m in enumerate(messages):
+                    role = m.get("role") or "user"
+                    content = _serialize_message_content(m.get("content"))
+                    if role not in ("user", "assistant", "system"):
+                        role = "user"
+                    cur.execute(
+                        """
+                        INSERT INTO chat_messages (conversation_id, position, role, content)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (conv_id, i, role, content),
+                    )
+            conn.commit()
+        got = conversation_get(user_id, conv_id)
+        if not got:
+            raise RuntimeError("conversation_create: row missing after insert")
+        return got
+
     conv_id = uuid.uuid4()
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO chat_conversations (id, user_id, tenant_id, title, mode, model, agent_log)
-                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                INSERT INTO chat_conversations (
+                  id, user_id, tenant_id, workspace_id, title, mode, model, agent_log, shared
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, false)
                 """,
-                (conv_id, user_id, tenant_id, title, mode, model, Json(agent_log)),
+                (conv_id, user_id, tenant_id, workspace_id, title, mode, model, Json(agent_log)),
             )
             for i, m in enumerate(messages):
                 role = m.get("role") or "user"
@@ -180,10 +332,25 @@ def conversation_replace(
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM chat_conversations WHERE id = %s AND user_id = %s",
-                (conversation_id, user_id),
+                """
+                SELECT user_id, tenant_id, workspace_id, shared
+                FROM chat_conversations WHERE id = %s
+                """,
+                (conversation_id,),
             )
-            if cur.fetchone() is None:
+            meta = cur.fetchone()
+            if meta is None:
+                return None
+            row_user, tenant_id, ws_id, shared = (
+                meta[0],
+                int(meta[1]),
+                meta[2],
+                bool(meta[3]),
+            )
+            if shared and ws_id is not None:
+                if not _shared_chat_can_write(user_id, tenant_id, ws_id):
+                    return None
+            elif row_user != user_id:
                 return None
             parts: list[str] = []
             args: list[Any] = []
@@ -200,15 +367,24 @@ def conversation_replace(
                 parts.append("agent_log = %s::jsonb")
                 args.append(Json(agent_log))
             parts.append("updated_at = now()")
-            args.extend([conversation_id, user_id])
-            # SET fragments are fixed literals; values are always %s-bound (not SQL keyword injection).
-            cur.execute(  # nosec B608  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query
-                f"""
-                UPDATE chat_conversations SET {", ".join(parts)}
-                WHERE id = %s AND user_id = %s
-                """,
-                args,
-            )
+            if shared:
+                args.append(conversation_id)
+                cur.execute(  # nosec B608
+                    f"""
+                    UPDATE chat_conversations SET {", ".join(parts)}
+                    WHERE id = %s
+                    """,
+                    args,
+                )
+            else:
+                args.extend([conversation_id, user_id])
+                cur.execute(  # nosec B608
+                    f"""
+                    UPDATE chat_conversations SET {", ".join(parts)}
+                    WHERE id = %s AND user_id = %s
+                    """,
+                    args,
+                )
             if messages is not None:
                 cur.execute(
                     "DELETE FROM chat_messages WHERE conversation_id = %s",
@@ -234,9 +410,35 @@ def conversation_delete(user_id: uuid.UUID, conversation_id: uuid.UUID) -> bool:
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM chat_conversations WHERE id = %s AND user_id = %s RETURNING id",
-                (conversation_id, user_id),
+                """
+                SELECT user_id, tenant_id, workspace_id, shared
+                FROM chat_conversations WHERE id = %s
+                """,
+                (conversation_id,),
             )
+            meta = cur.fetchone()
+            if meta is None:
+                return False
+            row_user, tenant_id, ws_id, shared = (
+                meta[0],
+                int(meta[1]),
+                meta[2],
+                bool(meta[3]),
+            )
+            if shared and ws_id is not None:
+                if not _shared_chat_can_write(user_id, tenant_id, ws_id):
+                    return False
+                cur.execute(
+                    "DELETE FROM chat_conversations WHERE id = %s RETURNING id",
+                    (conversation_id,),
+                )
+            elif row_user != user_id:
+                return False
+            else:
+                cur.execute(
+                    "DELETE FROM chat_conversations WHERE id = %s AND user_id = %s RETURNING id",
+                    (conversation_id, user_id),
+                )
             row = cur.fetchone()
         conn.commit()
     return row is not None

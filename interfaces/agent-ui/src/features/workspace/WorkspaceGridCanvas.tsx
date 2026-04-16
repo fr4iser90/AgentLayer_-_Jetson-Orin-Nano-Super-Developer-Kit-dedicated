@@ -148,7 +148,7 @@ export function WorkspaceGridCanvas(props: {
         version: 1,
         blocks: prev.blocks.filter((x) => x.id !== id),
       }));
-      if (dp) {
+      if (dp && !dp.includes(".")) {
         setData((d) => {
           const n = { ...d };
           delete n[dp];

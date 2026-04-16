@@ -14,7 +14,7 @@ from src.infrastructure.db import db
 from src.workspace import file_storage, files_db
 from src.workspace.defaults import defaults_for_kind
 
-AccessRole = Literal["owner", "editor", "viewer"]
+AccessRole = Literal["owner", "co_owner", "editor", "viewer"]
 
 
 def workspace_access(
@@ -40,11 +40,21 @@ def workspace_access(
     owner_uid, member_role = row[0], row[1]
     if owner_uid == user_id:
         return "owner"
+    if member_role == "co_owner":
+        return "co_owner"
     if member_role == "editor":
         return "editor"
     if member_role == "viewer":
         return "viewer"
     return None
+
+
+def workspace_can_manage_members(
+    user_id: uuid.UUID, tenant_id: int, workspace_id: uuid.UUID
+) -> bool:
+    """Primary owner or co_owner may list/add/remove workspace members."""
+    role = workspace_access(user_id, tenant_id, workspace_id)
+    return role == "owner" or role == "co_owner"
 
 
 def workspace_create(
@@ -109,7 +119,7 @@ def workspace_list(user_id: uuid.UUID, tenant_id: int, limit: int = 200) -> list
         if not isinstance(wid, uuid.UUID):
             wid = uuid.UUID(str(wid))
         role = (r[5] or "owner").strip().lower()
-        if role not in ("owner", "editor", "viewer"):
+        if role not in ("owner", "co_owner", "editor", "viewer"):
             role = "owner"
         out.append(
             {
@@ -207,7 +217,8 @@ def workspace_update(
                     w.owner_user_id = %s
                     OR EXISTS (
                       SELECT 1 FROM workspace_members m
-                      WHERE m.workspace_id = w.id AND m.user_id = %s AND m.role = 'editor'
+                      WHERE m.workspace_id = w.id AND m.user_id = %s
+                        AND m.role IN ('editor', 'co_owner')
                     )
                   )
                 RETURNING w.id, w.kind, w.title, w.ui_layout, w.data, w.created_at, w.updated_at
@@ -262,17 +273,19 @@ def workspace_delete(user_id: uuid.UUID, tenant_id: int, workspace_id: uuid.UUID
 
 
 def members_list(
-    owner_user_id: uuid.UUID, tenant_id: int, workspace_id: uuid.UUID
+    actor_user_id: uuid.UUID, tenant_id: int, workspace_id: uuid.UUID
 ) -> list[dict[str, Any]]:
-    """Only workspace owner may list members."""
+    """Primary owner or co_owner may list members."""
+    if not workspace_can_manage_members(actor_user_id, tenant_id, workspace_id):
+        return []
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT 1 FROM user_workspaces
-                WHERE id = %s AND tenant_id = %s AND owner_user_id = %s
+                WHERE id = %s AND tenant_id = %s
                 """,
-                (workspace_id, tenant_id, owner_user_id),
+                (workspace_id, tenant_id),
             )
             if cur.fetchone() is None:
                 conn.commit()
@@ -304,32 +317,40 @@ def members_list(
 
 
 def member_add(
-    owner_user_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
     tenant_id: int,
     workspace_id: uuid.UUID,
     member_user_id: uuid.UUID,
     role: str,
 ) -> bool:
     r = (role or "").strip().lower()
-    if r not in ("viewer", "editor"):
+    if r not in ("viewer", "editor", "co_owner"):
         return False
-    if member_user_id == owner_user_id:
-        return False
-    mtid = db.user_tenant_id(member_user_id)
-    if mtid != tenant_id:
+    if not workspace_can_manage_members(actor_user_id, tenant_id, workspace_id):
         return False
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT 1 FROM user_workspaces
-                WHERE id = %s AND tenant_id = %s AND owner_user_id = %s
+                SELECT owner_user_id FROM user_workspaces
+                WHERE id = %s AND tenant_id = %s
                 """,
-                (workspace_id, tenant_id, owner_user_id),
+                (workspace_id, tenant_id),
             )
-            if cur.fetchone() is None:
+            row = cur.fetchone()
+            if row is None:
                 conn.commit()
                 return False
+            primary_owner = row[0]
+            if not isinstance(primary_owner, uuid.UUID):
+                primary_owner = uuid.UUID(str(primary_owner))
+            if member_user_id == primary_owner:
+                return False
+    mtid = db.user_tenant_id(member_user_id)
+    if mtid != tenant_id:
+        return False
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO workspace_members (workspace_id, user_id, role)
@@ -343,22 +364,30 @@ def member_add(
 
 
 def member_remove(
-    owner_user_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
     tenant_id: int,
     workspace_id: uuid.UUID,
     member_user_id: uuid.UUID,
 ) -> bool:
+    if not workspace_can_manage_members(actor_user_id, tenant_id, workspace_id):
+        return False
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT 1 FROM user_workspaces
-                WHERE id = %s AND tenant_id = %s AND owner_user_id = %s
+                SELECT owner_user_id FROM user_workspaces
+                WHERE id = %s AND tenant_id = %s
                 """,
-                (workspace_id, tenant_id, owner_user_id),
+                (workspace_id, tenant_id),
             )
-            if cur.fetchone() is None:
+            row = cur.fetchone()
+            if row is None:
                 conn.commit()
+                return False
+            primary_owner = row[0]
+            if not isinstance(primary_owner, uuid.UUID):
+                primary_owner = uuid.UUID(str(primary_owner))
+            if member_user_id == primary_owner:
                 return False
             cur.execute(
                 """

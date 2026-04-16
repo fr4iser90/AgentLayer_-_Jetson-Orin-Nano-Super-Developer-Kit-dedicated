@@ -15,6 +15,8 @@ export type ChatThread = {
   /** Last agent timeline (optional; kept small in storage). */
   agentLog?: AgentTimelineEntry[];
   updatedAt: number;
+  /** Set when this thread is the workspace-scoped assistant chat (server-side). */
+  workspaceId?: string;
 };
 
 export type PersistedState = {

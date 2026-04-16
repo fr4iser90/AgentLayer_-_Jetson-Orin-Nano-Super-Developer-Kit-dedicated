@@ -1,0 +1,42 @@
+{
+  "kind": "ideas",
+  "description": "Ideen-Sammlung: kurze Einträge in der Tabelle, Kontext im Scratchpad.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "ideas-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 11 },
+        "props": {
+          "dataPath": "ideas",
+          "columns": [
+            { "field": "pinned", "kind": "checkbox", "label": "★" },
+            { "field": "title", "kind": "text", "label": "Idee / Titel" },
+            { "field": "tags", "kind": "text", "label": "Tags (kommagetrennt)" },
+            {
+              "field": "status",
+              "kind": "select",
+              "label": "Status",
+              "options": ["Neu", "Später", "In Arbeit", "Erledigt / Archiv"]
+            },
+            { "field": "snippet", "kind": "text", "label": "Kurznotiz" }
+          ]
+        }
+      },
+      {
+        "id": "ideas-scratchpad",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 11, "w": 12, "h": 5 },
+        "props": {
+          "dataPath": "scratchpad",
+          "placeholder": "Freies Notizfeld — Brainstorm, Links, längere Gedanken… (Markdown)"
+        }
+      }
+    ]
+  },
+  "initial_data": {
+    "ideas": [],
+    "scratchpad": ""
+  }
+}

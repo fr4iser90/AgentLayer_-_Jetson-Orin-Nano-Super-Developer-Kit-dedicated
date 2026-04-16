@@ -27,6 +27,18 @@ PACKAGE_UI_DEFAULTS: dict[str, dict[str, Any]] = {
         "order": 25,
         "tagline": "List, read, and add items on shopping_list workspaces",
     },
+    "pets": {
+        "category": "productivity",
+        "display_name": "Pets",
+        "order": 26,
+        "tagline": "Read and update pets workspaces (animals, notes, album photos)",
+    },
+    "ideas": {
+        "category": "productivity",
+        "display_name": "Ideas & memos",
+        "order": 27,
+        "tagline": "Read and update ideas workspaces (idea table + scratchpad)",
+    },
     "clock": {
         "category": "productivity",
         "display_name": "Clock",

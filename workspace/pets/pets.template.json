@@ -33,9 +33,30 @@
         }
       },
       {
+        "id": "pets-albums-hint",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 10, "w": 12, "h": 3 },
+        "props": {
+          "dataPath": "albums_intro",
+          "placeholder": "Mehr Alben: Layout bearbeiten → weiteren Gallery-Block einfügen → dataPath z. B. albums.2.photos setzen und in den Rohdaten ein drittes Objekt in „albums“ ergänzen (id, title, photos)."
+        }
+      },
+      {
+        "id": "pets-album-0",
+        "type": "gallery",
+        "grid": { "x": 0, "y": 13, "w": 6, "h": 8 },
+        "props": { "dataPath": "albums.0.photos", "title": "Album 1" }
+      },
+      {
+        "id": "pets-album-1",
+        "type": "gallery",
+        "grid": { "x": 6, "y": 13, "w": 6, "h": 8 },
+        "props": { "dataPath": "albums.1.photos", "title": "Album 2" }
+      },
+      {
         "id": "pets-notes",
         "type": "markdown",
-        "grid": { "x": 0, "y": 10, "w": 12, "h": 4 },
+        "grid": { "x": 0, "y": 21, "w": 12, "h": 4 },
         "props": {
           "dataPath": "notes",
           "placeholder": "Notizen zu Futter, Medikamenten, Verhalten…"
@@ -45,6 +66,11 @@
   },
   "initial_data": {
     "pets": [],
+    "albums_intro": "Zwei Fotoalben sind vorkonfiguriert (unten). Bilder: Workspace-Upload oder URL (**wsfile:**…). Weitere Alben: Layout bearbeiten → Gallery-Block duplizieren → dataPath z. B. albums.2.photos; unter **albums** im JSON ein weiteres Objekt mit id, title, photos anlegen.",
+    "albums": [
+      { "id": "album_1", "title": "Album 1", "photos": [] },
+      { "id": "album_2", "title": "Album 2", "photos": [] }
+    ],
     "notes": ""
   }
 }

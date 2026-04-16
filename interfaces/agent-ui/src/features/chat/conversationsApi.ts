@@ -19,6 +19,7 @@ function serializeMessageContent(content: string): string | unknown[] {
 
 /** List endpoint row (no message bodies). */
 export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
+  const ws = item.workspace_id;
   return {
     id: String(item.id ?? ""),
     title: typeof item.title === "string" ? item.title : "",
@@ -27,6 +28,7 @@ export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
     messages: [],
     agentLog: [],
     updatedAt: Date.parse(String(item.updated_at ?? Date.now())) || Date.now(),
+    workspaceId: typeof ws === "string" && ws ? ws : undefined,
   };
 }
 
@@ -43,6 +45,7 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
   const agentLog = Array.isArray(raw.agent_log)
     ? (raw.agent_log as AgentTimelineEntry[])
     : [];
+  const ws = raw.workspace_id;
   return {
     id: String(raw.id ?? ""),
     title: typeof raw.title === "string" ? raw.title : "",
@@ -51,11 +54,19 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
     messages,
     agentLog,
     updatedAt: Date.parse(String(raw.updated_at ?? Date.now())) || Date.now(),
+    workspaceId: typeof ws === "string" && ws ? ws : undefined,
   };
 }
 
-export async function fetchConversationList(auth: Pick<AuthContextValue, "accessToken" | "refresh">) {
-  const r = await apiFetch("/v1/user/conversations", auth);
+export async function fetchConversationList(
+  auth: Pick<AuthContextValue, "accessToken" | "refresh">,
+  opts?: { workspaceId?: string }
+) {
+  const q =
+    opts?.workspaceId && opts.workspaceId.trim()
+      ? `?workspace_id=${encodeURIComponent(opts.workspaceId.trim())}`
+      : "";
+  const r = await apiFetch(`/v1/user/conversations${q}`, auth);
   const data = (await r.json()) as { conversations?: Record<string, unknown>[] };
   if (!r.ok) throw new Error("failed to list conversations");
   return data.conversations ?? [];
@@ -79,6 +90,9 @@ export async function createConversation(
     model: string;
     messages: UiMessage[];
     agent_log: AgentTimelineEntry[];
+    workspace_id?: string;
+    /** One shared thread per workspace; all members with access see the same messages. */
+    shared?: boolean;
   }
 ) {
   const r = await apiFetch("/v1/user/conversations", auth, {
@@ -89,6 +103,8 @@ export async function createConversation(
       model: body.model,
       messages: body.messages.map((m) => ({ role: m.role, content: serializeMessageContent(m.content) })),
       agent_log: body.agent_log,
+      ...(body.workspace_id ? { workspace_id: body.workspace_id } : {}),
+      ...(body.shared ? { shared: true } : {}),
     }),
   });
   const data = (await r.json()) as { conversation?: Record<string, unknown> };

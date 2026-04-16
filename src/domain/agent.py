@@ -220,8 +220,9 @@ def _inject_workspace_context(
             f"[Workspace context] The user opened this workspace in the app. "
             f"workspace_id={wid!s}, kind={k!r}, title={title!r}, access_role={role!r}. "
             f"For shopping_list_* tools, use this workspace_id when the user means 'this list' "
-            f"and does not clearly mean a different list. "
-            f"If unsure which list they mean, call shopping_list_workspaces first."
+            f"and does not clearly mean a different list; for pets_* when kind is pets, or ideas_* "
+            f"when kind is ideas, use the same id. If unsure which list, call shopping_list_workspaces; "
+            f"for pets boards pets_workspaces; for ideas boards ideas_workspaces."
         )
     out = list(messages)
     if not out:
