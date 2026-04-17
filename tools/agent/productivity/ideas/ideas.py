@@ -8,6 +8,10 @@ from typing import Any, Callable
 
 from src.domain.identity import get_identity
 from src.workspace import db as workspace_db
+from src.workspace.tool_workspace_resolve import (
+    resolve_workspace_id_for_kind,
+    workspace_rows_for_kind,
+)
 
 __version__ = "1.0.0"
 TOOL_ID = "ideas"
@@ -16,8 +20,9 @@ TOOL_DOMAIN = "ideas"
 TOOL_LABEL = "Ideas & memos"
 TOOL_DESCRIPTION = (
     "Read and update ideas workspaces (kind ideas): idea table (title, tags, status, snippet, pinned) "
-    "and markdown scratchpad. Use workspace_id from [Workspace context] when the user means this board; "
-    "otherwise call ideas_workspaces first. Stored JSON only — no web search unless you use other tools."
+    "and markdown scratchpad. workspace_id is optional when the user has exactly one ideas board; "
+    "if several exist, call ideas_workspaces or pass workspace_id. Prefer [Workspace context] when present. "
+    "Stored JSON only — no web search unless you use other tools."
 )
 TOOL_TRIGGERS = (
     "idea",
@@ -44,15 +49,6 @@ _STATUS_OPTIONS = frozenset({"Neu", "Später", "In Arbeit", "Erledigt / Archiv"}
 
 def _err(msg: str) -> str:
     return json.dumps({"ok": False, "error": msg}, ensure_ascii=False)
-
-
-def _parse_uuid(raw: str | None) -> uuid.UUID | None:
-    if not raw or not str(raw).strip():
-        return None
-    try:
-        return uuid.UUID(str(raw).strip())
-    except ValueError:
-        return None
 
 
 def _identity() -> tuple[int, uuid.UUID] | None:
@@ -103,21 +99,23 @@ def ideas_workspaces(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_db.workspace_list(uid, tid, limit=200)
-    out = [{"id": r["id"], "title": r["title"]} for r in rows if (r.get("kind") or "").strip() == "ideas"]
+    rows = workspace_rows_for_kind(uid, tid, "ideas")
+    out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
     return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
 
 
 def ideas_read(arguments: dict[str, Any]) -> str:
     """Return ideas rows and scratchpad for one ideas workspace."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     ident = _identity()
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -148,10 +146,6 @@ def ideas_read(arguments: dict[str, Any]) -> str:
 
 def ideas_add_rows(arguments: dict[str, Any]) -> str:
     """Append one or more idea rows (title required per row; optional tags, status, snippet, pinned)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     raw = arguments.get("rows")
     if not isinstance(raw, list) or not raw:
         return _err("rows must be a non-empty array of objects with title")
@@ -160,6 +154,12 @@ def ideas_add_rows(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -212,10 +212,6 @@ _IDEA_PATCH_FIELDS = ("title", "tags", "status", "snippet", "pinned")
 
 def ideas_patch_idea(arguments: dict[str, Any]) -> str:
     """Merge fields into one idea row (by idea id or zero-based index)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     patch = arguments.get("patch")
     if not isinstance(patch, dict) or not patch:
         return _err("patch must be a non-empty object")
@@ -227,6 +223,12 @@ def ideas_patch_idea(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -294,10 +296,6 @@ def ideas_patch_idea(arguments: dict[str, Any]) -> str:
 
 def ideas_patch_scratchpad(arguments: dict[str, Any]) -> str:
     """Replace or append the markdown scratchpad (data.scratchpad)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     mode = str(arguments.get("mode") or "replace").strip().lower()
     if mode not in ("replace", "append"):
         return _err("mode must be replace or append")
@@ -310,6 +308,12 @@ def ideas_patch_scratchpad(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -365,14 +369,17 @@ TOOLS: list[dict[str, Any]] = [
             "name": "ideas_read",
             "TOOL_DESCRIPTION": (
                 "Read idea rows and scratchpad markdown for one ideas workspace. "
-                "Prefer workspace_id from [Workspace context]; else ideas_workspaces."
+                "Omit workspace_id when the user has exactly one ideas board; else pass UUID or call ideas_workspaces."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the ideas workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                    },
                 },
-                "required": ["workspace_id"],
+                "required": [],
             },
         },
     },
@@ -382,19 +389,23 @@ TOOLS: list[dict[str, Any]] = [
             "name": "ideas_add_rows",
             "TOOL_DESCRIPTION": (
                 "Add one or more ideas. Each row needs title; optional tags, status "
-                "(Neu | Später | In Arbeit | Erledigt / Archiv), snippet, pinned."
+                "(Neu | Später | In Arbeit | Erledigt / Archiv), snippet, pinned. "
+                "Omit workspace_id when the user has exactly one ideas workspace."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the ideas workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                    },
                     "rows": {
                         "type": "array",
                         "TOOL_DESCRIPTION": "Objects with title (required); optional tags, status, snippet, pinned",
                         "items": {"type": "object"},
                     },
                 },
-                "required": ["workspace_id", "rows"],
+                "required": ["rows"],
             },
         },
     },
@@ -404,17 +415,21 @@ TOOLS: list[dict[str, Any]] = [
             "name": "ideas_patch_idea",
             "TOOL_DESCRIPTION": (
                 "Update one idea: title, tags, status, snippet, and/or pinned. "
-                "Identify by idea_id (row id) or idea_index (0-based)."
+                "Identify by idea_id (row id) or idea_index (0-based). "
+                "Omit workspace_id when the user has exactly one ideas workspace."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the ideas workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                    },
                     "idea_id": {"type": "string", "TOOL_DESCRIPTION": "Row id from ideas[].id"},
                     "idea_index": {"type": "integer", "TOOL_DESCRIPTION": "Zero-based index if id unknown"},
                     "patch": {"type": "object", "TOOL_DESCRIPTION": "Subset of title, tags, status, snippet, pinned"},
                 },
-                "required": ["workspace_id", "patch"],
+                "required": ["patch"],
             },
         },
     },
@@ -422,15 +437,21 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "ideas_patch_scratchpad",
-            "TOOL_DESCRIPTION": "Set (replace) or append the markdown scratchpad.",
+            "TOOL_DESCRIPTION": (
+                "Set (replace) or append the markdown scratchpad. "
+                "Omit workspace_id when the user has exactly one ideas workspace."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the ideas workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                    },
                     "mode": {"type": "string", "TOOL_DESCRIPTION": "replace or append"},
                     "text": {"type": "string", "TOOL_DESCRIPTION": "Markdown text"},
                 },
-                "required": ["workspace_id", "mode", "text"],
+                "required": ["mode", "text"],
             },
         },
     },

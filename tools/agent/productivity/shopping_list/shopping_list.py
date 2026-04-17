@@ -8,6 +8,10 @@ from typing import Any, Callable
 
 from src.domain.identity import get_identity
 from src.workspace import db as workspace_db
+from src.workspace.tool_workspace_resolve import (
+    resolve_workspace_id_for_kind,
+    workspace_rows_for_kind,
+)
 
 __version__ = "1.1.0"
 TOOL_ID = "shopping_list"
@@ -17,10 +21,9 @@ TOOL_LABEL = "Shopping list"
 TOOL_DESCRIPTION = (
     "Read and update shopping list workspaces (kind shopping_list): lists, items, notes, "
     "store/brand preferences (data.preferences), and append-only price snapshots (data.price_log). "
-    "Does not fetch live prices from the internet — use for stored prefs and documented research. "
-    "If the system prompt includes [Workspace context] with a workspace_id, use that id for "
-    "'this list' unless the user clearly names another. Otherwise call shopping_list_workspaces first "
-    "when which list is unclear."
+    "workspace_id is optional when the user has exactly one shopping_list board; if several exist, "
+    "call shopping_list_workspaces or pass workspace_id. Prefer [Workspace context] when present. "
+    "Does not fetch live prices from the internet — stored prefs and documented research only."
 )
 TOOL_TRIGGERS = (
     "shopping",
@@ -39,15 +42,6 @@ _MAX_NAME_LEN = 400
 
 def _err(msg: str) -> str:
     return json.dumps({"ok": False, "error": msg}, ensure_ascii=False)
-
-
-def _parse_uuid(raw: str | None) -> uuid.UUID | None:
-    if not raw or not str(raw).strip():
-        return None
-    try:
-        return uuid.UUID(str(raw).strip())
-    except ValueError:
-        return None
 
 
 def _identity() -> tuple[int, uuid.UUID] | None:
@@ -97,21 +91,23 @@ def shopping_list_workspaces(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_db.workspace_list(uid, tid, limit=200)
-    out = [{"id": r["id"], "title": r["title"]} for r in rows if (r.get("kind") == "shopping_list")]
+    rows = workspace_rows_for_kind(uid, tid, "shopping_list")
+    out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
     return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
 
 
 def shopping_list_read(arguments: dict[str, Any]) -> str:
     """Return items and notes for one shopping list workspace."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     ident = _identity()
     if ident is None:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="shopping_list", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -150,10 +146,6 @@ def shopping_list_read(arguments: dict[str, Any]) -> str:
 
 def shopping_list_add_items(arguments: dict[str, Any]) -> str:
     """Append items to a shopping_list workspace."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     raw_items = arguments.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         return _err("items must be a non-empty array of {name, qty?, store?}")
@@ -162,6 +154,12 @@ def shopping_list_add_items(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="shopping_list", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -237,18 +235,17 @@ TOOLS: list[dict[str, Any]] = [
             "name": "shopping_list_read",
             "TOOL_DESCRIPTION": (
                 "Read the current items and markdown notes for one shopping list workspace. "
-                "Use workspace_id from [Workspace context] in the system prompt when present, else "
-                "from shopping_list_workspaces."
+                "Omit workspace_id when the user has exactly one shopping_list board; else pass UUID or list workspaces."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "workspace_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "UUID of the shopping_list workspace",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list workspace).",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": [],
             },
         },
     },
@@ -258,14 +255,14 @@ TOOLS: list[dict[str, Any]] = [
             "name": "shopping_list_add_items",
             "TOOL_DESCRIPTION": (
                 "Add one or more rows to a shopping list (name, optional qty, optional store). "
-                "Prefer workspace_id from [Workspace context] when present; otherwise shopping_list_workspaces."
+                "Omit workspace_id when the user has exactly one shopping_list workspace."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "workspace_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "UUID of the shopping_list workspace",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list workspace).",
                     },
                     "items": {
                         "type": "array",
@@ -273,7 +270,7 @@ TOOLS: list[dict[str, Any]] = [
                         "items": {"type": "object"},
                     },
                 },
-                "required": ["workspace_id", "items"],
+                "required": ["items"],
             },
         },
     },

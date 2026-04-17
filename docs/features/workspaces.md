@@ -65,6 +65,10 @@ Helper functions:
 
 - `interfaces/agent-ui/src/features/workspace/workspaceDataPaths.ts` (`getPath`, `setPath`)
 
+## Agent tools (workspace id)
+
+For built-in kinds with dedicated tools (`pets`, `ideas`, `shopping_list`), `workspace_id` may be **omitted** when the user has exactly **one** workspace of that `kind`; the server picks it automatically. If there are several, the tool returns a short list of `id` + `title` so the model can ask or pass the UUID. Logic: `src/workspace/tool_workspace_resolve.py`.
+
 ## Files / uploads
 
 Uploads produce a `wsfile:<uuid>` reference.

@@ -8,6 +8,10 @@ from typing import Any, Callable
 
 from src.domain.identity import get_identity
 from src.workspace import db as workspace_db
+from src.workspace.tool_workspace_resolve import (
+    resolve_workspace_id_for_kind,
+    workspace_rows_for_kind,
+)
 
 __version__ = "1.0.0"
 TOOL_ID = "pets"
@@ -16,8 +20,9 @@ TOOL_DOMAIN = "pets"
 TOOL_LABEL = "Pets workspace"
 TOOL_DESCRIPTION = (
     "Read and update pets workspaces (kind pets): hero image, animals table, markdown notes, photo albums. "
-    "Use workspace_id from [Workspace context] when the user means this pets board; otherwise "
-    "call pets_workspaces first. Does not call external vet APIs — only stored workspace JSON."
+    "workspace_id is optional when the user has exactly one pets board (same rule as other workspace tools); "
+    "if several exist, pass workspace_id after listing. Prefer [Workspace context] when present. "
+    "Stored workspace JSON only — no external vet APIs."
 )
 TOOL_TRIGGERS = (
     "pet",
@@ -46,15 +51,6 @@ _MAX_HERO_HEADLINE = 400
 
 def _err(msg: str) -> str:
     return json.dumps({"ok": False, "error": msg}, ensure_ascii=False)
-
-
-def _parse_uuid(raw: str | None) -> uuid.UUID | None:
-    if not raw or not str(raw).strip():
-        return None
-    try:
-        return uuid.UUID(str(raw).strip())
-    except ValueError:
-        return None
 
 
 def _identity() -> tuple[int, uuid.UUID] | None:
@@ -87,21 +83,23 @@ def pets_workspaces(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_db.workspace_list(uid, tid, limit=200)
-    out = [{"id": r["id"], "title": r["title"]} for r in rows if (r.get("kind") or "").strip() == "pets"]
+    rows = workspace_rows_for_kind(uid, tid, "pets")
+    out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
     return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
 
 
 def pets_read(arguments: dict[str, Any]) -> str:
     """Return pets, albums, and notes for one pets workspace."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     ident = _identity()
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -149,10 +147,6 @@ def pets_read(arguments: dict[str, Any]) -> str:
 
 def pets_patch_pet(arguments: dict[str, Any]) -> str:
     """Merge string fields into one pet row (by pet id or zero-based index)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     patch = arguments.get("patch")
     if not isinstance(patch, dict) or not patch:
         return _err("patch must be a non-empty object with allowed string fields")
@@ -164,6 +158,12 @@ def pets_patch_pet(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -224,14 +224,16 @@ def pets_patch_pet(arguments: dict[str, Any]) -> str:
 
 def pets_add_pet(arguments: dict[str, Any]) -> str:
     """Append a new pet row with optional name."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     ident = _identity()
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -276,10 +278,6 @@ def pets_add_pet(arguments: dict[str, Any]) -> str:
 
 def pets_append_photo(arguments: dict[str, Any]) -> str:
     """Append one gallery entry to albums[album_index].photos (url or wsfile:…)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     url = _clip(str(arguments.get("url") or ""), 8000)
     if not url:
         return _err("url is required (image URL or wsfile:… reference)")
@@ -295,6 +293,12 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -349,10 +353,6 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
 
 def pets_patch_hero(arguments: dict[str, Any]) -> str:
     """Merge url / caption / headline into data.hero (workspace hero block)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     patch = arguments.get("patch")
     if not isinstance(patch, dict) or not patch:
         return _err("patch must be a non-empty object with optional url, caption, headline")
@@ -361,6 +361,12 @@ def pets_patch_hero(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -400,10 +406,6 @@ def pets_patch_hero(arguments: dict[str, Any]) -> str:
 
 def pets_patch_notes(arguments: dict[str, Any]) -> str:
     """Replace or append the markdown notes field (data.notes)."""
-    wid = _parse_uuid(arguments.get("workspace_id"))
-    if wid is None:
-        return _err("workspace_id must be a valid UUID")
-
     mode = str(arguments.get("mode") or "replace").strip().lower()
     if mode not in ("replace", "append"):
         return _err("mode must be replace or append")
@@ -416,6 +418,12 @@ def pets_patch_notes(arguments: dict[str, Any]) -> str:
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
+
+    wid, res_err = resolve_workspace_id_for_kind(
+        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    )
+    if wid is None:
+        return _err(res_err or "workspace_id required")
 
     ws = workspace_db.workspace_get(uid, tid, wid)
     if ws is None:
@@ -470,17 +478,18 @@ TOOLS: list[dict[str, Any]] = [
             "name": "pets_read",
             "TOOL_DESCRIPTION": (
                 "Read hero image fields, pets table rows, photo albums, and markdown notes for one pets workspace. "
-                "Prefer workspace_id from [Workspace context] when present; else pets_workspaces."
+                "Omit workspace_id when the user has exactly one pets board (auto-selected); "
+                "if several exist, call pets_workspaces or pass workspace_id."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "workspace_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "UUID of the pets workspace",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": [],
             },
         },
     },
@@ -490,12 +499,16 @@ TOOLS: list[dict[str, Any]] = [
             "name": "pets_patch_pet",
             "TOOL_DESCRIPTION": (
                 "Update one pet's string fields (name, species, birthday, vaccinations, deworming, vet). "
-                "Identify the row with pet_id (row id) or pet_index (0-based). Requires editor/co-owner/owner."
+                "Identify the row with pet_id (row id) or pet_index (0-based). Requires editor/co-owner/owner. "
+                "Omit workspace_id when the user has exactly one pets workspace."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if the user has exactly one pets workspace.",
+                    },
                     "pet_id": {
                         "type": "string",
                         "TOOL_DESCRIPTION": "Row id from pets[].id (preferred when known)",
@@ -509,7 +522,7 @@ TOOLS: list[dict[str, Any]] = [
                         "TOOL_DESCRIPTION": "Subset of name, species, birthday, vaccinations, deworming, vet",
                     },
                 },
-                "required": ["workspace_id", "patch"],
+                "required": ["patch"],
             },
         },
     },
@@ -517,14 +530,20 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "pets_add_pet",
-            "TOOL_DESCRIPTION": "Add a new empty pet row with optional name (default 'Neues Tier').",
+            "TOOL_DESCRIPTION": (
+                "Add a new empty pet row with optional name (default 'Neues Tier'). "
+                "Omit workspace_id when the user has exactly one pets workspace."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                    },
                     "name": {"type": "string", "TOOL_DESCRIPTION": "Optional display name for the new pet"},
                 },
-                "required": ["workspace_id"],
+                "required": [],
             },
         },
     },
@@ -539,12 +558,15 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                    },
                     "album_index": {"type": "integer", "TOOL_DESCRIPTION": "Index into data.albums"},
                     "url": {"type": "string", "TOOL_DESCRIPTION": "Image URL or wsfile:{uuid} from workspace upload"},
                     "caption": {"type": "string", "TOOL_DESCRIPTION": "Optional caption"},
                 },
-                "required": ["workspace_id", "album_index", "url"],
+                "required": ["album_index", "url"],
             },
         },
     },
@@ -554,18 +576,22 @@ TOOLS: list[dict[str, Any]] = [
             "name": "pets_patch_hero",
             "TOOL_DESCRIPTION": (
                 "Update the workspace hero strip (data.hero): merge url (https or wsfile:…), "
-                "caption, and/or headline. Requires editor/co-owner/owner."
+                "caption, and/or headline. Requires editor/co-owner/owner. "
+                "Omit workspace_id when the user has exactly one pets workspace."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                    },
                     "patch": {
                         "type": "object",
                         "TOOL_DESCRIPTION": "Fields to merge: url, caption, headline (any subset)",
                     },
                 },
-                "required": ["workspace_id", "patch"],
+                "required": ["patch"],
             },
         },
     },
@@ -573,15 +599,21 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "pets_patch_notes",
-            "TOOL_DESCRIPTION": "Set (mode=replace) or append (mode=append) the markdown notes field.",
+            "TOOL_DESCRIPTION": (
+                "Set (mode=replace) or append (mode=append) the markdown notes field. "
+                "Omit workspace_id when the user has exactly one pets workspace."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "workspace_id": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                    },
                     "mode": {"type": "string", "TOOL_DESCRIPTION": "replace or append"},
                     "text": {"type": "string", "TOOL_DESCRIPTION": "Markdown text"},
                 },
-                "required": ["workspace_id", "mode", "text"],
+                "required": ["mode", "text"],
             },
         },
     },
