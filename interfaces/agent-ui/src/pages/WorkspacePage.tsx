@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
 import { WorkspaceEmbeddedChat } from "../features/workspace/WorkspaceEmbeddedChat";
 import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
+import { WorkspaceSettingsDrawer } from "../features/workspace/WorkspaceSettingsDrawer";
 import type {
   UiLayout,
   WorkspaceDetail,
@@ -120,6 +121,7 @@ export function WorkspacePage() {
   const [memberRole, setMemberRole] = useState<"viewer" | "editor" | "co_owner">("viewer");
   const [membersBusy, setMembersBusy] = useState(false);
   const [membersErr, setMembersErr] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const accessRole = detail?.access_role ?? "owner";
   const isViewer = accessRole === "viewer";
@@ -893,6 +895,15 @@ export function WorkspacePage() {
                         {saving ? "Saving…" : layoutEditMode ? "Save" : "Save"}
                       </button>
                     ) : null}
+                    {detail ? (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-surface-border px-4 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                        onClick={() => setSettingsOpen(true)}
+                      >
+                        Settings
+                      </button>
+                    ) : null}
                     {isPrimaryOwner ? (
                       <button
                         type="button"
@@ -905,79 +916,9 @@ export function WorkspacePage() {
                   </div>
                 </div>
                 {canManageMembers ? (
-                  <div className="mb-4 rounded-xl border border-surface-border bg-surface-raised/50 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
-                      Share workspace
-                    </p>
-                    <p className="mt-1 text-xs text-surface-muted">
-                      Same-tenant accounts only. <span className="text-white/70">Viewer</span> is read-only.
-                      <span className="text-white/70"> Editor</span> can edit content.{" "}
-                      <span className="text-white/70">Co-owner</span> can edit and manage members. Only the
-                      primary owner can delete the workspace.
-                    </p>
-                    {membersErr ? (
-                      <p className="mt-2 text-xs text-red-300">{membersErr}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-end gap-2">
-                      <div className="min-w-[200px] flex-1">
-                        <label className="mb-1 block text-[10px] text-surface-muted">Email</label>
-                        <input
-                          type="email"
-                          value={memberEmail}
-                          onChange={(e) => setMemberEmail(e.target.value)}
-                          placeholder="colleague@example.com"
-                          className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] text-surface-muted">Role</label>
-                        <select
-                          value={memberRole}
-                          onChange={(e) =>
-                            setMemberRole(e.target.value as "viewer" | "editor" | "co_owner")
-                          }
-                          className="rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white"
-                        >
-                          <option value="viewer">Viewer</option>
-                          <option value="editor">Editor</option>
-                          <option value="co_owner">Co-owner</option>
-                        </select>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={membersBusy || !memberEmail.trim()}
-                        className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
-                        onClick={() => void addWorkspaceMember()}
-                      >
-                        {membersBusy ? "…" : "Add"}
-                      </button>
-                    </div>
-                    {members.length === 0 ? (
-                      <p className="mt-3 text-xs text-surface-muted">No members yet.</p>
-                    ) : (
-                      <ul className="mt-3 divide-y divide-white/5 text-sm">
-                        {members.map((m) => (
-                          <li
-                            key={m.user_id}
-                            className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
-                          >
-                            <span className="text-neutral-200">
-                              {m.email}{" "}
-                              <span className="text-surface-muted">({m.role})</span>
-                            </span>
-                            <button
-                              type="button"
-                              disabled={membersBusy}
-                              className="text-xs text-red-300 hover:underline disabled:opacity-50"
-                              onClick={() => void removeWorkspaceMember(m.user_id)}
-                            >
-                              Remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                  <p className="mb-4 text-xs text-surface-muted">
+                    Sharing &amp; members are now in <span className="text-white/80">Settings</span>.
+                  </p>
                 ) : null}
                 <p className="mb-4 text-xs text-surface-muted">
                   Template:{" "}
@@ -1029,6 +970,127 @@ export function WorkspacePage() {
     <div className="flex h-full min-h-0 flex-col gap-0 md:flex-row">
       {sidebar}
       {main}
+
+      {detail ? (
+        <WorkspaceSettingsDrawer
+          open={settingsOpen}
+          title={`Settings — ${detail.title || subtitleForWorkspaceKind(detail.kind, kindCatalog)}`}
+          onClose={() => setSettingsOpen(false)}
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-surface-border bg-black/20 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                Workspace info
+              </p>
+              <div className="mt-2 space-y-1 text-sm text-neutral-200">
+                <p>
+                  <span className="text-surface-muted">Kind:</span> {detail.kind}
+                </p>
+                <p>
+                  <span className="text-surface-muted">Access:</span> {accessRole}
+                </p>
+                <p>
+                  <span className="text-surface-muted">Updated:</span> {detail.updated_at}
+                </p>
+              </div>
+            </div>
+
+            {canManageMembers ? (
+              <div className="rounded-xl border border-surface-border bg-black/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                  Sharing &amp; members
+                </p>
+                <p className="mt-1 text-xs text-surface-muted">
+                  Same-tenant accounts only. <span className="text-white/70">Viewer</span> is read-only.
+                  <span className="text-white/70"> Editor</span> can edit content.{" "}
+                  <span className="text-white/70">Co-owner</span> can edit and manage members. Only the
+                  primary owner can delete the workspace.
+                </p>
+                {membersErr ? <p className="mt-2 text-xs text-red-300">{membersErr}</p> : null}
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <div className="min-w-[220px] flex-1">
+                    <label className="mb-1 block text-[10px] text-surface-muted">Email</label>
+                    <input
+                      type="email"
+                      value={memberEmail}
+                      onChange={(e) => setMemberEmail(e.target.value)}
+                      placeholder="colleague@example.com"
+                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-surface-muted">Role</label>
+                    <select
+                      value={memberRole}
+                      onChange={(e) => setMemberRole(e.target.value as "viewer" | "editor" | "co_owner")}
+                      className="rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white"
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="editor">Editor</option>
+                      <option value="co_owner">Co-owner</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={membersBusy || !memberEmail.trim()}
+                    className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                    onClick={() => void addWorkspaceMember()}
+                  >
+                    {membersBusy ? "…" : "Add"}
+                  </button>
+                </div>
+                {members.length === 0 ? (
+                  <p className="mt-3 text-xs text-surface-muted">No members yet.</p>
+                ) : (
+                  <ul className="mt-3 divide-y divide-white/5 text-sm">
+                    {members.map((m) => (
+                      <li
+                        key={m.user_id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
+                      >
+                        <span className="text-neutral-200">
+                          {m.email} <span className="text-surface-muted">({m.role})</span>
+                        </span>
+                        <button
+                          type="button"
+                          disabled={membersBusy}
+                          className="text-xs text-red-300 hover:underline disabled:opacity-50"
+                          onClick={() => void removeWorkspaceMember(m.user_id)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-surface-border bg-black/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                  Sharing &amp; members
+                </p>
+                <p className="mt-2 text-sm text-surface-muted">You don’t have permission to manage members.</p>
+              </div>
+            )}
+
+            {isPrimaryOwner ? (
+              <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-red-200/80">
+                  Danger zone
+                </p>
+                <p className="mt-2 text-xs text-red-200/80">Delete is permanent.</p>
+                <button
+                  type="button"
+                  className="mt-3 rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-200 hover:bg-red-950/40"
+                  onClick={() => void removeWs()}
+                >
+                  Delete workspace
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </WorkspaceSettingsDrawer>
+      ) : null}
 
       {newWsModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">

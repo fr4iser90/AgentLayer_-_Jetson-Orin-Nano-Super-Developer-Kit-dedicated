@@ -11,6 +11,20 @@ import "react-resizable/css/styles.css";
 import type { BlockType, ColumnDef, UiBlock, UiLayout } from "./types";
 import { WorkspaceBlockTile } from "./WorkspaceBlocks";
 
+const BLOCK_PREFIX: Record<BlockType, string> = {
+  table: "items",
+  markdown: "notes",
+  gallery: "photos",
+  hero: "hero",
+  timeline: "timeline",
+  stat: "stat",
+  chart: "chart",
+  sparkline: "sparkline",
+  kanban: "kanban",
+  rich_markdown: "rich_md",
+  embed: "embed",
+};
+
 function newBlockId(): string {
   return `blk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -40,6 +54,70 @@ const defaultTableColumns: ColumnDef[] = [
 ];
 
 function makeBlock(type: BlockType, dp: string, y: number): UiBlock {
+  if (type === "hero") {
+    return {
+      id: newBlockId(),
+      type: "hero",
+      grid: { x: 0, y, w: 12, h: 8 },
+      props: { dataPath: dp, title: "Hero" },
+    };
+  }
+  if (type === "timeline") {
+    return {
+      id: newBlockId(),
+      type: "timeline",
+      grid: { x: 0, y, w: 12, h: 9 },
+      props: { dataPath: dp, title: "Timeline" },
+    };
+  }
+  if (type === "stat") {
+    return {
+      id: newBlockId(),
+      type: "stat",
+      grid: { x: 0, y, w: 4, h: 5 },
+      props: { dataPath: dp, title: "KPI" },
+    };
+  }
+  if (type === "chart") {
+    return {
+      id: newBlockId(),
+      type: "chart",
+      grid: { x: 0, y, w: 12, h: 10 },
+      props: { dataPath: dp, title: "Diagramm" },
+    };
+  }
+  if (type === "sparkline") {
+    return {
+      id: newBlockId(),
+      type: "sparkline",
+      grid: { x: 0, y, w: 6, h: 4 },
+      props: { dataPath: dp, title: "Sparkline" },
+    };
+  }
+  if (type === "kanban") {
+    return {
+      id: newBlockId(),
+      type: "kanban",
+      grid: { x: 0, y, w: 12, h: 12 },
+      props: { dataPath: dp, title: "Kanban" },
+    };
+  }
+  if (type === "rich_markdown") {
+    return {
+      id: newBlockId(),
+      type: "rich_markdown",
+      grid: { x: 0, y, w: 12, h: 9 },
+      props: { dataPath: dp, placeholder: "Markdown mit **Vorschau**…", title: "Rich Markdown" },
+    };
+  }
+  if (type === "embed") {
+    return {
+      id: newBlockId(),
+      type: "embed",
+      grid: { x: 0, y, w: 12, h: 10 },
+      props: { dataPath: dp, title: "Embed" },
+    };
+  }
   const grid = { x: 0, y, w: 6, h: 6 };
   if (type === "table") {
     return {
@@ -65,18 +143,33 @@ function makeBlock(type: BlockType, dp: string, y: number): UiBlock {
   };
 }
 
+function blockMinDims(b: UiBlock): { minW: number; minH: number } {
+  if (b.type === "hero") return { minW: 4, minH: 4 };
+  if (b.type === "stat") return { minW: 2, minH: 3 };
+  if (b.type === "timeline") return { minW: 4, minH: 5 };
+  if (b.type === "chart") return { minW: 4, minH: 6 };
+  if (b.type === "sparkline") return { minW: 2, minH: 3 };
+  if (b.type === "kanban") return { minW: 6, minH: 6 };
+  if (b.type === "rich_markdown") return { minW: 4, minH: 6 };
+  if (b.type === "embed") return { minW: 4, minH: 6 };
+  return { minW: 2, minH: 3 };
+}
+
 function layoutFromBlocks(blocks: UiBlock[], editMode: boolean): Layout {
-  return blocks.map((b) => ({
-    i: b.id,
-    x: Math.min(11, Math.max(0, b.grid.x)),
-    y: Math.max(0, b.grid.y),
-    w: Math.min(12, Math.max(2, b.grid.w)),
-    h: Math.max(3, b.grid.h),
-    static: !editMode,
-    minW: 2,
-    minH: 3,
-    maxW: 12,
-  }));
+  return blocks.map((b) => {
+    const { minW, minH } = blockMinDims(b);
+    return {
+      i: b.id,
+      x: Math.min(11, Math.max(0, b.grid.x)),
+      y: Math.max(0, b.grid.y),
+      w: Math.min(12, Math.max(minW, b.grid.w)),
+      h: Math.max(minH, b.grid.h),
+      static: !editMode,
+      minW,
+      minH,
+      maxW: 12,
+    };
+  });
 }
 
 function mergeRglIntoBlocks(prev: UiLayout, rgl: Layout): UiLayout {
@@ -100,7 +193,7 @@ export function WorkspaceGridCanvas(props: {
   data: Record<string, unknown>;
   setData: Dispatch<SetStateAction<Record<string, unknown>>>;
   editMode: boolean;
-  /** When true, table/markdown/gallery cells are not editable (layout may still use editMode for owner/editor). */
+  /** When true, block content is not editable (layout may still use editMode for owner/editor). */
   contentReadOnly?: boolean;
   workspaceId?: string | null;
 }) {
@@ -122,7 +215,7 @@ export function WorkspaceGridCanvas(props: {
 
   const addBlock = useCallback(
     (type: BlockType) => {
-      const prefix = type === "table" ? "items" : type === "markdown" ? "notes" : "photos";
+      const prefix = BLOCK_PREFIX[type];
       const dp = uniqueDataPath(prefix, layout.blocks, data);
       const y =
         layout.blocks.length === 0
@@ -132,7 +225,30 @@ export function WorkspaceGridCanvas(props: {
       setLayout((prev) => ({ version: 1, blocks: [...prev.blocks, block] }));
       setData((d) => {
         const n = { ...d };
-        if (type === "table" || type === "gallery") n[dp] = [];
+        if (type === "table" || type === "gallery" || type === "timeline") n[dp] = [];
+        else if (type === "hero")
+          n[dp] = { url: "", caption: "", headline: "" };
+        else if (type === "stat")
+          n[dp] = { value: "", label: "", suffix: "", trend: "" };
+        else if (type === "chart")
+          n[dp] = {
+            chartType: "line",
+            labels: ["Q1", "Q2", "Q3"],
+            series: [{ label: "Serie 1", data: [12, 19, 3] }],
+          };
+        else if (type === "sparkline") n[dp] = { values: [2, 5, 3, 8, 6, 4, 7] };
+        else if (type === "kanban") {
+          const t = Date.now();
+          n[dp] = {
+            columns: [
+              { id: `col_${t}_a`, title: "Todo", cards: [] },
+              { id: `col_${t}_b`, title: "Doing", cards: [] },
+              { id: `col_${t}_c`, title: "Done", cards: [] },
+            ],
+          };
+        } else if (type === "rich_markdown") n[dp] = "";
+        else if (type === "embed")
+          n[dp] = { url: "", title: "", height: 480 };
         else n[dp] = "";
         return n;
       });
@@ -185,6 +301,62 @@ export function WorkspaceGridCanvas(props: {
             >
               + Photos
             </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("hero")}
+            >
+              + Hero
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("timeline")}
+            >
+              + Timeline
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("stat")}
+            >
+              + KPI
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("chart")}
+            >
+              + Chart
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("sparkline")}
+            >
+              + Spark
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("kanban")}
+            >
+              + Kanban
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("rich_markdown")}
+            >
+              + Rich MD
+            </button>
+            <button
+              type="button"
+              className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+              onClick={() => addBlock("embed")}
+            >
+              + Embed
+            </button>
           </div>
         ) : null}
         <p className="text-sm text-surface-muted">No blocks in this layout.</p>
@@ -217,6 +389,62 @@ export function WorkspaceGridCanvas(props: {
           >
             + Photos
           </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("hero")}
+          >
+            + Hero
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("timeline")}
+          >
+            + Timeline
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("stat")}
+          >
+            + KPI
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("chart")}
+          >
+            + Chart
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("sparkline")}
+          >
+            + Spark
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("kanban")}
+          >
+            + Kanban
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("rich_markdown")}
+          >
+            + Rich MD
+          </button>
+          <button
+            type="button"
+            className="workspace-grid-no-drag rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+            onClick={() => addBlock("embed")}
+          >
+            + Embed
+          </button>
         </div>
       ) : null}
 
@@ -244,7 +472,20 @@ export function WorkspaceGridCanvas(props: {
                 key={b.id}
                 className="overflow-hidden rounded-xl border border-surface-border bg-surface-raised/90 shadow-sm"
               >
-                <div className="flex max-h-[min(520px,65vh)] flex-col overflow-auto">
+                <div
+                  className={
+                    b.type === "hero"
+                      ? "flex max-h-[min(720px,88vh)] flex-col overflow-auto"
+                      : b.type === "timeline"
+                        ? "flex max-h-[min(640px,82vh)] flex-col overflow-auto"
+                        : b.type === "chart" ||
+                            b.type === "kanban" ||
+                            b.type === "rich_markdown" ||
+                            b.type === "embed"
+                          ? "flex max-h-[min(720px,90vh)] flex-col overflow-auto"
+                          : "flex max-h-[min(520px,65vh)] flex-col overflow-auto"
+                  }
+                >
                   {editMode ? (
                     <div className="sticky top-0 z-10 flex justify-end border-b border-white/5 bg-surface-raised/95 px-1 py-1">
                       <button

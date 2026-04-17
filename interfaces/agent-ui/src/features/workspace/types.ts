@@ -1,4 +1,15 @@
-export type BlockType = "table" | "markdown" | "gallery";
+export type BlockType =
+  | "table"
+  | "markdown"
+  | "gallery"
+  | "hero"
+  | "timeline"
+  | "stat"
+  | "chart"
+  | "sparkline"
+  | "kanban"
+  | "rich_markdown"
+  | "embed";
 
 export interface GridPos {
   x: number;
@@ -22,7 +33,7 @@ export interface UiBlock {
     dataPath?: string;
     columns?: ColumnDef[];
     placeholder?: string;
-    /** gallery block */
+    /** gallery / hero section label */
     title?: string;
   };
 }

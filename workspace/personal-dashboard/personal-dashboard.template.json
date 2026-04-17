@@ -1,0 +1,58 @@
+{
+  "kind": "personal_dashboard",
+  "description": "Persönliches Dashboard: optional Hero, Google-Calendar-Embed, Tasks, Tagesnotizen.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "pd-hero",
+        "type": "hero",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 6 },
+        "props": { "dataPath": "hero", "title": "Hero" }
+      },
+      {
+        "id": "pd-calendar",
+        "type": "embed",
+        "grid": { "x": 0, "y": 6, "w": 12, "h": 9 },
+        "props": { "dataPath": "calendar_embed", "title": "Kalender" }
+      },
+      {
+        "id": "pd-tasks",
+        "type": "table",
+        "grid": { "x": 0, "y": 15, "w": 12, "h": 8 },
+        "props": {
+          "dataPath": "tasks",
+          "columns": [
+            { "field": "done", "kind": "checkbox", "label": "" },
+            { "field": "title", "kind": "text", "label": "Task" },
+            { "field": "due", "kind": "text", "label": "Fällig" }
+          ]
+        }
+      },
+      {
+        "id": "pd-notes",
+        "type": "rich_markdown",
+        "grid": { "x": 0, "y": 23, "w": 12, "h": 7 },
+        "props": {
+          "dataPath": "day_notes",
+          "placeholder": "## Heute\n\n- …",
+          "title": "Notizen & Links"
+        }
+      }
+    ]
+  },
+  "initial_data": {
+    "hero": {
+      "url": "",
+      "caption": "",
+      "headline": "Mein Dashboard"
+    },
+    "calendar_embed": {
+      "url": "",
+      "title": "Kalender",
+      "height": 520
+    },
+    "tasks": [],
+    "day_notes": "## Heute\n\n- Wichtiges hier festhalten.\n\n**Kalender:** Google → Kalendereinstellungen → *Integrate calendar* → URL in den Embed-Block oben einfügen.\n"
+  }
+}

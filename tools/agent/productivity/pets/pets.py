@@ -15,7 +15,7 @@ TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "pets"
 TOOL_LABEL = "Pets workspace"
 TOOL_DESCRIPTION = (
-    "Read and update pets workspaces (kind pets): animals table, markdown notes, photo albums. "
+    "Read and update pets workspaces (kind pets): hero image, animals table, markdown notes, photo albums. "
     "Use workspace_id from [Workspace context] when the user means this pets board; otherwise "
     "call pets_workspaces first. Does not call external vet APIs — only stored workspace JSON."
 )
@@ -29,6 +29,8 @@ TOOL_TRIGGERS = (
     "tierarzt",
     "album",
     "foto",
+    "hero",
+    "cover",
 )
 TOOL_CAPABILITIES = ("workspace.pets.read", "workspace.pets.write")
 
@@ -37,6 +39,9 @@ _MAX_PHOTOS_PER_ALBUM = 200
 _MAX_FIELD_LEN = 4000
 _MAX_NOTES = 120_000
 _MAX_CAPTION = 500
+_MAX_HERO_URL = 4096
+_MAX_HERO_CAPTION = 2000
+_MAX_HERO_HEADLINE = 400
 
 
 def _err(msg: str) -> str:
@@ -118,12 +123,21 @@ def pets_read(arguments: dict[str, Any]) -> str:
     intro = data.get("albums_intro")
     if not isinstance(intro, str):
         intro = ""
+    hero_raw = data.get("hero")
+    if not isinstance(hero_raw, dict):
+        hero_raw = {}
+    hero_out = {
+        "url": str(hero_raw.get("url") or "").strip(),
+        "caption": str(hero_raw.get("caption") or ""),
+        "headline": str(hero_raw.get("headline") or ""),
+    }
 
     return json.dumps(
         {
             "ok": True,
             "workspace_id": str(wid),
             "title": ws.get("title") or "",
+            "hero": hero_out,
             "pets": pets,
             "albums": albums,
             "notes": notes,
@@ -333,6 +347,57 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
     )
 
 
+def pets_patch_hero(arguments: dict[str, Any]) -> str:
+    """Merge url / caption / headline into data.hero (workspace hero block)."""
+    wid = _parse_uuid(arguments.get("workspace_id"))
+    if wid is None:
+        return _err("workspace_id must be a valid UUID")
+
+    patch = arguments.get("patch")
+    if not isinstance(patch, dict) or not patch:
+        return _err("patch must be a non-empty object with optional url, caption, headline")
+
+    ident = _identity()
+    if ident is None:
+        return _err("No user identity — pets tools need an authenticated chat user.")
+    tid, uid = ident
+
+    ws = workspace_db.workspace_get(uid, tid, wid)
+    if ws is None:
+        return _err("workspace not found or no access")
+    bad = _ensure_pets(ws)
+    if bad:
+        return _err(bad)
+
+    allowed: dict[str, str] = {}
+    if "url" in patch:
+        allowed["url"] = _clip(str(patch.get("url") or ""), _MAX_HERO_URL)
+    if "caption" in patch:
+        allowed["caption"] = _clip(str(patch.get("caption") or ""), _MAX_HERO_CAPTION)
+    if "headline" in patch:
+        allowed["headline"] = _clip(str(patch.get("headline") or ""), _MAX_HERO_HEADLINE)
+    if not allowed:
+        return _err("patch must include at least one of url, caption, headline")
+
+    data = dict(ws.get("data")) if isinstance(ws.get("data"), dict) else {}
+    cur = data.get("hero")
+    if not isinstance(cur, dict):
+        cur = {}
+    base = {
+        "url": str(cur.get("url") or "").strip(),
+        "caption": str(cur.get("caption") or ""),
+        "headline": str(cur.get("headline") or ""),
+    }
+    base.update(allowed)
+    data["hero"] = base
+
+    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    if updated is None:
+        return _err("could not update workspace (viewer role or conflict)")
+
+    return json.dumps({"ok": True, "workspace_id": str(wid), "hero": base}, ensure_ascii=False)
+
+
 def pets_patch_notes(arguments: dict[str, Any]) -> str:
     """Replace or append the markdown notes field (data.notes)."""
     wid = _parse_uuid(arguments.get("workspace_id"))
@@ -383,6 +448,7 @@ HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "pets_patch_pet": pets_patch_pet,
     "pets_add_pet": pets_add_pet,
     "pets_append_photo": pets_append_photo,
+    "pets_patch_hero": pets_patch_hero,
     "pets_patch_notes": pets_patch_notes,
 }
 
@@ -403,7 +469,7 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "pets_read",
             "TOOL_DESCRIPTION": (
-                "Read pets table rows, photo albums, and markdown notes for one pets workspace. "
+                "Read hero image fields, pets table rows, photo albums, and markdown notes for one pets workspace. "
                 "Prefer workspace_id from [Workspace context] when present; else pets_workspaces."
             ),
             "parameters": {
@@ -479,6 +545,27 @@ TOOLS: list[dict[str, Any]] = [
                     "caption": {"type": "string", "TOOL_DESCRIPTION": "Optional caption"},
                 },
                 "required": ["workspace_id", "album_index", "url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pets_patch_hero",
+            "TOOL_DESCRIPTION": (
+                "Update the workspace hero strip (data.hero): merge url (https or wsfile:…), "
+                "caption, and/or headline. Requires editor/co-owner/owner."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "UUID of the pets workspace"},
+                    "patch": {
+                        "type": "object",
+                        "TOOL_DESCRIPTION": "Fields to merge: url, caption, headline (any subset)",
+                    },
+                },
+                "required": ["workspace_id", "patch"],
             },
         },
     },
