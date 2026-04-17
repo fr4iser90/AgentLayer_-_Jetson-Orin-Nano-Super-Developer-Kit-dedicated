@@ -60,8 +60,9 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "rag_search",
             "TOOL_DESCRIPTION": (
-                "Semantic search over documents previously ingested for this user (vector similarity). "
-                "Use optional domain to restrict results. Ingest via POST /v1/admin/rag/ingest."
+                "Semantic search over ingested documents (vector similarity). "
+                "Pass domain=\"agentlayer_docs\" for official AgentLayer markdown (tenant-wide after admin ingest-docs). "
+                "Other domains are per-user. Ingest: POST /v1/admin/rag/ingest or /v1/admin/rag/ingest-docs (admin only)."
             ),
             "parameters": {
                 "type": "object",
@@ -72,7 +73,10 @@ TOOLS: list[dict[str, Any]] = [
                     },
                     "domain": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional document domain filter (exact match; omit for all domains).",
+                        "TOOL_DESCRIPTION": (
+                            "Optional domain filter. Use agentlayer_docs for product docs (shared in tenant). "
+                            "Omit to search the caller's personal RAG across all their domains."
+                        ),
                     },
                     "limit": {
                         "type": "integer",

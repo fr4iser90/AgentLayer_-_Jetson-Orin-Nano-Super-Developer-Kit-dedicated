@@ -139,6 +139,21 @@ def user_tenant_id(user_id: uuid.UUID) -> int:
     return t if t >= 1 else 1
 
 
+def user_first_admin_id() -> uuid.UUID | None:
+    """Oldest user with ``role = 'admin'`` (for bootstrap jobs that need an owning user id)."""
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1"
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row or row[0] is None:
+        return None
+    uid = row[0]
+    return uid if isinstance(uid, uuid.UUID) else uuid.UUID(str(uid))
+
+
 _DISCORD_NUMERIC_USER_ID = re.compile(r"^[0-9]{15,22}$")
 
 
@@ -669,6 +684,298 @@ def _vector_literal(vec: list[float]) -> str:
     return "[" + ",".join(str(float(x)) for x in vec) + "]"
 
 
+def memory_fact_upsert(
+    *,
+    key: str,
+    value_json: Any,
+    workspace_id: uuid.UUID | None = None,
+    confidence: float | None = None,
+    source: str | None = None,
+    expires_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Upsert one structured memory fact for the current identity."""
+    tenant_id, user_id = _require_user_uuid()
+    k = (key or "").strip()
+    if not k:
+        raise ValueError("key is required")
+    conf = float(confidence) if confidence is not None else 1.0
+    conf = max(0.0, min(conf, 1.0))
+    src = (source or "user").strip() or "user"
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            if workspace_id is None:
+                cur.execute(
+                    """
+                    INSERT INTO user_memory_facts
+                      (tenant_id, user_id, workspace_id, key, value_json, confidence, source, expires_at, deleted_at)
+                    VALUES (%s, %s, NULL, %s, %s::jsonb, %s, %s, %s, NULL)
+                    ON CONFLICT (tenant_id, user_id, key)
+                      WHERE workspace_id IS NULL AND deleted_at IS NULL
+                    DO UPDATE SET
+                      value_json = EXCLUDED.value_json,
+                      confidence = EXCLUDED.confidence,
+                      source = EXCLUDED.source,
+                      expires_at = EXCLUDED.expires_at,
+                      updated_at = now(),
+                      deleted_at = NULL
+                    RETURNING id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                    """,
+                    (tenant_id, user_id, k, Json(value_json), conf, src, expires_at),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO user_memory_facts
+                      (tenant_id, user_id, workspace_id, key, value_json, confidence, source, expires_at, deleted_at)
+                    VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, NULL)
+                    ON CONFLICT (tenant_id, user_id, workspace_id, key)
+                      WHERE workspace_id IS NOT NULL AND deleted_at IS NULL
+                    DO UPDATE SET
+                      value_json = EXCLUDED.value_json,
+                      confidence = EXCLUDED.confidence,
+                      source = EXCLUDED.source,
+                      expires_at = EXCLUDED.expires_at,
+                      updated_at = now(),
+                      deleted_at = NULL
+                    RETURNING id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                    """,
+                    (tenant_id, user_id, workspace_id, k, Json(value_json), conf, src, expires_at),
+                )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        raise ValueError("upsert failed")
+    return {
+        "id": row["id"],
+        "key": row["key"],
+        "value_json": row["value_json"],
+        "confidence": float(row["confidence"]) if row.get("confidence") is not None else 1.0,
+        "source": row["source"],
+        "workspace_id": str(row["workspace_id"]) if row.get("workspace_id") else None,
+        "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
+        "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+    }
+
+
+def memory_fact_list(
+    *,
+    workspace_id: uuid.UUID | None = None,
+    prefix: str | None = None,
+    limit: int = 50,
+    include_expired: bool = False,
+) -> list[dict[str, Any]]:
+    """List active facts for the current identity."""
+    tenant_id, user_id = _require_user_uuid()
+    limit = max(1, min(int(limit or 50), 200))
+    pre = (prefix or "").strip()
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                FROM user_memory_facts
+                WHERE tenant_id = %s
+                  AND user_id = %s
+                  AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                  AND deleted_at IS NULL
+                  AND (%s OR expires_at IS NULL OR expires_at > now())
+                  AND (%s = '' OR key ILIKE %s ESCAPE '\\')
+                ORDER BY updated_at DESC
+                LIMIT %s
+                """,
+                (
+                    tenant_id,
+                    user_id,
+                    workspace_id,
+                    workspace_id,
+                    bool(include_expired),
+                    pre,
+                    _ilike_contains(pre) if pre else "",
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "key": r["key"],
+                "value_json": r["value_json"],
+                "confidence": float(r.get("confidence") or 1.0),
+                "source": r.get("source") or "",
+                "workspace_id": str(r["workspace_id"]) if r.get("workspace_id") else None,
+                "expires_at": r["expires_at"].isoformat() if r.get("expires_at") else None,
+                "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
+            }
+        )
+    return out
+
+
+def memory_fact_delete(*, key: str, workspace_id: uuid.UUID | None = None) -> bool:
+    """Soft-delete one fact by key for the current identity."""
+    tenant_id, user_id = _require_user_uuid()
+    k = (key or "").strip()
+    if not k:
+        raise ValueError("key is required")
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            if workspace_id is None:
+                cur.execute(
+                    """
+                    UPDATE user_memory_facts
+                    SET deleted_at = now(), updated_at = now()
+                    WHERE tenant_id = %s
+                      AND user_id = %s
+                      AND workspace_id IS NULL
+                      AND key = %s
+                      AND deleted_at IS NULL
+                    """,
+                    (tenant_id, user_id, k),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE user_memory_facts
+                    SET deleted_at = now(), updated_at = now()
+                    WHERE tenant_id = %s
+                      AND user_id = %s
+                      AND workspace_id = %s
+                      AND key = %s
+                      AND deleted_at IS NULL
+                    """,
+                    (tenant_id, user_id, workspace_id, k),
+                )
+            ok = cur.rowcount > 0
+        conn.commit()
+    return ok
+
+
+def memory_note_insert(
+    *,
+    text: str,
+    embedding: list[float],
+    tags: list[str] | None = None,
+    source: str | None = None,
+    workspace_id: uuid.UUID | None = None,
+) -> int:
+    """Insert one semantic memory note for the current identity (embedding provided by caller)."""
+    tenant_id, user_id = _require_user_uuid()
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("text is required")
+    tg = [str(x).strip() for x in (tags or []) if str(x).strip()]
+    src = (source or "user").strip() or "user"
+    ev = _vector_literal(embedding)
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_memory_notes
+                  (tenant_id, user_id, workspace_id, text, tags, source, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+                RETURNING id
+                """,
+                (tenant_id, user_id, workspace_id, t, tg, src, ev),
+            )
+            nid = int(cur.fetchone()[0])
+        conn.commit()
+    return nid
+
+
+def memory_note_soft_delete(note_id: int) -> bool:
+    tenant_id, user_id = _require_user_uuid()
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE user_memory_notes
+                SET deleted_at = now(), updated_at = now()
+                WHERE id = %s AND tenant_id = %s AND user_id = %s AND deleted_at IS NULL
+                """,
+                (int(note_id), tenant_id, user_id),
+            )
+            ok = cur.rowcount > 0
+        conn.commit()
+    return ok
+
+
+def memory_note_vector_search(
+    *,
+    query_embedding: list[float],
+    workspace_id: uuid.UUID | None = None,
+    tags: list[str] | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Vector search over semantic memory notes for the current identity."""
+    tenant_id, user_id = _require_user_uuid()
+    limit = max(1, min(int(limit or 10), 50))
+    qv = _vector_literal(query_embedding)
+    tg = [str(x).strip() for x in (tags or []) if str(x).strip()]
+    with pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            if tg:
+                cur.execute(
+                    """
+                    SELECT
+                      id,
+                      left(text, 4000) AS text,
+                      tags,
+                      source,
+                      workspace_id,
+                      updated_at,
+                      (embedding <=> %s::vector) AS distance
+                    FROM user_memory_notes
+                    WHERE tenant_id = %s
+                      AND user_id = %s
+                      AND deleted_at IS NULL
+                      AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                      AND tags && %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (qv, tenant_id, user_id, workspace_id, workspace_id, tg, qv, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                      id,
+                      left(text, 4000) AS text,
+                      tags,
+                      source,
+                      workspace_id,
+                      updated_at,
+                      (embedding <=> %s::vector) AS distance
+                    FROM user_memory_notes
+                    WHERE tenant_id = %s
+                      AND user_id = %s
+                      AND deleted_at IS NULL
+                      AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (qv, tenant_id, user_id, workspace_id, workspace_id, qv, limit),
+                )
+            rows = cur.fetchall()
+        conn.commit()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "text": r["text"],
+                "tags": r.get("tags") or [],
+                "source": r.get("source") or "",
+                "workspace_id": str(r["workspace_id"]) if r.get("workspace_id") else None,
+                "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
+                "distance": float(r.get("distance")) if r.get("distance") is not None else None,
+            }
+        )
+    return out
+
+
 def rag_document_and_chunks_insert(
     tenant_id: int,
     user_id: uuid.UUID,
@@ -712,40 +1019,87 @@ def rag_document_and_chunks_insert(
     return doc_id, len(chunks)
 
 
+def rag_delete_documents_by_tenant_domain(tenant_id: int, domain: str) -> int:
+    """Delete all ``rag_documents`` for a tenant and domain (case-insensitive). Cascades to chunks."""
+    dom = (domain or "").strip().lower()
+    if not dom:
+        return 0
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM rag_documents
+                WHERE tenant_id = %s AND lower(trim(domain)) = %s
+                """,
+                (tenant_id, dom),
+            )
+            n = cur.rowcount or 0
+        conn.commit()
+    return int(n)
+
+
 def rag_vector_search(
     tenant_id: int,
     user_id: uuid.UUID,
     query_embedding: list[float],
     domain: str | None,
     limit: int,
+    *,
+    tenant_wide_domain: bool = False,
 ) -> list[dict[str, Any]]:
     """Cosine distance (pgvector ``<=>``); lower is more similar."""
     limit = max(1, min(int(limit), 50))
     dom = (domain or "").strip()
+    dom_lc = dom.lower()
     qv = _vector_literal(query_embedding)
     with pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                """
-                SELECT
-                  c.id AS chunk_id,
-                  c.chunk_index,
-                  left(c.content, 8000) AS content,
-                  d.id AS document_id,
-                  d.title,
-                  d.domain,
-                  (c.embedding <=> %s::vector) AS distance
-                FROM rag_chunks c
-                JOIN rag_documents d ON d.id = c.document_id
-                WHERE d.tenant_id = %s
-                  AND d.user_id = %s
-                  AND (%s = '' OR d.domain = %s)
-                ORDER BY c.embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (qv, tenant_id, user_id, dom, dom, qv, limit),
-            )
-            rows = cur.fetchall()
+            if tenant_wide_domain:
+                if not dom_lc:
+                    rows = []
+                else:
+                    cur.execute(
+                        """
+                        SELECT
+                          c.id AS chunk_id,
+                          c.chunk_index,
+                          left(c.content, 8000) AS content,
+                          d.id AS document_id,
+                          d.title,
+                          d.domain,
+                          (c.embedding <=> %s::vector) AS distance
+                        FROM rag_chunks c
+                        JOIN rag_documents d ON d.id = c.document_id
+                        WHERE d.tenant_id = %s
+                          AND lower(trim(d.domain)) = %s
+                        ORDER BY c.embedding <=> %s::vector
+                        LIMIT %s
+                        """,
+                        (qv, tenant_id, dom_lc, qv, limit),
+                    )
+                    rows = cur.fetchall()
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                      c.id AS chunk_id,
+                      c.chunk_index,
+                      left(c.content, 8000) AS content,
+                      d.id AS document_id,
+                      d.title,
+                      d.domain,
+                      (c.embedding <=> %s::vector) AS distance
+                    FROM rag_chunks c
+                    JOIN rag_documents d ON d.id = c.document_id
+                    WHERE d.tenant_id = %s
+                      AND d.user_id = %s
+                      AND (%s = '' OR d.domain = %s)
+                    ORDER BY c.embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (qv, tenant_id, user_id, dom, dom, qv, limit),
+                )
+                rows = cur.fetchall()
         conn.commit()
     out: list[dict[str, Any]] = []
     for r in rows:

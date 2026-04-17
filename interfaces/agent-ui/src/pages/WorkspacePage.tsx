@@ -4,6 +4,13 @@ import { apiFetch } from "../lib/api";
 import { WorkspaceEmbeddedChat } from "../features/workspace/WorkspaceEmbeddedChat";
 import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
 import { WorkspaceSettingsDrawer } from "../features/workspace/WorkspaceSettingsDrawer";
+import { WorkspaceHubNavigator } from "../features/workspace/WorkspaceHubNavigator";
+import {
+  DEFAULT_HUBS,
+  groupWorkspacesByHub,
+  hubForSelectedId,
+  type WorkspaceHubId,
+} from "../features/workspace/workspaceHubNav";
 import type {
   UiLayout,
   WorkspaceDetail,
@@ -122,6 +129,7 @@ export function WorkspacePage() {
   const [membersBusy, setMembersBusy] = useState(false);
   const [membersErr, setMembersErr] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeHubOverride, setActiveHubOverride] = useState<WorkspaceHubId | null>(null);
 
   const accessRole = detail?.access_role ?? "owner";
   const isViewer = accessRole === "viewer";
@@ -323,6 +331,19 @@ export function WorkspacePage() {
       .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
       .slice(0, 5);
   }, [list]);
+
+  const groupedByHub = useMemo(() => groupWorkspacesByHub(list), [list]);
+  const selectedHubId = useMemo(
+    () => hubForSelectedId(groupedByHub, selectedId),
+    [groupedByHub, selectedId]
+  );
+  const effectiveHubId = activeHubOverride ?? selectedHubId ?? "other";
+
+  useEffect(() => {
+    // If selection moved to a different hub, drop manual override to keep UX predictable.
+    if (!selectedHubId) return;
+    if (activeHubOverride && activeHubOverride !== selectedHubId) setActiveHubOverride(null);
+  }, [selectedHubId, activeHubOverride]);
 
   const catalogRows = useMemo(() => {
     const q = catalogQuery.trim().toLowerCase();
@@ -704,6 +725,15 @@ export function WorkspacePage() {
 
   const hubHomeMain = (
     <div className="mx-auto max-w-3xl space-y-8 py-6">
+      <WorkspaceHubNavigator
+        hubs={DEFAULT_HUBS}
+        grouped={groupedByHub}
+        activeHubId={effectiveHubId}
+        setActiveHubId={(id) => setActiveHubOverride(id)}
+        selectedId={selectedId}
+        onSelectWorkspace={(id) => selectWorkspace(id)}
+        kindLabelFor={(k) => subtitleForWorkspaceKind(k, kindCatalog)}
+      />
       <div className="grid gap-4 sm:grid-cols-2">
         <button
           type="button"
@@ -849,6 +879,17 @@ export function WorkspacePage() {
               <p className="text-sm text-surface-muted">Loading…</p>
             ) : (
               <>
+                <div className="mb-4">
+                  <WorkspaceHubNavigator
+                    hubs={DEFAULT_HUBS}
+                    grouped={groupedByHub}
+                    activeHubId={effectiveHubId}
+                    setActiveHubId={(id) => setActiveHubOverride(id)}
+                    selectedId={selectedId}
+                    onSelectWorkspace={(id) => selectWorkspace(id)}
+                    kindLabelFor={(k) => subtitleForWorkspaceKind(k, kindCatalog)}
+                  />
+                </div>
                 {isViewer ? (
                   <p className="mb-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-surface-muted">
                     Read-only: you can view lists and pet photos here. Ask the owner for editor access if you

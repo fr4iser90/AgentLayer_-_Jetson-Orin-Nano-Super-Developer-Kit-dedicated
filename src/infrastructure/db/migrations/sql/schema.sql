@@ -204,6 +204,60 @@ CREATE TABLE rag_chunks (
 CREATE INDEX idx_rag_chunks_document ON rag_chunks (document_id);
 CREATE INDEX idx_rag_chunks_embedding ON rag_chunks USING hnsw (embedding vector_cosine_ops);
 
+-- --- User memory: structured facts + semantic notes ---
+
+CREATE TABLE user_memory_facts (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value_json JSONB NOT NULL,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NULL,
+  deleted_at TIMESTAMPTZ NULL
+);
+
+CREATE UNIQUE INDEX ux_user_memory_facts_global_key
+  ON user_memory_facts (tenant_id, user_id, key)
+  WHERE workspace_id IS NULL AND deleted_at IS NULL;
+
+CREATE UNIQUE INDEX ux_user_memory_facts_workspace_key
+  ON user_memory_facts (tenant_id, user_id, workspace_id, key)
+  WHERE workspace_id IS NOT NULL AND deleted_at IS NULL;
+
+CREATE INDEX idx_user_memory_facts_scope_updated
+  ON user_memory_facts (tenant_id, user_id, workspace_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_user_memory_facts_scope_expires
+  ON user_memory_facts (tenant_id, user_id, workspace_id, expires_at)
+  WHERE deleted_at IS NULL;
+
+CREATE TABLE user_memory_notes (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  tags TEXT[] NOT NULL DEFAULT '{}',
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
+  embedding vector(768) NOT NULL
+);
+
+CREATE INDEX idx_user_memory_notes_scope_updated
+  ON user_memory_notes (tenant_id, user_id, workspace_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_user_memory_notes_embedding
+  ON user_memory_notes USING hnsw (embedding vector_cosine_ops);
+
 CREATE TABLE rss_articles (
   id BIGSERIAL PRIMARY KEY,
   article_id TEXT NOT NULL UNIQUE,

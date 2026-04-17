@@ -7,6 +7,8 @@ import logging
 import uuid
 from typing import Any
 
+import httpx
+
 from src.core.config import config
 from src.infrastructure.ollama_gate import ollama_post_json
 from src.infrastructure.db import db
@@ -34,26 +36,74 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return [c for c in out if c.strip()]
 
 
-def ollama_embed_one(text: str) -> list[float]:
-    """Single string → one embedding (Ollama ``/api/embeddings``)."""
-    url = f"{config.OLLAMA_BASE_URL}/api/embeddings"
-    body = {"model": config.AGENT_RAG_OLLAMA_MODEL, "input": text}
-    data = ollama_post_json(
-        url,
-        body,
-        timeout=float(config.AGENT_RAG_EMBED_TIMEOUT),
-    )
+def _vector_from_ollama_embed_payload(data: dict[str, Any]) -> list[float] | None:
+    """Normalize Ollama JSON from ``/api/embed`` or ``/api/embeddings`` into one float vector."""
     emb = data.get("embedding")
-    if not isinstance(emb, list):
-        raise ValueError("Ollama embeddings response missing embedding[]")
-    vec = [float(x) for x in emb]
+    if isinstance(emb, list) and emb and isinstance(emb[0], (int, float)):
+        return [float(x) for x in emb]
+    embs = data.get("embeddings")
+    if isinstance(embs, list) and embs:
+        first = embs[0]
+        if isinstance(first, list) and first and isinstance(first[0], (int, float)):
+            return [float(x) for x in first]
+    return None
+
+
+def ollama_embed_one(text: str) -> list[float]:
+    """
+    Single string → one embedding.
+
+    Tries ``POST /api/embed`` (current Ollama), then legacy ``/api/embeddings`` with
+    ``prompt``, then ``/api/embeddings`` with ``input`` — different server versions differ.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        raise ValueError("embedding text is empty")
+    base = (config.OLLAMA_BASE_URL or "").strip().rstrip("/")
+    if not base:
+        raise ValueError("OLLAMA_BASE_URL is empty")
+    model = (config.AGENT_RAG_OLLAMA_MODEL or "").strip()
+    if not model:
+        raise ValueError("AGENT_RAG_OLLAMA_MODEL is empty")
+    timeout = float(config.AGENT_RAG_EMBED_TIMEOUT)
     want = _expected_dim()
-    if len(vec) != want:
+
+    attempts: list[tuple[str, dict[str, Any]]] = [
+        (f"{base}/api/embed", {"model": model, "input": raw}),
+        (f"{base}/api/embeddings", {"model": model, "prompt": raw}),
+        (f"{base}/api/embeddings", {"model": model, "input": raw}),
+    ]
+    last: Exception | None = None
+    for url, body in attempts:
+        try:
+            data = ollama_post_json(url, body, timeout=timeout)
+        except httpx.HTTPStatusError as e:
+            last = e
+            if e.response.status_code == 404:
+                continue
+            raise
+        vec = _vector_from_ollama_embed_payload(data)
+        if vec is None:
+            last = ValueError("Ollama embed response missing vector")
+            continue
+        if len(vec) != want:
+            raise ValueError(
+                f"embedding dim {len(vec)} != AGENT_RAG_EMBEDDING_DIM {want} "
+                f"(model {model!r}; DB column is vector(768))"
+            )
+        return vec
+
+    hint = (
+        f"pull the embedding model on the Ollama host, e.g. `ollama pull {model}` "
+        f"(OLLAMA_BASE_URL={base!r})."
+    )
+    if isinstance(last, httpx.HTTPStatusError):
         raise ValueError(
-            f"embedding dim {len(vec)} != AGENT_RAG_EMBEDDING_DIM {want} "
-            f"(model {config.AGENT_RAG_OLLAMA_MODEL!r}; DB column is vector(768))"
-        )
-    return vec
+            f"Ollama returned {last.response.status_code} for all embed endpoints ({hint})"
+        ) from last
+    if last:
+        raise ValueError(f"Ollama embedding failed ({hint})") from last
+    raise ValueError(f"Ollama embedding failed ({hint})")
 
 
 def ingest_for_user(
@@ -112,4 +162,14 @@ def search_for_identity(
     if user_id is None:
         return []
     lim = limit if limit is not None else config.AGENT_RAG_TOP_K
-    return db.rag_vector_search(tenant_id, user_id, emb, domain, int(lim))
+    dom_raw = (domain or "").strip() if domain else ""
+    dom_lc = dom_raw.lower()
+    tenant_wide = bool(dom_lc and dom_lc in config.AGENT_RAG_TENANT_SHARED_DOMAINS)
+    return db.rag_vector_search(
+        tenant_id,
+        user_id,
+        emb,
+        domain,
+        int(lim),
+        tenant_wide_domain=tenant_wide,
+    )

@@ -52,6 +52,7 @@ from src.api.optional_http_access import (
     public_http_auth_policy,
 )
 from src.domain.admin_setup import is_first_start, setup_admin_claim_if_needed
+from src.domain.rag_docs_file_ingest import run_startup_rag_docs_ingest
 from src.domain.agent import chat_completion
 from src.domain.http_identity import resolve_chat_identity
 from src.domain.identity import reset_identity, set_identity
@@ -63,6 +64,7 @@ from src.api.studio_api import router as studio_router
 from src.api.rag_api import router as rag_router
 from src.domain.plugin_system.registry import get_registry
 from src.infrastructure.user_data_api import router as user_data_router
+from src.infrastructure.memory_api import router as memory_router
 from src.infrastructure.user_secrets_api import router as user_secrets_router
 from src.api.conversations_api import router as conversations_router
 from src.workspace.router import router as workspace_router
@@ -119,6 +121,10 @@ async def lifespan(_app: FastAPI):
             "(e.g. https://openwebui.example) so browsers do not send creds to arbitrary sites."
         )
     get_registry()
+    try:
+        await asyncio.to_thread(run_startup_rag_docs_ingest)
+    except Exception:
+        logger.exception("RAG docs startup ingest failed (Ollama unreachable?)")
     start_cron_scheduler()
     try:
         discord_bridge.start_background()
@@ -138,6 +144,7 @@ app.include_router(user_secrets_router)
 app.include_router(conversations_router)
 app.include_router(workspace_router)
 app.include_router(user_data_router)
+app.include_router(memory_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
 app.include_router(chat_ws_router)

@@ -105,6 +105,8 @@ def public_http_auth_policy() -> dict[str, Any]:
             "POST /v1/admin/users",
             "PATCH /v1/admin/users/{user_id}",
             "PUT /v1/admin/tool-policies",
+            "POST /v1/admin/rag/ingest",
+            "POST /v1/admin/rag/ingest-docs",
         ],
         "note_admin": "Bearer must resolve to a user with role=admin; then require_admin().",
         "note_identity": (

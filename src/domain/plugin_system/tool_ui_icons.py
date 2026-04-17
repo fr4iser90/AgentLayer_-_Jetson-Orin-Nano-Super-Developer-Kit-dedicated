@@ -15,6 +15,7 @@ ICON_MAP: dict[str, str] = {
     "clock": "clock",
     "kb": "notebook-pen",
     "rag": "search",
+    "memory": "brain",
     "web_search": "globe",
     "github": "github",
     "local_files": "folder-open",

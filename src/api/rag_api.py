@@ -1,14 +1,18 @@
-"""Admin HTTP for RAG ingest (same Bearer identity as chat)."""
+"""Admin HTTP for RAG ingest (admin Bearer only)."""
 
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from src.core.config import config
-from src.domain.http_identity import resolve_chat_identity
+from src.domain.rag_docs_file_ingest import ingest_markdown_tree, resolve_docs_root
+from src.infrastructure.auth import require_admin
+from src.infrastructure.db import db
 import src.api.rag as rag_service
 
 logger = logging.getLogger(__name__)
@@ -16,11 +20,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class IngestDocsBody(BaseModel):
+    """Optional body for ``POST /v1/admin/rag/ingest-docs``."""
+
+    docs_root: str | None = Field(
+        default=None,
+        description="Directory containing Markdown files (default: <repo>/docs).",
+    )
+    domain: str = Field(default="agentlayer_docs", min_length=1)
+    purge_first: bool = Field(
+        default=True,
+        description="If true, delete existing RAG rows for this tenant+domain before ingest.",
+    )
+
+
 @router.post("/v1/admin/rag/ingest")
 async def admin_rag_ingest(request: Request):
     """
-    Ingest plain text into pgvector-backed RAG for the JWT/API-key user (``users.tenant_id``).
+    Ingest plain text into pgvector-backed RAG for the admin's tenant (``users.tenant_id``).
     """
+    user = await require_admin(request)
     if not config.AGENT_RAG_ENABLED:
         raise HTTPException(status_code=503, detail="RAG disabled (AGENT_RAG_ENABLED=false)")
     try:
@@ -37,10 +56,10 @@ async def admin_rag_ingest(request: Request):
     source_uri = body.get("source_uri")
     su = source_uri if isinstance(source_uri, str) and source_uri.strip() else None
 
-    user_id, tenant_id = resolve_chat_identity(request)
+    tenant_id = db.user_tenant_id(user.id)
     try:
         out = rag_service.ingest_for_user(
-            tenant_id, user_id, domain, title, text, su
+            tenant_id, user.id, domain, title, text, su
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -58,3 +77,45 @@ async def admin_rag_ingest(request: Request):
         logger.exception("RAG ingest failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
     return out
+
+
+@router.post("/v1/admin/rag/ingest-docs")
+async def admin_rag_ingest_docs(
+    request: Request, body: IngestDocsBody = Body(default_factory=IngestDocsBody)
+):
+    """
+    Walk ``docs_root`` for ``*.md``, ingest each file under ``domain`` (default ``agentlayer_docs``).
+    Purges all rows for that tenant+domain first when ``purge_first`` is true so reindex is idempotent.
+    """
+    user = await require_admin(request)
+    if not config.AGENT_RAG_ENABLED:
+        raise HTTPException(status_code=503, detail="RAG disabled (AGENT_RAG_ENABLED=false)")
+    opts = body or IngestDocsBody()
+    domain = opts.domain.strip()
+    if not domain:
+        raise HTTPException(status_code=400, detail="domain is required")
+
+    if opts.docs_root:
+        root = Path(opts.docs_root).expanduser().resolve()
+    else:
+        root = resolve_docs_root()
+
+    if not root.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=f"docs_root not found or not a directory: {root}",
+        )
+
+    tenant_id = db.user_tenant_id(user.id)
+    try:
+        return ingest_markdown_tree(
+            tenant_id,
+            user.id,
+            root,
+            domain,
+            purge_first=opts.purge_first,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e

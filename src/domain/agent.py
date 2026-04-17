@@ -21,6 +21,7 @@ import httpx
 
 from src.core.config import config
 from src.domain.identity import get_identity
+from src.api import memory as memory_api
 from src.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from src.domain.plugin_system.registry import get_registry
 from src.workspace import db as workspace_db
@@ -235,6 +236,45 @@ def _inject_workspace_context(
         }
     else:
         out.insert(0, {"role": "system", "content": note})
+    return out
+
+
+def _inject_user_memory_context(messages: list[dict[str, Any]], raw_workspace_ctx: Any) -> list[dict[str, Any]]:
+    """
+    Inject persisted user memory (facts + semantic notes) as a system snippet.
+    Writes are opt-in via tools; this is read-only retrieval.
+    """
+    q = (last_user_text(messages) or "").strip()
+    if not q:
+        return messages
+
+    wid: uuid.UUID | None = None
+    if isinstance(raw_workspace_ctx, dict):
+        wsid = raw_workspace_ctx.get("workspace_id")
+        if isinstance(wsid, str) and wsid.strip():
+            try:
+                wid = uuid.UUID(wsid.strip())
+            except ValueError:
+                wid = None
+
+    try:
+        snippet = memory_api.render_memory_context(workspace_id=wid, user_query=q)
+    except Exception:
+        snippet = ""
+    if not snippet:
+        return messages
+
+    out = list(messages)
+    if not out:
+        return [{"role": "system", "content": snippet}]
+    if out[0].get("role") == "system":
+        existing = out[0].get("content") or ""
+        out[0] = {
+            **out[0],
+            "content": (existing + "\n\n" + snippet).strip() if existing else snippet,
+        }
+    else:
+        out.insert(0, {"role": "system", "content": snippet})
     return out
 
 
@@ -904,6 +944,7 @@ async def chat_completion(
         if isinstance(pf, dict):
             _apply_tool_prefetch(messages, pf)
         messages = apply_user_persona_system(messages)
+        messages = _inject_user_memory_context(messages, workspace_ctx)
 
         model, model_reason = resolve_effective_model(
             messages=messages,
