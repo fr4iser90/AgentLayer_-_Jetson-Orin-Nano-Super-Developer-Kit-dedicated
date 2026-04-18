@@ -1391,7 +1391,8 @@ async def chat_completion(
                     raise RuntimeError("LLM: no chat/completions attempts")
                 break
 
-            assert chosen is not None
+            if chosen is None:
+                raise RuntimeError("LLM: internal error: no completion chosen after HTTP success")
 
             if tools_omitted:
                 tools_for_round = []

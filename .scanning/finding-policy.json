@@ -25,15 +25,33 @@
             },
             {
                 "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
-                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
+                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py|src/infrastructure/db/db\\.py)$",
                 "message_regex": "Avoiding SQL string concatenation|raw query",
-                "reason": "Dynamic SET lists only join fixed assignment fragments (e.g. title = %s); all user values are passed as bound parameters, not interpolated into SQL keywords."
+                "reason": "Dynamic SQL builds fixed clause shapes (OR/SET fragments); user-derived values use %s placeholders. Memory-graph keyword branch repeats (label ILIKE %s OR summary ILIKE %s) per token—tokens never interpolated as SQL keywords."
+            },
+            {
+                "rule_id": "python.lang.security.audit.formatted-sql-query.formatted-sql-query",
+                "path_regex": ".*/src/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
+                "message_regex": "formatted SQL|parameterized",
+                "reason": "Alembic migration: column names come from a fixed tuple in the migration file, not from HTTP input."
             },
             {
                 "rule_id": "scanner.plugins.semgrep.rules.prompt-injection-detect",
                 "path_regex": ".*/workflows/.*\\.py$",
                 "message_regex": "prompt injection|user input in prompt",
                 "reason": "Workflow modules build LLM prompts for the product; user-derived content is inherent to an agent server and bounded by auth and tool policies."
+            },
+            {
+                "rule_id": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+                "path_regex": ".*/scripts/(memory_graph_stats|reindex_agentlayer_docs)\\.py$",
+                "message_regex": "urllib|file",
+                "reason": "Operator-only CLI scripts: URL is AGENT_BASE_URL plus fixed API path (http/https). Same as Bandit B310; line-level nosec in source."
+            },
+            {
+                "rule_id": "javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop",
+                "path_regex": ".*/interfaces/agent-ui/src/features/workspace/workspaceDataPaths\\.ts$",
+                "message_regex": "prototype|pollution",
+                "reason": "Paths are workspace dataPath strings; __proto__/constructor/prototype segments are now rejected. Residual scanner noise may remain on older branches."
             }
         ]
     },
@@ -84,8 +102,8 @@
             {
                 "rule_id": "B105",
                 "path_regex": ".*/src/infrastructure/secret_otp_bundle\\.py$",
-                "message_regex": "DEIN_|du@gmail|github_pat|calendar\\.ics|SECRET",
-                "reason": "User-facing curl examples and placeholder JSON for OTP registration, not real secrets."
+                "message_regex": "DEIN_|du@gmail|github_pat|calendar\\.ics|SECRET|private-XXXX|generativelanguage",
+                "reason": "User-facing curl examples and placeholder JSON for OTP registration (DEINE_MAIL, private-XXXX, etc.), not real secrets."
             },
             {
                 "rule_id": "B105",
@@ -107,9 +125,15 @@
             },
             {
                 "rule_id": "B608",
-                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py)$",
+                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py|src/infrastructure/db/db\\.py)$",
                 "message_regex": "SQL injection|string-based query",
-                "reason": "f-string only joins fixed SET clause fragments; values use %s placeholders with separate args list—no user-controlled SQL keywords."
+                "reason": "f-string only joins fixed SQL fragments; values use %s placeholders. Memory graph keyword OR clause repeats parameterized ILIKE patterns per token."
+            },
+            {
+                "rule_id": "B310",
+                "path_regex": ".*/scripts/(memory_graph_stats|reindex_agentlayer_docs)\\.py$",
+                "message_regex": "url open|Audit url open",
+                "reason": "Operator CLI: urllib opens HTTP(S) URLs built from AGENT_BASE_URL + fixed API paths; not arbitrary file:// from user input. nosec on urlopen line."
             }
         ]
     },
@@ -122,16 +146,52 @@
                 "reason": "Paths resolved under configured tool roots (AGENT_TOOLS_EXTRA_DIR / image tools); authenticated admin/tool-governed surface, not arbitrary anonymous FS write."
             },
             {
+                "rule_id": "py/path-injection",
+                "path_regex": ".*/src/api/rag_api\\.py$",
+                "message_regex": "user-provided|path depends",
+                "reason": "Admin-only POST /v1/admin/rag/ingest-docs; docs_root is admin-controlled; resolved with Path.expanduser().resolve() for server-side ingest."
+            },
+            {
+                "rule_id": "py/clear-text-logging-sensitive-data",
+                "path_regex": ".*/src/domain/agent\\.py$",
+                "message_regex": "password|sensitive|clear.text|logging",
+                "reason": "AGENT_LOG_LLM_ROUNDS logs model id and redacted assistant preview via _redact_secrets_for_log; HTTP error bodies are truncated provider JSON. CodeQL often flags 'password' substring in error text or heuristic on variable names."
+            },
+            {
+                "rule_id": "py/full-ssrf",
+                "path_regex": ".*/src/infrastructure/ollama_gate\\.py$",
+                "message_regex": "user-provided|URL",
+                "reason": "POST URL is supplied by server config (Ollama base URL, operator external LLM endpoints), not arbitrary per-request user URLs in the default deployment model."
+            },
+            {
                 "rule_id": "py/incomplete-url-substring-sanitization",
                 "path_regex": ".*/tools/agent/productivity/calendar/calendar_ics\\.py$",
                 "message_regex": "calendar\\.google\\.com|substring",
                 "reason": "Allowlist-style host checks for ICS fetch policy; documented residual heuristic limitation."
             },
             {
+                "rule_id": "py/incomplete-url-substring-sanitization",
+                "path_regex": ".*/src/infrastructure/operator_settings\\.py$",
+                "message_regex": "generativelanguage\\.googleapis\\.com|substring",
+                "reason": "External LLM base URL normalization uses allowlisted host substrings; known trade-off for Google OpenAI-compatible endpoints."
+            },
+            {
                 "rule_id": "py/stack-trace-exposure",
-                "path_regex": ".*/(src/api/main\\.py|src/domain/plugin_system/tools_api\\.py)$",
+                "path_regex": ".*/src/api/main\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
-                "reason": "Handlers use logger.exception server-side; HTTP responses expose str(e) or JSON tool output, not full Python tracebacks. Hardening: generic 500 bodies in production."
+                "reason": "Tool run endpoints return HTTPException(detail=str(e)) without traceback; logger.exception is server-side only. Hardening: generic 500 in production."
+            },
+            {
+                "rule_id": "py/stack-trace-exposure",
+                "path_regex": ".*/src/api/rag_api\\.py$",
+                "message_regex": "Stack trace|may be exposed|flows to",
+                "reason": "Admin RAG routes map exceptions to HTTPException with safe message strings; no traceback in client response for declared paths."
+            },
+            {
+                "rule_id": "py/stack-trace-exposure",
+                "path_regex": ".*/src/domain/plugin_system/tools_api\\.py$",
+                "message_regex": "Stack trace|may be exposed|flows to",
+                "reason": "Admin endpoints return generic details; logger.exception does not send Python tracebacks to clients."
             }
         ]
     },

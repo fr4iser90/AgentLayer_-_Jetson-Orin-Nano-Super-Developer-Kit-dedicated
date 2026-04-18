@@ -50,7 +50,8 @@ def main() -> int:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=600) as resp:
+        # nosec B310: operator script; URL is AGENT_BASE_URL + fixed admin path (http/https only), not user file://
+        with urllib.request.urlopen(req, timeout=600) as resp:  # nosec B310
             payload = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         err = e.read().decode("utf-8", errors="replace")

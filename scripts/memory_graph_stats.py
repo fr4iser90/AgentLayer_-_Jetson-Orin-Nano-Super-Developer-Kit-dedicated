@@ -28,7 +28,8 @@ def main() -> int:
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        # nosec B310: operator script; URL is AGENT_BASE_URL + fixed API path (http/https only), not user file://
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310
             raw = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         print(e.read().decode("utf-8", errors="replace"), file=sys.stderr)

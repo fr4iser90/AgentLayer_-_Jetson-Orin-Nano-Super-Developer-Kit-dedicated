@@ -1,11 +1,18 @@
+/** Reject keys that could touch Object.prototype via bracket assignment. */
+function isUnsafePathSegment(seg: string): boolean {
+  return seg === "__proto__" || seg === "constructor" || seg === "prototype";
+}
+
 /** Supports top-level keys (`pets`) and dotted paths (`albums.0.photos`) for nested albums. */
 export function getPath(obj: Record<string, unknown>, path: string): unknown {
   if (!path.includes(".")) {
+    if (isUnsafePathSegment(path)) return undefined;
     return obj[path];
   }
   const segs = path.split(".").filter(Boolean);
   let cur: unknown = obj;
   for (const seg of segs) {
+    if (isUnsafePathSegment(seg)) return undefined;
     if (cur === null || cur === undefined) return undefined;
     if (Array.isArray(cur)) {
       const i = Number(seg);
@@ -26,9 +33,11 @@ export function setPath(
   value: unknown
 ): Record<string, unknown> {
   if (!path.includes(".")) {
+    if (isUnsafePathSegment(path)) return { ...obj };
     return { ...obj, [path]: value };
   }
   const segs = path.split(".").filter(Boolean);
+  if (segs.some(isUnsafePathSegment)) return { ...obj };
   const [head, ...tail] = segs;
   const tailPath = tail.join(".");
   const raw = obj[head];
