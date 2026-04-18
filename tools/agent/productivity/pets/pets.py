@@ -22,13 +22,19 @@ TOOL_DESCRIPTION = (
     "Read and update pets workspaces (kind pets): hero image, animals table, markdown notes, photo albums. "
     "workspace_id is optional when the user has exactly one pets board (same rule as other workspace tools); "
     "if several exist, pass workspace_id after listing. Prefer [Workspace context] when present. "
-    "Stored workspace JSON only — no external vet APIs."
+    "Stored workspace JSON only — no external vet APIs. "
+    "Use when the user asks about *their* animals (name, vet, photos) — they may not say the word “pet”."
 )
+# Router: lowercased substring match (OR). Avoid bare “hund” — it hits “hundert”. Prefer phrases + species words.
 TOOL_TRIGGERS = (
     "pet",
     "pets",
     "haustier",
+    "haustiere",
     "tier",
+    "tiere",
+    "tiername",
+    "tiernamen",
     "impfung",
     "entwurmung",
     "tierarzt",
@@ -36,6 +42,48 @@ TOOL_TRIGGERS = (
     "foto",
     "hero",
     "cover",
+    # English
+    "my pet",
+    "my pets",
+    "my dog",
+    "my cat",
+    "my rabbit",
+    "pet name",
+    "dog name",
+    "cat name",
+    "our dog",
+    "our cat",
+    # German — ownership / “whose animal” (no bare “hund”)
+    "mein haustier",
+    "meine haustiere",
+    "mein tier",
+    "meine tiere",
+    "unser tier",
+    "unser haustier",
+    "mein hund",
+    "meine hunde",
+    "unser hund",
+    "dein hund",
+    "mein welpe",
+    "meine katze",
+    "meine katzen",
+    "unser kater",
+    "mein kaninchen",
+    "mein meerschweinchen",
+    "mein hamster",
+    "mein vogel",
+    "mein pferd",
+    "wie heißt mein",
+    "wie heisst mein",
+    "wie heißt unser",
+    "wie heisst unser",
+    "wie heißt dein",
+    "gassi",
+    "welpe",
+    "welp",
+    "katz",
+    "aquarium",
+    "terrarium",
 )
 TOOL_CAPABILITIES = ("workspace.pets.read", "workspace.pets.write")
 

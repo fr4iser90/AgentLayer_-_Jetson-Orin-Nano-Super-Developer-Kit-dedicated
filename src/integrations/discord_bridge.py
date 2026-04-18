@@ -4,6 +4,10 @@ In-process Discord gateway: runs in a daemon thread inside the same process as U
 Configuration is read from ``operator_settings`` (Admin → Interfaces). Messages that match
 the prefix are allowed only for Discord user ids linked in ``users.discord_user_id``; chat
 then runs via :func:`src.domain.agent.chat_completion` in-process (same identity as that user).
+
+**Context:** Each Discord channel / DM / thread keeps a rolling conversation in Postgres
+(``bridge_agent_sessions``), like Telegram. Send ``/clear`` / ``reset`` / ``neu`` after the
+prefix to start over. The web UI already sends full ``messages[]`` per turn — no bridge table.
 Restarts pick up DB changes on the next reconnect cycle after ``client.run`` ends.
 """
 
@@ -20,6 +24,14 @@ import discord
 from src.core.config import config
 from src.domain.agent import chat_completion
 from src.domain.identity import reset_identity, set_identity
+from src.infrastructure.bridge_agent_session import (
+    BRIDGE_DISCORD,
+    MAX_CONTEXT_MESSAGES,
+    bridge_agent_conversation_ensure,
+    bridge_agent_session_reset,
+    messages_for_bridge_completion,
+)
+from src.infrastructure.conversations_db import conversation_append_message
 from src.infrastructure.db import db
 
 logger = logging.getLogger(__name__)
@@ -147,6 +159,37 @@ def _make_client(cfg: _BridgeCfg) -> discord.Client:
                         f"Add your question after `{cfg.prefix.strip()}`, e.g. `{cfg.prefix.strip()}What is 2+2?`"
                     )
                 return
+            clear_tokens = frozenset(
+                {
+                    "/clear",
+                    "/reset",
+                    "clear",
+                    "reset",
+                    "neu",
+                    "neuer chat",
+                    "/neu",
+                }
+            )
+            if prompt.strip().lower() in clear_tokens:
+                author_id = str(message.author.id)
+                linked = db.user_id_tenant_for_discord_global(author_id)
+                if linked is None:
+                    await message.reply(
+                        "Your Discord account is not linked in AgentLayer (or the link is ambiguous). "
+                        "Open the web app → **Settings → Connections** → save your numeric Discord user ID."
+                    )
+                    return
+                user_id, _tenant_id = linked
+                ok = bridge_agent_session_reset(
+                    user_id,
+                    provider=BRIDGE_DISCORD,
+                    scope_chat_id=int(message.channel.id),
+                    scope_thread_id=None,
+                )
+                await message.reply(
+                    "Konversationsverlauf für diesen Kanal geleert." if ok else "Es war kein gespeicherter Verlauf vorhanden."
+                )
+                return
             author_id = str(message.author.id)
             linked = db.user_id_tenant_for_discord_global(author_id)
             if linked is None:
@@ -162,18 +205,45 @@ def _make_client(cfg: _BridgeCfg) -> discord.Client:
                 user_id,
                 cfg.model,
             )
+            conv_id = bridge_agent_conversation_ensure(
+                user_id,
+                tenant_id,
+                provider=BRIDGE_DISCORD,
+                scope_chat_id=int(message.channel.id),
+                scope_thread_id=None,
+                model=cfg.model,
+            )
+            msg_list = messages_for_bridge_completion(
+                user_id, conv_id, new_user_text=prompt
+            )
+            logger.debug(
+                "discord_bridge: conversation_id=%s ctx_messages=%d (cap=%d)",
+                conv_id,
+                len(msg_list),
+                MAX_CONTEXT_MESSAGES + 1,
+            )
             work: dict[str, Any] = {
                 "model": cfg.model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": msg_list,
                 "stream": False,
             }
             role = db.user_role(user_id).lower()
             bearer_role = role if role in ("user", "admin") else None
             id_token = set_identity(tenant_id, user_id)
+            text = ""
             async with message.channel.typing():
                 try:
                     result = await chat_completion(work, bearer_user_role=bearer_role)
                     text = _extract_reply(result if isinstance(result, dict) else {})
+                    if not conversation_append_message(
+                        user_id, conv_id, role="user", content=prompt
+                    ) or not conversation_append_message(
+                        user_id, conv_id, role="assistant", content=text
+                    ):
+                        logger.warning(
+                            "discord_bridge: failed to persist turn (conversation_id=%s)",
+                            conv_id,
+                        )
                 except ValueError as e:
                     await message.reply(f"AgentLayer: {e!s:.1500}")
                     return

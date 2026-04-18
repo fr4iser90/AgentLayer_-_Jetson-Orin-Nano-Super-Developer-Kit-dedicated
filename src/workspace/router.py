@@ -50,6 +50,14 @@ class WorkspaceMemberAddBody(BaseModel):
     role: str = Field(default="viewer", max_length=16)
 
 
+class WorkspaceBlockShareBody(BaseModel):
+    """Share only specific layout block ids; ``view`` = read-only, ``edit`` = patch those blocks."""
+
+    email: str = Field(..., min_length=3, max_length=254)
+    block_ids: list[str] = Field(default_factory=list)
+    permission: str = Field(default="view", max_length=8)
+
+
 class WorkspaceInstallBody(BaseModel):
     """Which bundle kinds to apply ``schema_sql`` for (nothing runs until you pick)."""
 
@@ -348,6 +356,61 @@ async def remove_workspace_member(
         raise HTTPException(status_code=403, detail="only owner or co-owner can remove members")
     if not workspace_db.member_remove(user.id, tid, workspace_id, member_user_id):
         raise HTTPException(status_code=404, detail="member not found")
+    return {"ok": True, "removed": True}
+
+
+@router.get("/{workspace_id}/block-shares")
+async def list_workspace_block_shares(request: Request, workspace_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not workspace_db.workspace_can_manage_members(user.id, tid, workspace_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can list block shares")
+    items = workspace_db.block_share_grants_list(user.id, tid, workspace_id)
+    return {"ok": True, "grants": items}
+
+
+@router.post("/{workspace_id}/block-shares")
+async def upsert_workspace_block_share(
+    request: Request, workspace_id: uuid.UUID, body: WorkspaceBlockShareBody
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    target = get_user_by_email(body.email.strip().lower())
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found for this email")
+    perm = (body.permission or "view").strip().lower()
+    if perm not in ("view", "edit"):
+        raise HTTPException(status_code=400, detail="permission must be view or edit")
+    ok = workspace_db.block_share_grant_upsert(
+        user.id,
+        tid,
+        workspace_id,
+        viewer_user_id=target.id,
+        block_ids=body.block_ids,
+        permission=perm,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="could not save (check block ids exist in layout, not owner email, same tenant)",
+        )
+    items = workspace_db.block_share_grants_list(user.id, tid, workspace_id)
+    return {"ok": True, "grants": items}
+
+
+@router.delete("/{workspace_id}/block-shares/{viewer_user_id}")
+async def delete_workspace_block_share(
+    request: Request, workspace_id: uuid.UUID, viewer_user_id: uuid.UUID
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not workspace_db.workspace_can_manage_members(user.id, tid, workspace_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can remove block shares")
+    if not workspace_db.block_share_grant_delete(user.id, tid, workspace_id, viewer_user_id):
+        raise HTTPException(status_code=404, detail="grant not found")
     return {"ok": True, "removed": True}
 
 

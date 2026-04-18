@@ -91,9 +91,13 @@ def file_get_with_access(
                       SELECT 1 FROM workspace_members m
                       WHERE m.workspace_id = w.id AND m.user_id = %s
                     )
+                    OR EXISTS (
+                      SELECT 1 FROM workspace_block_share_grants g
+                      WHERE g.workspace_id = w.id AND g.viewer_user_id = %s AND g.tenant_id = w.tenant_id
+                    )
                   )
                 """,
-                (file_id, tenant_id, user_id, user_id, user_id),
+                (file_id, tenant_id, user_id, user_id, user_id, user_id),
             )
             row = cur.fetchone()
         conn.commit()

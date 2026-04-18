@@ -48,7 +48,7 @@ def fact_upsert_for_identity(
     expires_at: datetime | None = None,
 ) -> dict[str, Any]:
     if not _enabled():
-        raise ValueError("memory disabled (AGENT_MEMORY_ENABLED=false)")
+        raise ValueError("memory is disabled on this server")
     _require_identity()
     if isinstance(value_json, str):
         _reject_secrets(value_json)
@@ -76,7 +76,7 @@ def fact_list_for_identity(
 
 def fact_delete_for_identity(*, key: str, workspace_id: uuid.UUID | None = None) -> bool:
     if not _enabled():
-        raise ValueError("memory disabled (AGENT_MEMORY_ENABLED=false)")
+        raise ValueError("memory is disabled on this server")
     _require_identity()
     return db.memory_fact_delete(key=key, workspace_id=workspace_id)
 
@@ -89,7 +89,7 @@ def note_add_for_identity(
     source: str | None = None,
 ) -> dict[str, Any]:
     if not _enabled():
-        raise ValueError("memory disabled (AGENT_MEMORY_ENABLED=false)")
+        raise ValueError("memory is disabled on this server")
     _require_identity()
     t = (text or "").strip()
     _reject_secrets(t)
@@ -117,7 +117,7 @@ def note_search_for_identity(
 
 def note_delete_for_identity(*, note_id: int) -> bool:
     if not _enabled():
-        raise ValueError("memory disabled (AGENT_MEMORY_ENABLED=false)")
+        raise ValueError("memory is disabled on this server")
     _require_identity()
     return db.memory_note_soft_delete(int(note_id))
 

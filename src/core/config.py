@@ -282,7 +282,7 @@ else:
 AGENT_DOCS_ROOT = (os.environ.get("AGENT_DOCS_ROOT") or "").strip()
 
 # --- Memory (facts + semantic notes) ---
-# When enabled, the agent injects retrieved memory as a system snippet. Writes are still opt-in via tools.
+# Legacy kill-switch only (default on). Operators enable/disable the memory tool package via Admin → Tools (DB), not via this env.
 AGENT_MEMORY_ENABLED = _env_bool("AGENT_MEMORY_ENABLED", True)
 
 

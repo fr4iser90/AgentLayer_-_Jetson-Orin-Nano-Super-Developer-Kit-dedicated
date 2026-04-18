@@ -14,6 +14,7 @@ import {
 } from "../features/workspace/workspaceHubNav";
 import type {
   UiLayout,
+  WorkspaceBlockGrantRow,
   WorkspaceDataAgentlayer,
   WorkspaceDetail,
   WorkspaceMemberRow,
@@ -130,6 +131,12 @@ export function WorkspacePage() {
   const [memberRole, setMemberRole] = useState<"viewer" | "editor" | "co_owner">("viewer");
   const [membersBusy, setMembersBusy] = useState(false);
   const [membersErr, setMembersErr] = useState<string | null>(null);
+  const [blockGrants, setBlockGrants] = useState<WorkspaceBlockGrantRow[]>([]);
+  const [blockShareEmail, setBlockShareEmail] = useState("");
+  const [blockSharePermission, setBlockSharePermission] = useState<"view" | "edit">("view");
+  const [blockSharePick, setBlockSharePick] = useState<Record<string, boolean>>({});
+  const [blockSharesBusy, setBlockSharesBusy] = useState(false);
+  const [blockSharesErr, setBlockSharesErr] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeHubOverride, setActiveHubOverride] = useState<WorkspaceHubId | null>(null);
   const [toolCatalogNames, setToolCatalogNames] = useState<string[]>([]);
@@ -361,6 +368,30 @@ export function WorkspacePage() {
   }, [selectedId, canManageMembers, auth]);
 
   useEffect(() => {
+    if (!selectedId || !canManageMembers) {
+      setBlockGrants([]);
+      setBlockSharesErr(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/block-shares`, auth);
+      if (!res.ok) {
+        if (!cancelled) setBlockSharesErr(await res.text());
+        return;
+      }
+      const j = (await res.json()) as { grants?: WorkspaceBlockGrantRow[] };
+      if (!cancelled) {
+        setBlockSharesErr(null);
+        setBlockGrants(j.grants ?? []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, canManageMembers, auth]);
+
+  useEffect(() => {
     if (!settingsOpen || !detail) return;
     let cancelled = false;
     setToolsCatalogErr(null);
@@ -464,6 +495,61 @@ export function WorkspacePage() {
       setMembers((prev) => prev.filter((m) => m.user_id !== userId));
     } finally {
       setMembersBusy(false);
+    }
+  };
+
+  const addBlockShareGrant = async () => {
+    if (!selectedId || !blockShareEmail.trim()) return;
+    const ids = Object.entries(blockSharePick)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (ids.length === 0) {
+      setBlockSharesErr("Select at least one block.");
+      return;
+    }
+    setBlockSharesBusy(true);
+    setBlockSharesErr(null);
+    try {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/block-shares`, auth, {
+        method: "POST",
+        body: JSON.stringify({
+          email: blockShareEmail.trim().toLowerCase(),
+          block_ids: ids,
+          permission: blockSharePermission,
+        }),
+      });
+      const raw = await res.text();
+      if (!res.ok) {
+        setBlockSharesErr(raw);
+        return;
+      }
+      const j = JSON.parse(raw) as { grants?: WorkspaceBlockGrantRow[] };
+      setBlockGrants(j.grants ?? []);
+      setBlockShareEmail("");
+      setBlockSharePermission("view");
+      setBlockSharePick({});
+    } catch (e) {
+      setBlockSharesErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBlockSharesBusy(false);
+    }
+  };
+
+  const removeBlockGrant = async (userId: string) => {
+    if (!selectedId) return;
+    setBlockSharesBusy(true);
+    setBlockSharesErr(null);
+    try {
+      const res = await apiFetch(`/v1/workspaces/${selectedId}/block-shares/${userId}`, auth, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        setBlockSharesErr(await res.text());
+        return;
+      }
+      setBlockGrants((prev) => prev.filter((g) => g.user_id !== userId));
+    } finally {
+      setBlockSharesBusy(false);
     }
   };
 
@@ -1021,8 +1107,17 @@ export function WorkspacePage() {
                 </div>
                 {isViewer ? (
                   <p className="mb-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-surface-muted">
-                    Read-only: you can view lists and pet photos here. Ask the owner for editor access if you
-                    should change something.
+                    {detail?.access_scope === "granular" ? (
+                      <>
+                        Read-only: you only see blocks the owner shared with you. Shared workspace team chat is
+                        not included on this access level.
+                      </>
+                    ) : (
+                      <>
+                        Read-only: you can view lists and pet photos here. Ask the owner for editor access if
+                        you should change something.
+                      </>
+                    )}
                   </p>
                 ) : null}
                 <div className="mb-4 flex flex-wrap items-end gap-3">
@@ -1322,6 +1417,7 @@ export function WorkspacePage() {
             </div>
 
             {canManageMembers ? (
+              <>
               <div className="rounded-xl border border-surface-border bg-black/20 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
                   Sharing &amp; members
@@ -1390,6 +1486,112 @@ export function WorkspacePage() {
                   </ul>
                 )}
               </div>
+
+              <div className="mt-4 rounded-xl border border-surface-border bg-black/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                  Granular block sharing (optional add-on)
+                </p>
+                <p className="mt-1 text-xs text-surface-muted">
+                  <span className="text-white/85">Does not replace</span> “Sharing &amp; members” above — co-owner,
+                  editor, and viewer roles stay as they are. Use this for someone who is <span className="text-white/85">not</span>{" "}
+                  a full member: <span className="text-white/85">View only</span> shows selected blocks read-only;{" "}
+                  <span className="text-white/85">Edit</span> lets them change content (and those blocks in the layout)
+                  only. Same tenant only; saving again updates that user&apos;s block list and access.
+                </p>
+                {blockSharesErr ? <p className="mt-2 text-xs text-red-300">{blockSharesErr}</p> : null}
+                <div className="mt-3 flex flex-wrap items-end gap-2">
+                  <div className="min-w-[200px] flex-1">
+                    <label className="mb-1 block text-[10px] text-surface-muted">User email</label>
+                    <input
+                      type="email"
+                      value={blockShareEmail}
+                      onChange={(e) => setBlockShareEmail(e.target.value)}
+                      placeholder="colleague@example.com"
+                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <label className="mb-1 block text-[10px] text-surface-muted">Access</label>
+                    <select
+                      value={blockSharePermission}
+                      onChange={(e) =>
+                        setBlockSharePermission(e.target.value === "edit" ? "edit" : "view")
+                      }
+                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50"
+                    >
+                      <option value="view">View only</option>
+                      <option value="edit">Edit</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={blockSharesBusy || !blockShareEmail.trim()}
+                    className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+                    onClick={() => void addBlockShareGrant()}
+                  >
+                    {blockSharesBusy ? "…" : "Share selected blocks"}
+                  </button>
+                </div>
+                <p className="mt-3 text-[10px] uppercase tracking-wide text-surface-muted">Blocks to include</p>
+                {gridLayout.blocks.length === 0 ? (
+                  <p className="mt-1 text-xs text-surface-muted">No blocks in the layout yet — add blocks on the canvas first.</p>
+                ) : (
+                  <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/5 p-2 text-sm">
+                    {gridLayout.blocks.map((b) => {
+                      const id = typeof b.id === "string" ? b.id : String(b.id ?? "");
+                      const props = b.props && typeof b.props === "object" && !Array.isArray(b.props) ? b.props as { title?: string } : {};
+                      const label = props.title?.trim() || b.type || id;
+                      if (!id) return null;
+                      return (
+                        <li key={id} className="flex items-center gap-2">
+                          <input
+                            id={`bshare-${id}`}
+                            type="checkbox"
+                            checked={!!blockSharePick[id]}
+                            onChange={(e) =>
+                              setBlockSharePick((prev) => ({ ...prev, [id]: e.target.checked }))
+                            }
+                            className="rounded border-surface-border"
+                          />
+                          <label htmlFor={`bshare-${id}`} className="cursor-pointer text-neutral-200">
+                            <span className="text-surface-muted">{b.type}</span> · {label}
+                            <span className="ml-2 font-mono text-[10px] text-surface-muted">{id.slice(0, 8)}…</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {blockGrants.length === 0 ? (
+                  <p className="mt-3 text-xs text-surface-muted">No granular shares yet.</p>
+                ) : (
+                  <ul className="mt-3 divide-y divide-white/5 text-sm">
+                    {blockGrants.map((g) => (
+                      <li
+                        key={g.user_id}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2 first:pt-0"
+                      >
+                        <span className="text-neutral-200">
+                          {g.email}{" "}
+                          <span className="text-surface-muted">
+                            ({g.block_ids.length} block{g.block_ids.length === 1 ? "" : "s"},{" "}
+                            {g.permission === "edit" ? "edit" : "view"})
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          disabled={blockSharesBusy}
+                          className="text-xs text-red-300 hover:underline disabled:opacity-50"
+                          onClick={() => void removeBlockGrant(g.user_id)}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              </>
             ) : (
               <div className="rounded-xl border border-surface-border bg-black/20 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">

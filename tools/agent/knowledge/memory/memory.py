@@ -20,9 +20,22 @@ TOOL_DOMAIN = "memory"
 TOOL_LABEL = "Memory"
 TOOL_DESCRIPTION = (
     "Opt-in persistent user memory: structured facts (key/value JSON) and semantic notes (pgvector). "
-    "Use only when the user asks to remember something, or to retrieve previously saved memory."
+    "Use when the user asks to save/remember something (name, preferences, facts) or to recall stored memory."
 )
-TOOL_TRIGGERS = ("remember", "merke", "memory", "profil", "preferences")
+# Router: substring match on lowercased user text → ``memory`` category → memory_* tools (not in ``tool_routing.py``).
+TOOL_TRIGGERS = (
+    "remember",
+    "merke",
+    "merken",
+    "memory",
+    "profil",
+    "preferences",
+    "speichern",
+    "abspeichern",
+    "einprägen",
+    "notiere",
+    "gedächtnis",
+)
 TOOL_CAPABILITIES = ("knowledge.memory",)
 
 

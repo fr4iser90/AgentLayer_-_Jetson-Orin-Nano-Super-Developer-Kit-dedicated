@@ -72,6 +72,11 @@ export interface WorkspaceDetail extends WorkspaceSummary {
   ui_layout: UiLayout | Record<string, unknown>;
   /** Template payload; may include ``_agentlayer`` for AgentLayer agent settings. */
   data: Record<string, unknown>;
+  /** ``granular`` = subset of blocks via block-shares (not full workspace member). */
+  access_scope?: "full" | "granular";
+  allowed_block_ids?: string[];
+  /** True when the granular grant has ``edit`` (can PATCH shared blocks); omitted for full members. */
+  granular_can_write?: boolean;
 }
 
 export interface WorkspaceMemberRow {
@@ -79,4 +84,13 @@ export interface WorkspaceMemberRow {
   email: string;
   role: string;
   created_at: string | null;
+}
+
+export interface WorkspaceBlockGrantRow {
+  user_id: string;
+  email: string;
+  block_ids: string[];
+  /** ``view`` = read-only blocks; ``edit`` = can update content/layout for shared blocks only. */
+  permission?: "view" | "edit";
+  created_at: string;
 }

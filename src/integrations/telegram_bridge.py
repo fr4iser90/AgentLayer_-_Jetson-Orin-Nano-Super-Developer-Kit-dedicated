@@ -5,6 +5,10 @@ Configuration from ``operator_settings`` (Admin → Interfaces). Text messages m
 prefix are handled only for Telegram user ids linked in ``users.telegram_user_id``; chat runs
 via :func:`src.domain.agent.chat_completion` in-process. Same identity semantics as Discord.
 
+**Context:** Each Telegram chat (and forum thread, if any) keeps a rolling conversation in
+Postgres (``bridge_agent_sessions`` → ``chat_messages``), same pattern as Discord — unlike the
+web UI, which sends full ``messages[]`` from the client on each turn.
+
 **Groups:** With BotFather ``/setprivacy`` → *Disable*, the bot sees all messages (like Discord
 channels). Otherwise only commands and mentions are delivered to the bot.
 """
@@ -21,7 +25,15 @@ from typing import Any
 from src.core.config import config
 from src.domain.agent import chat_completion
 from src.domain.identity import reset_identity, set_identity
+from src.infrastructure.conversations_db import conversation_append_message
 from src.infrastructure.db import db
+from src.infrastructure.bridge_agent_session import (
+    BRIDGE_TELEGRAM,
+    MAX_CONTEXT_MESSAGES,
+    bridge_agent_conversation_ensure,
+    bridge_agent_session_reset,
+    messages_for_bridge_completion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +127,8 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
             await msg.reply_text(
                 "AgentLayer: link your numeric Telegram user id in the web app "
                 "(Settings → Connections), then send text with the configured prefix "
-                "(or any message if prefix is empty)."
+                "(or any message if prefix is empty). "
+                "Context is kept across messages; send `/clear` after the prefix to start fresh."
             )
 
     async def on_text(update: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -123,6 +136,7 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
         user = update.effective_user
         if not msg or not user or user.is_bot or not (msg.text or "").strip():
             return
+        chat = msg.chat
         text = (msg.text or "").strip()
         if cfg.prefix:
             if not text.startswith(cfg.prefix):
@@ -135,6 +149,41 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
                 await msg.reply_text(
                     f"Add your question after `{cfg.prefix.strip()}`, e.g. `{cfg.prefix.strip()}What is 2+2?`"
                 )
+            return
+        clear_tokens = frozenset(
+            {
+                "/clear",
+                "/reset",
+                "clear",
+                "reset",
+                "neu",
+                "neuer chat",
+                "/neu",
+            }
+        )
+        if prompt.strip().lower() in clear_tokens:
+            author_id = str(user.id)
+            linked = db.user_id_tenant_for_telegram_global(author_id)
+            if linked is None:
+                await msg.reply_text(
+                    "Your Telegram account is not linked in AgentLayer (or the link is ambiguous). "
+                    "Open the web app → Settings → Connections → save your numeric Telegram user id."
+                )
+                return
+            user_id, _tenant_id = linked
+            thread_kw_clear: dict[str, Any] = {}
+            if getattr(msg, "message_thread_id", None) is not None:
+                thread_kw_clear["message_thread_id"] = msg.message_thread_id
+            ok = bridge_agent_session_reset(
+                user_id,
+                provider=BRIDGE_TELEGRAM,
+                scope_chat_id=int(chat.id),
+                scope_thread_id=getattr(msg, "message_thread_id", None),
+            )
+            await msg.reply_text(
+                "Konversationsverlauf für diesen Chat geleert." if ok else "Es war kein gespeicherter Verlauf vorhanden.",
+                **thread_kw_clear,
+            )
             return
         author_id = str(user.id)
         linked = db.user_id_tenant_for_telegram_global(author_id)
@@ -151,15 +200,30 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
             user_id,
             cfg.model,
         )
+        conv_id = telegram_agent_conversation_ensure(
+            user_id,
+            tenant_id,
+            telegram_chat_id=int(chat.id),
+            telegram_thread_id=getattr(msg, "message_thread_id", None),
+            model=cfg.model,
+        )
+        msg_list = messages_for_telegram_completion(
+            user_id, conv_id, new_user_text=prompt
+        )
+        logger.debug(
+            "telegram_bridge: conversation_id=%s ctx_messages=%d (cap=%d)",
+            conv_id,
+            len(msg_list),
+            MAX_CONTEXT_MESSAGES + 1,
+        )
         work: dict[str, Any] = {
             "model": cfg.model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": msg_list,
             "stream": False,
         }
         role = db.user_role(user_id).lower()
         bearer_role = role if role in ("user", "admin") else None
         id_token = set_identity(tenant_id, user_id)
-        chat = msg.chat
 
         thread_kw: dict[str, Any] = {}
         if getattr(msg, "message_thread_id", None) is not None:
@@ -185,6 +249,15 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
             try:
                 result = await chat_completion(work, bearer_user_role=bearer_role)
                 reply_text = _extract_reply(result if isinstance(result, dict) else {})
+                if not conversation_append_message(
+                    user_id, conv_id, role="user", content=prompt
+                ) or not conversation_append_message(
+                    user_id, conv_id, role="assistant", content=reply_text
+                ):
+                    logger.warning(
+                        "telegram_bridge: failed to persist turn (conversation_id=%s)",
+                        conv_id,
+                    )
             except ValueError as e:
                 try:
                     await msg.reply_text(f"AgentLayer: {e!s:.1500}", **thread_kw)

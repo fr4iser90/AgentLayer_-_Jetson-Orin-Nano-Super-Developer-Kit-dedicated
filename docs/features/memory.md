@@ -37,9 +37,12 @@ Only store memory when the user explicitly asks (e.g. “remember …” / “me
 
 Secrets are rejected (token/password/key-like patterns).
 
-Config flag:
+## Enabling (operators)
 
-- `AGENT_MEMORY_ENABLED` (in `src/core/config.py`)
+Do **not** rely on container environment variables for day-to-day configuration — that path is legacy and easy to get wrong.
+
+- **Agent tools**: In the Web UI, open **Admin → Tools**, find the **memory** package under **Knowledge & memory**, and enable or disable it (plus role / tenant restrictions) like any other tool package. That controls whether chat requests expose the `memory_*` tool definitions to the model.
+- **REST**: Authenticated users can also manage facts and notes via `POST/GET/DELETE /v1/user/memory/...` (see `docs/api/http.md`) when the deployment exposes that API.
 
 ## Scoping
 

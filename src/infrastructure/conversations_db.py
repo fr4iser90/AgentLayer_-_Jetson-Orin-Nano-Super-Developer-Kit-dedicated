@@ -91,12 +91,18 @@ def conversations_list(
                     FROM chat_conversations c
                     WHERE c.workspace_id = %s
                       AND (
-                        (c.shared = true)
+                        (c.shared = true AND EXISTS (
+                          SELECT 1 FROM user_workspaces w
+                          LEFT JOIN workspace_members m
+                            ON m.workspace_id = w.id AND m.user_id = %s
+                          WHERE w.id = c.workspace_id AND w.tenant_id = c.tenant_id
+                            AND (w.owner_user_id = %s OR m.user_id IS NOT NULL)
+                        ))
                         OR (c.shared = false AND c.user_id = %s)
                       )
                     ORDER BY c.shared DESC, c.updated_at DESC
                     """,
-                    (workspace_id, user_id),
+                    (workspace_id, user_id, user_id, user_id),
                 )
             else:
                 cur.execute(
@@ -169,7 +175,7 @@ def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str
             tenant_id = int(crow[9])
             shared = bool(crow[10])
             if shared and wid is not None:
-                if workspace_db.workspace_access(user_id, tenant_id, wid) is None:
+                if not workspace_db.workspace_has_full_access(user_id, tenant_id, wid):
                     return None
             elif row_user != user_id:
                 return None
@@ -442,3 +448,54 @@ def conversation_delete(user_id: uuid.UUID, conversation_id: uuid.UUID) -> bool:
             row = cur.fetchone()
         conn.commit()
     return row is not None
+
+
+def conversation_append_message(
+    user_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    *,
+    role: str,
+    content: Any,
+) -> bool:
+    """Append one message to a conversation (next ``position``). Personal chats only (same checks as delete)."""
+    if role not in ("user", "assistant", "system"):
+        return False
+    serialized = _serialize_message_content(content)
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT user_id, workspace_id, shared FROM chat_conversations WHERE id = %s
+                """,
+                (conversation_id,),
+            )
+            meta = cur.fetchone()
+            if meta is None:
+                return False
+            row_user, _ws_id, shared = meta[0], meta[1], bool(meta[2])
+            if shared:
+                return False
+            if row_user != user_id:
+                return False
+            cur.execute(
+                """
+                SELECT COALESCE(MAX(position), -1) + 1 FROM chat_messages
+                WHERE conversation_id = %s
+                """,
+                (conversation_id,),
+            )
+            pos_row = cur.fetchone()
+            pos = int(pos_row[0]) if pos_row else 0
+            cur.execute(
+                """
+                INSERT INTO chat_messages (conversation_id, position, role, content)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (conversation_id, pos, role, serialized),
+            )
+            cur.execute(
+                "UPDATE chat_conversations SET updated_at = now() WHERE id = %s",
+                (conversation_id,),
+            )
+        conn.commit()
+    return True

@@ -458,3 +458,17 @@ CREATE TABLE chat_messages (
 );
 
 CREATE INDEX idx_chat_msg_conv ON chat_messages (conversation_id, position);
+
+-- Bridges (Telegram, Discord, …): rolling conversation per (user, provider, chat/channel, optional thread).
+
+CREATE TABLE IF NOT EXISTS bridge_agent_sessions (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  scope_chat_id BIGINT NOT NULL,
+  scope_thread_id BIGINT NOT NULL DEFAULT 0,
+  conversation_id UUID NOT NULL UNIQUE REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, provider, scope_chat_id, scope_thread_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bridge_agent_sessions_conv
+  ON bridge_agent_sessions(conversation_id);
