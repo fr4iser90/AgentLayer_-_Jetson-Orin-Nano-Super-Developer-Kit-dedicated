@@ -24,12 +24,6 @@ type OperatorPublic = {
   workspace_upload_effective_max_bytes?: number;
   workspace_upload_effective_allowed_mime?: string[];
   llm_primary_backend?: "ollama" | "external";
-  llm_external_base_url?: string;
-  llm_external_api_key_configured?: boolean;
-  llm_external_model_default?: string;
-  llm_external_model_vlm?: string;
-  llm_external_model_agent?: string;
-  llm_external_model_coding?: string;
   llm_smart_routing_enabled?: boolean;
   llm_router_ollama_model?: string;
   llm_router_local_confidence_min?: number;
@@ -38,7 +32,38 @@ type OperatorPublic = {
   llm_route_short_local_max_chars?: number;
   llm_route_many_code_fences?: number;
   llm_route_many_messages?: number;
+  memory_graph_enabled?: boolean;
+  memory_graph_max_hops?: number;
+  memory_graph_min_score?: number;
+  memory_graph_max_bullets?: number;
+  memory_graph_max_prompt_chars?: number;
+  memory_graph_log_activations?: boolean;
+  memory_enabled?: boolean;
+  rag_enabled?: boolean;
+  rag_ollama_model?: string;
+  rag_embedding_dim?: number;
+  rag_chunk_size?: number;
+  rag_chunk_overlap?: number;
+  rag_top_k?: number;
+  rag_embed_timeout_sec?: number;
+  rag_tenant_shared_domains?: string;
+  rag_tenant_shared_domains_effective?: string[];
+  docs_root?: string;
   detail?: unknown;
+};
+
+type ExternalLlmEndpointUI = {
+  localKey: string;
+  id: number | null;
+  enabled: boolean;
+  label: string;
+  baseUrl: string;
+  apiKey: string;
+  apiKeyConfigured: boolean;
+  modelDefault: string;
+  modelVlm: string;
+  modelAgent: string;
+  modelCoding: string;
 };
 
 function detailMessage(data: unknown): string {
@@ -48,6 +73,16 @@ function detailMessage(data: unknown): string {
     if (Array.isArray(d)) return JSON.stringify(d);
   }
   return "Request failed";
+}
+
+function externalLlmEndpointHostPreview(baseUrl: string): string {
+  const u = baseUrl.trim();
+  if (!u) return "";
+  try {
+    return new URL(u).host;
+  } catch {
+    return u.length > 48 ? `${u.slice(0, 45)}…` : u;
+  }
 }
 
 export function AdminInterfaces() {
@@ -72,12 +107,7 @@ export function AdminInterfaces() {
   const [uploadEffBytes, setUploadEffBytes] = useState<number | null>(null);
   const [uploadEffMime, setUploadEffMime] = useState<string[]>([]);
   const [llmPrimaryBackend, setLlmPrimaryBackend] = useState<"ollama" | "external">("ollama");
-  const [llmExternalBaseUrl, setLlmExternalBaseUrl] = useState("");
-  const [llmExternalApiKey, setLlmExternalApiKey] = useState("");
-  const [llmExtDefault, setLlmExtDefault] = useState("");
-  const [llmExtVlm, setLlmExtVlm] = useState("");
-  const [llmExtAgent, setLlmExtAgent] = useState("");
-  const [llmExtCoding, setLlmExtCoding] = useState("");
+  const [extLlmEndpoints, setExtLlmEndpoints] = useState<ExternalLlmEndpointUI[]>([]);
   const [llmSmartRouting, setLlmSmartRouting] = useState(false);
   const [llmRouterModel, setLlmRouterModel] = useState("nemotron-3-nano:4b");
   const [llmRouterConfMin, setLlmRouterConfMin] = useState("0.7");
@@ -86,7 +116,23 @@ export function AdminInterfaces() {
   const [llmRouteShortChars, setLlmRouteShortChars] = useState("220");
   const [llmRouteManyFences, setLlmRouteManyFences] = useState("3");
   const [llmRouteManyMsgs, setLlmRouteManyMsgs] = useState("14");
-  const [llmKeyConfigured, setLlmKeyConfigured] = useState(false);
+  const [memGraphEnabled, setMemGraphEnabled] = useState(true);
+  const [memGraphMaxHops, setMemGraphMaxHops] = useState("2");
+  const [memGraphMinScore, setMemGraphMinScore] = useState("0.03");
+  const [memGraphMaxBullets, setMemGraphMaxBullets] = useState("14");
+  const [memGraphMaxPromptChars, setMemGraphMaxPromptChars] = useState("3500");
+  const [memGraphLogActivations, setMemGraphLogActivations] = useState(false);
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [ragEnabled, setRagEnabled] = useState(true);
+  const [ragOllamaModel, setRagOllamaModel] = useState("nomic-embed-text");
+  const [ragEmbeddingDim, setRagEmbeddingDim] = useState("768");
+  const [ragChunkSize, setRagChunkSize] = useState("1200");
+  const [ragChunkOverlap, setRagChunkOverlap] = useState("200");
+  const [ragTopK, setRagTopK] = useState("8");
+  const [ragEmbedTimeout, setRagEmbedTimeout] = useState("120");
+  const [ragTenantDomains, setRagTenantDomains] = useState("agentlayer_docs");
+  const [ragTenantEffective, setRagTenantEffective] = useState<string[]>([]);
+  const [docsRoot, setDocsRoot] = useState("");
   const [extLlmModelIds, setExtLlmModelIds] = useState<string[]>([]);
   const [extLlmModelsLoading, setExtLlmModelsLoading] = useState(false);
   const [extLlmModelsHint, setExtLlmModelsHint] = useState<string | null>(null);
@@ -98,9 +144,10 @@ export function AdminInterfaces() {
     setLoading(true);
     setSaveMsg(null);
     try {
-      const [iRes, oRes] = await Promise.all([
+      const [iRes, oRes, epRes] = await Promise.all([
         apiFetch("/v1/admin/interfaces", auth),
         apiFetch("/v1/admin/operator-settings", auth),
+        apiFetch("/v1/admin/external-llm/endpoints", auth),
       ]);
       const iData = (await iRes.json()) as InterfaceHints | { detail?: unknown };
       if (!iRes.ok) {
@@ -147,12 +194,6 @@ export function AdminInterfaces() {
           : []
       );
       setLlmPrimaryBackend(op.llm_primary_backend === "external" ? "external" : "ollama");
-      setLlmExternalBaseUrl((op.llm_external_base_url ?? "").trim());
-      setLlmKeyConfigured(!!op.llm_external_api_key_configured);
-      setLlmExtDefault((op.llm_external_model_default ?? "").trim());
-      setLlmExtVlm((op.llm_external_model_vlm ?? "").trim());
-      setLlmExtAgent((op.llm_external_model_agent ?? "").trim());
-      setLlmExtCoding((op.llm_external_model_coding ?? "").trim());
       setLlmSmartRouting(!!op.llm_smart_routing_enabled);
       setLlmRouterModel((op.llm_router_ollama_model ?? "nemotron-3-nano:4b").trim() || "nemotron-3-nano:4b");
       setLlmRouterConfMin(
@@ -185,7 +226,85 @@ export function AdminInterfaces() {
           ? String(op.llm_route_many_messages)
           : "14"
       );
-      setLlmExternalApiKey("");
+      setMemoryEnabled(op.memory_enabled !== false);
+      setRagEnabled(op.rag_enabled !== false);
+      setRagOllamaModel((op.rag_ollama_model ?? "nomic-embed-text").trim() || "nomic-embed-text");
+      setRagEmbeddingDim(
+        op.rag_embedding_dim != null && Number.isFinite(op.rag_embedding_dim) ? String(op.rag_embedding_dim) : "768"
+      );
+      setRagChunkSize(
+        op.rag_chunk_size != null && Number.isFinite(op.rag_chunk_size) ? String(op.rag_chunk_size) : "1200"
+      );
+      setRagChunkOverlap(
+        op.rag_chunk_overlap != null && Number.isFinite(op.rag_chunk_overlap) ? String(op.rag_chunk_overlap) : "200"
+      );
+      setRagTopK(op.rag_top_k != null && Number.isFinite(op.rag_top_k) ? String(op.rag_top_k) : "8");
+      setRagEmbedTimeout(
+        op.rag_embed_timeout_sec != null && Number.isFinite(op.rag_embed_timeout_sec)
+          ? String(op.rag_embed_timeout_sec)
+          : "120"
+      );
+      setRagTenantDomains((op.rag_tenant_shared_domains ?? "agentlayer_docs").trim());
+      setRagTenantEffective(
+        Array.isArray(op.rag_tenant_shared_domains_effective) ? op.rag_tenant_shared_domains_effective : []
+      );
+      setDocsRoot((op.docs_root ?? "").trim());
+      setMemGraphEnabled(op.memory_graph_enabled !== false);
+      setMemGraphMaxHops(
+        op.memory_graph_max_hops != null && Number.isFinite(Number(op.memory_graph_max_hops))
+          ? String(op.memory_graph_max_hops)
+          : "2"
+      );
+      setMemGraphMinScore(
+        op.memory_graph_min_score != null && Number.isFinite(Number(op.memory_graph_min_score))
+          ? String(op.memory_graph_min_score)
+          : "0.03"
+      );
+      setMemGraphMaxBullets(
+        op.memory_graph_max_bullets != null && Number.isFinite(Number(op.memory_graph_max_bullets))
+          ? String(op.memory_graph_max_bullets)
+          : "14"
+      );
+      setMemGraphMaxPromptChars(
+        op.memory_graph_max_prompt_chars != null && Number.isFinite(Number(op.memory_graph_max_prompt_chars))
+          ? String(op.memory_graph_max_prompt_chars)
+          : "3500"
+      );
+      setMemGraphLogActivations(!!op.memory_graph_log_activations);
+
+      if (epRes.ok) {
+        const epData = (await epRes.json()) as {
+          endpoints?: Array<{
+            id: number;
+            enabled?: boolean;
+            label?: string;
+            base_url?: string;
+            api_key_configured?: boolean;
+            model_default?: string | null;
+            model_vlm?: string | null;
+            model_agent?: string | null;
+            model_coding?: string | null;
+          }>;
+        };
+        const raw = epData.endpoints ?? [];
+        setExtLlmEndpoints(
+          raw.map((x, i) => ({
+            localKey: `ep-${x.id}-${i}`,
+            id: x.id,
+            enabled: x.enabled !== false,
+            label: (x.label ?? "").trim(),
+            baseUrl: (x.base_url ?? "").trim(),
+            apiKey: "",
+            apiKeyConfigured: !!x.api_key_configured,
+            modelDefault: (x.model_default ?? "").trim(),
+            modelVlm: (x.model_vlm ?? "").trim(),
+            modelAgent: (x.model_agent ?? "").trim(),
+            modelCoding: (x.model_coding ?? "").trim(),
+          }))
+        );
+      } else {
+        setExtLlmEndpoints([]);
+      }
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -197,10 +316,15 @@ export function AdminInterfaces() {
     setExtLlmModelsHint(null);
     setExtLlmModelsLoading(true);
     try {
-      const payload: Record<string, string> = {};
-      const bu = llmExternalBaseUrl.trim();
-      if (bu) payload.base_url = bu;
-      if (llmExternalApiKey.trim()) payload.api_key = llmExternalApiKey.trim();
+      const payload: Record<string, string | number> = {};
+      const ep0 = extLlmEndpoints.find((e) => e.enabled && e.baseUrl.trim());
+      if (ep0?.id != null) {
+        payload.endpoint_id = ep0.id;
+      } else if (ep0) {
+        payload.base_url = ep0.baseUrl.trim();
+        const k = ep0.apiKey.trim();
+        if (k) payload.api_key = k;
+      }
       const res = await apiFetch("/v1/admin/external-llm/models", auth, {
         method: "POST",
         body: JSON.stringify(payload),
@@ -227,7 +351,7 @@ export function AdminInterfaces() {
     } finally {
       setExtLlmModelsLoading(false);
     }
-  }, [auth, llmExternalBaseUrl, llmExternalApiKey]);
+  }, [auth, extLlmEndpoints]);
 
   useEffect(() => {
     void load();
@@ -282,14 +406,6 @@ export function AdminInterfaces() {
       const mimeStr = uploadMime.trim();
       patch.workspace_upload_allowed_mime = mimeStr === "" ? null : mimeStr;
       patch.llm_primary_backend = llmPrimaryBackend;
-      patch.llm_external_base_url = llmExternalBaseUrl.trim() || null;
-      patch.llm_external_model_default = llmExtDefault.trim() || null;
-      patch.llm_external_model_vlm = llmExtVlm.trim() || null;
-      patch.llm_external_model_agent = llmExtAgent.trim() || null;
-      patch.llm_external_model_coding = llmExtCoding.trim() || null;
-      if (llmExternalApiKey.trim()) {
-        patch.llm_external_api_key = llmExternalApiKey.trim();
-      }
       const confMin = Number(llmRouterConfMin.trim());
       const rtSec = Number(llmRouterTimeoutSec.trim());
       const longC = Number(llmRouteLongChars.trim());
@@ -330,6 +446,74 @@ export function AdminInterfaces() {
       patch.llm_route_short_local_max_chars = Math.floor(shortC);
       patch.llm_route_many_code_fences = Math.floor(manyF);
       patch.llm_route_many_messages = Math.floor(manyM);
+      const red = Number(ragEmbeddingDim.trim());
+      const rcs = Number(ragChunkSize.trim());
+      const rco = Number(ragChunkOverlap.trim());
+      const rtk = Number(ragTopK.trim());
+      const ret = Number(ragEmbedTimeout.trim());
+      if (
+        !Number.isFinite(red) ||
+        red < 32 ||
+        red > 4096 ||
+        !Number.isFinite(rcs) ||
+        rcs < 200 ||
+        rcs > 8000 ||
+        !Number.isFinite(rco) ||
+        rco < 0 ||
+        rco > 2000 ||
+        !Number.isFinite(rtk) ||
+        rtk < 1 ||
+        rtk > 50 ||
+        !Number.isFinite(ret) ||
+        ret < 5 ||
+        ret > 600
+      ) {
+        setSaveMsg({
+          ok: false,
+          text: "RAG: Ungültige Zahlen (Dim 32–4096, Chunk 200–8000, Overlap 0–2000, Top-K 1–50, Timeout 5–600).",
+        });
+        return;
+      }
+      patch.memory_enabled = memoryEnabled;
+      patch.rag_enabled = ragEnabled;
+      patch.rag_ollama_model = ragOllamaModel.trim() || "nomic-embed-text";
+      patch.rag_embedding_dim = Math.floor(red);
+      patch.rag_chunk_size = Math.floor(rcs);
+      patch.rag_chunk_overlap = Math.floor(rco);
+      patch.rag_top_k = Math.floor(rtk);
+      patch.rag_embed_timeout_sec = ret;
+      patch.rag_tenant_shared_domains = ragTenantDomains.trim();
+      patch.docs_root = docsRoot.trim() ? docsRoot.trim() : null;
+      const mgHops = Number(memGraphMaxHops.trim());
+      const mgScore = Number(memGraphMinScore.trim());
+      const mgBullets = Number(memGraphMaxBullets.trim());
+      const mgChars = Number(memGraphMaxPromptChars.trim());
+      if (
+        !Number.isFinite(mgHops) ||
+        mgHops < 0 ||
+        mgHops > 4 ||
+        !Number.isFinite(mgScore) ||
+        mgScore < 0 ||
+        mgScore > 1 ||
+        !Number.isFinite(mgBullets) ||
+        mgBullets < 1 ||
+        mgBullets > 50 ||
+        !Number.isFinite(mgChars) ||
+        mgChars < 200 ||
+        mgChars > 50000
+      ) {
+        setSaveMsg({
+          ok: false,
+          text: "Memory graph: Ungültige Zahlen (Hops 0–4, Score 0–1, Bullets 1–50, Zeichen 200–50000).",
+        });
+        return;
+      }
+      patch.memory_graph_enabled = memGraphEnabled;
+      patch.memory_graph_max_hops = Math.floor(mgHops);
+      patch.memory_graph_min_score = mgScore;
+      patch.memory_graph_max_bullets = Math.floor(mgBullets);
+      patch.memory_graph_max_prompt_chars = Math.floor(mgChars);
+      patch.memory_graph_log_activations = memGraphLogActivations;
       if (discordToken.trim()) {
         patch.discord_bot_token = discordToken.trim();
       }
@@ -348,33 +532,60 @@ export function AdminInterfaces() {
         });
         return;
       }
+      for (let i = 0; i < extLlmEndpoints.length; i++) {
+        const r = extLlmEndpoints[i];
+        if (!r.baseUrl.trim()) {
+          setSaveMsg({
+            ok: false,
+            text: `Externe LLM: Endpoint ${i + 1}: Base URL fehlt (oder Zeile entfernen).`,
+          });
+          return;
+        }
+        if (r.id == null && !r.apiKey.trim()) {
+          setSaveMsg({
+            ok: false,
+            text: `Externe LLM: Neuer Endpoint ${i + 1}: API-Key erforderlich.`,
+          });
+          return;
+        }
+      }
+      const epPayload = {
+        endpoints: extLlmEndpoints.map((r, idx) => {
+          const o: Record<string, unknown> = {
+            sort_order: idx,
+            enabled: r.enabled,
+            label: r.label.trim(),
+            base_url: r.baseUrl.trim(),
+            model_default: r.modelDefault.trim() || null,
+            model_vlm: r.modelVlm.trim() || null,
+            model_agent: r.modelAgent.trim() || null,
+            model_coding: r.modelCoding.trim() || null,
+          };
+          if (r.id != null) o.id = r.id;
+          const k = r.apiKey.trim();
+          if (k) o.api_key = k;
+          return o;
+        }),
+      };
+      const epRes = await apiFetch("/v1/admin/external-llm/endpoints", auth, {
+        method: "PUT",
+        body: JSON.stringify(epPayload),
+      });
+      const epData = await epRes.json();
+      if (!epRes.ok) {
+        setSaveMsg({
+          ok: false,
+          text: `Einstellungen gespeichert, aber externe LLM-Endpoints: ${detailMessage(epData)}`,
+        });
+        return;
+      }
       setDiscordToken("");
       setTelegramToken("");
       await load();
-      setLlmExternalApiKey("");
       setSaveMsg({
         ok: true,
         text: "Saved. In-process Discord/Telegram bridges pick up token/enable changes after the current session reconnects (or restart the container).",
       });
-    } catch (e) {
-      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
-  async function clearLlmExternalApiKey() {
-    setSaveMsg(null);
-    try {
-      const res = await apiFetch("/v1/admin/operator-settings", auth, {
-        method: "PATCH",
-        body: JSON.stringify({ llm_external_api_key: null }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSaveMsg({ ok: false, text: detailMessage(data) });
-        return;
-      }
-      await load();
-      setSaveMsg({ ok: true, text: "External LLM API key cleared." });
     } catch (e) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     }
@@ -505,10 +716,239 @@ export function AdminInterfaces() {
           </section>
 
           <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
+            <h2 className="text-sm font-medium text-white">Memory (Fakten &amp; Notizen) &amp; RAG</h2>
+            <p className="mt-2 text-xs text-surface-muted">
+              Alles in <span className="font-mono text-neutral-400">operator_settings</span> — keine{" "}
+              <span className="font-mono text-neutral-400">AGENT_MEMORY_*</span> /{" "}
+              <span className="font-mono text-neutral-400">AGENT_RAG_*</span> mehr. Tool-Pakete weiter unter{" "}
+              <span className="text-white/85">Admin → Tools</span>.
+            </p>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={memoryEnabled}
+                onChange={(e) => setMemoryEnabled(e.target.checked)}
+              />
+              Memory (Fakten, semantische Notizen, APIs) aktivieren
+            </label>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={ragEnabled}
+                onChange={(e) => setRagEnabled(e.target.checked)}
+              />
+              RAG (pgvector-Ingest &amp; Suche) aktivieren
+            </label>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="rag-model">
+              Ollama-Embedding-Modell (muss zur DB-Vektorbreite passen)
+            </label>
+            <input
+              id="rag-model"
+              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={ragOllamaModel}
+              onChange={(e) => setRagOllamaModel(e.target.value)}
+              placeholder="nomic-embed-text"
+              autoComplete="off"
+            />
+            <div className="mt-4 grid max-w-2xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="rag-dim">
+                  Embedding-Dim (32–4096)
+                </label>
+                <input
+                  id="rag-dim"
+                  type="number"
+                  min={32}
+                  max={4096}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={ragEmbeddingDim}
+                  onChange={(e) => setRagEmbeddingDim(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="rag-chunk">
+                  Chunk-Größe (200–8000)
+                </label>
+                <input
+                  id="rag-chunk"
+                  type="number"
+                  min={200}
+                  max={8000}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={ragChunkSize}
+                  onChange={(e) => setRagChunkSize(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="rag-overlap">
+                  Chunk-Overlap (0–2000)
+                </label>
+                <input
+                  id="rag-overlap"
+                  type="number"
+                  min={0}
+                  max={2000}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={ragChunkOverlap}
+                  onChange={(e) => setRagChunkOverlap(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="rag-topk">
+                  Top-K (1–50)
+                </label>
+                <input
+                  id="rag-topk"
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={ragTopK}
+                  onChange={(e) => setRagTopK(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="rag-timeout">
+                  Embed-Timeout (Sek., 5–600)
+                </label>
+                <input
+                  id="rag-timeout"
+                  type="number"
+                  min={5}
+                  max={600}
+                  step="1"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={ragEmbedTimeout}
+                  onChange={(e) => setRagEmbedTimeout(e.target.value)}
+                />
+              </div>
+            </div>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="rag-domains">
+              Tenant-weite Domains (kommagetrennt). Leer = keine tenant-weiten Domains; Standard oft{" "}
+              <span className="font-mono text-neutral-300">agentlayer_docs</span>.
+            </label>
+            <input
+              id="rag-domains"
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={ragTenantDomains}
+              onChange={(e) => setRagTenantDomains(e.target.value)}
+              placeholder="agentlayer_docs"
+            />
+            {ragTenantEffective.length > 0 ? (
+              <p className="mt-2 text-xs text-surface-muted">
+                Wirksam geparst:{" "}
+                <span className="font-mono text-neutral-300">{ragTenantEffective.join(", ")}</span>
+              </p>
+            ) : null}
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="docs-root">
+              Docs-Pfad für <span className="font-mono text-neutral-400">ingest-docs</span> (optional, leer ={" "}
+              <span className="font-mono text-neutral-300">…/docs</span> im Image)
+            </label>
+            <input
+              id="docs-root"
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={docsRoot}
+              onChange={(e) => setDocsRoot(e.target.value)}
+              placeholder="/pfad/zum/docs"
+              autoComplete="off"
+            />
+          </section>
+
+          <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
+            <h2 className="text-sm font-medium text-white">Memory graph</h2>
+            <p className="mt-2 text-xs text-surface-muted">
+              Strukturierte Knoten/Kanten + Prompt-Injection. Gespeichert in der Datenbank (
+              <span className="font-mono text-neutral-400">operator_settings</span>
+              ). Benötigt aktiviertes Memory oben. Tool-Paket weiter unter{" "}
+              <span className="text-white/85">Admin → Tools</span>.
+            </p>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={memGraphEnabled}
+                onChange={(e) => setMemGraphEnabled(e.target.checked)}
+              />
+              Graph-Speicherung und Kontext-Injection aktivieren
+            </label>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={memGraphLogActivations}
+                onChange={(e) => setMemGraphLogActivations(e.target.checked)}
+              />
+              Aktivierungs-Log schreiben (node ids, gehashte Query — kein Rohtext)
+            </label>
+            <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="mg-hops">
+                  Max. Hops (0–4)
+                </label>
+                <input
+                  id="mg-hops"
+                  type="number"
+                  min={0}
+                  max={4}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={memGraphMaxHops}
+                  onChange={(e) => setMemGraphMaxHops(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="mg-score">
+                  Min. Aktivierungsscore (0–1)
+                </label>
+                <input
+                  id="mg-score"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={1}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={memGraphMinScore}
+                  onChange={(e) => setMemGraphMinScore(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="mg-bullets">
+                  Max. Bullet-Zeilen
+                </label>
+                <input
+                  id="mg-bullets"
+                  type="number"
+                  min={1}
+                  max={50}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={memGraphMaxBullets}
+                  onChange={(e) => setMemGraphMaxBullets(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-surface-muted" htmlFor="mg-chars">
+                  Max. Zeichen (Graph-Block)
+                </label>
+                <input
+                  id="mg-chars"
+                  type="number"
+                  min={200}
+                  max={50000}
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                  value={memGraphMaxPromptChars}
+                  onChange={(e) => setMemGraphMaxPromptChars(e.target.value)}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
             <h2 className="text-sm font-medium text-white">Agent-Chat: Backend</h2>
             <p className="mt-2 text-xs text-surface-muted">
               Nur diese eine Auswahl: wo Agent-Chat-Completions laufen.{" "}
-              <span className="text-white/85">Kein API-Key in diesem Block</span> — der steht in der nächsten Karte.
+              <span className="text-white/85">Kein API-Key in diesem Block</span> — URL, Key und Modell-IDs trägst du in
+              der Karte <span className="text-white/85">Externe LLM-Endpoints</span> direkt unter diesem Block ein.
             </p>
             <label className="mt-4 block text-xs text-surface-muted" htmlFor="llm-backend">
               Backend
@@ -647,69 +1087,48 @@ export function AdminInterfaces() {
           </section>
 
           <section className="mt-6 rounded-xl border border-surface-border bg-surface-raised p-5">
-            <h2 className="text-sm font-medium text-white">Externe LLM-Zugangsdaten</h2>
+            <h2 className="text-sm font-medium text-white">Externe LLM-Endpoints</h2>
             <p className="mt-2 text-xs text-surface-muted">
-              <span className="text-white/85">Eigener Bereich</span> nur für URL, API-Key und externe Modellnamen — nicht
-              mit der Backend-Wahl oben vermischt. Diese Werte werden{" "}
-              <span className="text-white/85">nur verwendet, wenn Backend = Extern</span>; bei Ollama bleiben sie
-              ungenutzt (du kannst sie trotzdem speichern).
+              Mehrere Provider oder mehrere Keys pro Provider: Reihenfolge = Failover (erster zuerst). Bei HTTP{" "}
+              <span className="font-mono text-neutral-400">401/403/429/5xx</span> wird der nächste Endpoint versucht.
+              OpenAI-kompatibles <span className="font-mono">/v1/chat/completions</span> — z. B. OpenAI, Gemini (
+              <span className="font-mono text-neutral-300">…/v1beta/openai</span>
+              ).
             </p>
-            <label className="mt-4 block text-xs text-surface-muted" htmlFor="llm-ext-url">
-              Base URL (ohne trailing slash). OpenAI: z. B.{" "}
-              <span className="font-mono text-neutral-300">https://api.openai.com</span> → es wird{" "}
-              <span className="font-mono">/v1/chat/completions</span> angehängt. Google Gemini (OpenAI-kompatibel,{" "}
-              <span className="font-mono text-neutral-300">https://ai.google.dev/gemini-api/docs/openai</span>
-              , nicht die <span className="font-mono">generateContent</span>-Referenz): z. B.{" "}
-              <span className="font-mono text-neutral-300">
-                https://generativelanguage.googleapis.com/v1beta/openai
-              </span>{" "}
-              → wie OpenAI: <span className="font-mono">/v1/chat/completions</span> (vollständig:{" "}
-              <span className="font-mono">…/v1beta/openai/v1/chat/completions</span>).
-            </label>
-            <input
-              id="llm-ext-url"
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExternalBaseUrl}
-              onChange={(e) => setLlmExternalBaseUrl(e.target.value)}
-              placeholder="https://api.openai.com"
-              autoComplete="off"
-            />
-            <p className="mt-2 text-xs text-surface-muted">
-              API-Key gespeichert: {llmKeyConfigured ? "ja" : "nein"}
-            </p>
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="llm-ext-key">
-              API-Key (Bearer)
-            </label>
-            <input
-              id="llm-ext-key"
-              type="password"
-              autoComplete="off"
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExternalApiKey}
-              onChange={(e) => setLlmExternalApiKey(e.target.value)}
-              placeholder={llmKeyConfigured ? "•••••• (neu eintragen zum Ersetzen)" : "Key einfügen"}
-            />
-            <button
-              type="button"
-              className="mt-3 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-neutral-200 hover:bg-white/10 disabled:opacity-40"
-              disabled={!llmKeyConfigured}
-              onClick={() => void clearLlmExternalApiKey()}
-            >
-              API-Key löschen
-            </button>
-            <p className="mt-4 text-xs text-surface-muted">
-              <span className="text-white/85">Modellliste:</span> Server ruft OpenAI-kompatibles{" "}
-              <span className="font-mono text-neutral-400">GET …/v1/models</span> mit gespeicherten oder gerade
-              eingetragenen URL/Key auf (nicht jeder Anbieter unterstützt das).
-            </p>
-            <button
-              type="button"
-              className="mt-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm text-sky-200 hover:bg-sky-500/20 disabled:opacity-40"
-              disabled={extLlmModelsLoading}
-              onClick={() => void loadExternalModels()}
-            >
-              {extLlmModelsLoading ? "Lade Modelle…" : "Modelle von API laden"}
-            </button>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm text-sky-200 hover:bg-sky-500/20"
+                onClick={() =>
+                  setExtLlmEndpoints((prev) => [
+                    ...prev,
+                    {
+                      localKey: `new-${Date.now()}`,
+                      id: null,
+                      enabled: true,
+                      label: "",
+                      baseUrl: "",
+                      apiKey: "",
+                      apiKeyConfigured: false,
+                      modelDefault: "",
+                      modelVlm: "",
+                      modelAgent: "",
+                      modelCoding: "",
+                    },
+                  ])
+                }
+              >
+                Endpoint hinzufügen
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-sm text-sky-200 hover:bg-sky-500/20 disabled:opacity-40"
+                disabled={extLlmModelsLoading}
+                onClick={() => void loadExternalModels()}
+              >
+                {extLlmModelsLoading ? "Lade Modelle…" : "Modelle laden (1. aktiver Endpoint)"}
+              </button>
+            </div>
             {extLlmModelsHint ? (
               <p
                 className={`mt-2 text-xs ${
@@ -725,54 +1144,207 @@ export function AdminInterfaces() {
               ))}
             </datalist>
 
-            <h3 className="mt-6 text-xs font-medium uppercase tracking-wide text-surface-muted">
-              Externe Modell-IDs (OpenAI-Namen)
-            </h3>
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="llm-ext-def">
-              Default (bei externem Backend für Routing nötig, wenn kein Override)
-            </label>
-            <input
-              id="llm-ext-def"
-              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExtDefault}
-              onChange={(e) => setLlmExtDefault(e.target.value)}
-              placeholder="z. B. gpt-4o-mini"
-              list="ext-llm-model-ids"
-              autoComplete="off"
-            />
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="llm-ext-vlm">
-              VLM / Vision (optional, sonst Default)
-            </label>
-            <input
-              id="llm-ext-vlm"
-              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExtVlm}
-              onChange={(e) => setLlmExtVlm(e.target.value)}
-              list="ext-llm-model-ids"
-              autoComplete="off"
-            />
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="llm-ext-agent">
-              Profil Agent (optional)
-            </label>
-            <input
-              id="llm-ext-agent"
-              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExtAgent}
-              onChange={(e) => setLlmExtAgent(e.target.value)}
-              list="ext-llm-model-ids"
-              autoComplete="off"
-            />
-            <label className="mt-3 block text-xs text-surface-muted" htmlFor="llm-ext-coding">
-              Profil Coding (optional)
-            </label>
-            <input
-              id="llm-ext-coding"
-              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
-              value={llmExtCoding}
-              onChange={(e) => setLlmExtCoding(e.target.value)}
-              list="ext-llm-model-ids"
-              autoComplete="off"
-            />
+            <div className="mt-6 space-y-6">
+              {extLlmEndpoints.map((ep, idx) => (
+                <div
+                  key={ep.localKey}
+                  className="rounded-lg border border-white/10 bg-black/15 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-surface-muted">
+                      Endpoint {idx + 1}
+                      {ep.id != null ? (
+                        <span className="ml-2 font-mono text-neutral-500">id={ep.id}</span>
+                      ) : null}
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="text-xs text-neutral-400 hover:text-white"
+                        disabled={idx === 0}
+                        onClick={() =>
+                          setExtLlmEndpoints((prev) => {
+                            const n = [...prev];
+                            [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]];
+                            return n;
+                          })
+                        }
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-neutral-400 hover:text-white"
+                        disabled={idx >= extLlmEndpoints.length - 1}
+                        onClick={() =>
+                          setExtLlmEndpoints((prev) => {
+                            const n = [...prev];
+                            [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]];
+                            return n;
+                          })
+                        }
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-rose-400 hover:text-rose-200"
+                        onClick={() =>
+                          setExtLlmEndpoints((prev) => prev.filter((_, j) => j !== idx))
+                        }
+                      >
+                        Entfernen
+                      </button>
+                    </div>
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white">
+                    <input
+                      type="checkbox"
+                      className="rounded border-surface-border"
+                      checked={ep.enabled}
+                      onChange={(e) => {
+                        const v = e.target.checked;
+                        setExtLlmEndpoints((prev) =>
+                          prev.map((x, j) => (j === idx ? { ...x, enabled: v } : x))
+                        );
+                      }}
+                    />
+                    Aktiv (nur aktive zählen für Chat)
+                  </label>
+                  <label className="mt-2 block text-xs text-surface-muted" htmlFor={`ep-lbl-${ep.localKey}`}>
+                    Label (optional)
+                  </label>
+                  <input
+                    id={`ep-lbl-${ep.localKey}`}
+                    className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 text-sm text-white"
+                    value={ep.label}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setExtLlmEndpoints((prev) =>
+                        prev.map((x, j) => (j === idx ? { ...x, label: v } : x))
+                      );
+                    }}
+                    placeholder="z. B. Google, OpenAI Backup"
+                  />
+                  <label className="mt-3 block text-xs text-surface-muted" htmlFor={`ep-url-${ep.localKey}`}>
+                    Base URL
+                  </label>
+                  <input
+                    id={`ep-url-${ep.localKey}`}
+                    className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                    value={ep.baseUrl}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setExtLlmEndpoints((prev) =>
+                        prev.map((x, j) => (j === idx ? { ...x, baseUrl: v } : x))
+                      );
+                    }}
+                    placeholder="https://api.openai.com"
+                    autoComplete="off"
+                  />
+                  <p className="mt-1 text-xs text-surface-muted">
+                    Key: {ep.apiKeyConfigured ? "gespeichert" : "—"}
+                  </p>
+                  <label className="mt-2 block text-xs text-surface-muted" htmlFor={`ep-key-${ep.localKey}`}>
+                    API-Key (leer lassen = gespeicherten Key behalten)
+                  </label>
+                  <input
+                    id={`ep-key-${ep.localKey}`}
+                    type="password"
+                    autoComplete="off"
+                    className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                    value={ep.apiKey}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setExtLlmEndpoints((prev) =>
+                        prev.map((x, j) => (j === idx ? { ...x, apiKey: v } : x))
+                      );
+                    }}
+                    placeholder={ep.apiKeyConfigured ? "•••• (neu = ersetzen)" : "Key einfügen"}
+                  />
+                  <h4 className="mt-4 text-xs font-medium uppercase tracking-wide text-surface-muted">
+                    Modell-IDs (OpenAI-Namen)
+                  </h4>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="block text-xs text-surface-muted" htmlFor={`ep-md-${ep.localKey}`}>
+                        Default
+                      </label>
+                      <input
+                        id={`ep-md-${ep.localKey}`}
+                        className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                        value={ep.modelDefault}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtLlmEndpoints((prev) =>
+                            prev.map((x, j) => (j === idx ? { ...x, modelDefault: v } : x))
+                          );
+                        }}
+                        list="ext-llm-model-ids"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-surface-muted" htmlFor={`ep-mv-${ep.localKey}`}>
+                        VLM
+                      </label>
+                      <input
+                        id={`ep-mv-${ep.localKey}`}
+                        className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                        value={ep.modelVlm}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtLlmEndpoints((prev) =>
+                            prev.map((x, j) => (j === idx ? { ...x, modelVlm: v } : x))
+                          );
+                        }}
+                        list="ext-llm-model-ids"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-surface-muted" htmlFor={`ep-ma-${ep.localKey}`}>
+                        Agent
+                      </label>
+                      <input
+                        id={`ep-ma-${ep.localKey}`}
+                        className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                        value={ep.modelAgent}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtLlmEndpoints((prev) =>
+                            prev.map((x, j) => (j === idx ? { ...x, modelAgent: v } : x))
+                          );
+                        }}
+                        list="ext-llm-model-ids"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-surface-muted" htmlFor={`ep-mc-${ep.localKey}`}>
+                        Coding
+                      </label>
+                      <input
+                        id={`ep-mc-${ep.localKey}`}
+                        className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+                        value={ep.modelCoding}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setExtLlmEndpoints((prev) =>
+                            prev.map((x, j) => (j === idx ? { ...x, modelCoding: v } : x))
+                          );
+                        }}
+                        list="ext-llm-model-ids"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {extLlmEndpoints.length === 0 ? (
+              <p className="mt-4 text-xs text-amber-300/90">
+                Keine externen Endpoints — es wird bei Bedarf die alte Einzel-Konfiguration in{" "}
+                <span className="font-mono">operator_settings</span> genutzt (Migration legt ggf. eine Zeile an).
+                Endpoint hinzufügen für Multi-Provider / Failover.
+              </p>
+            ) : null}
           </section>
 
           <section className="mt-6 rounded-xl border border-surface-border bg-surface-raised p-5">

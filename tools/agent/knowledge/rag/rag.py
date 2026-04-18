@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from src.core.config import config
+from src.infrastructure import operator_settings
 from src.infrastructure.rag import rag as rag_service
 
 __version__ = "1.0.0"
@@ -27,8 +27,8 @@ TOOL_CAPABILITIES = ("knowledge.retrieve",)
 
 
 def rag_search(arguments: dict[str, Any]) -> str:
-    if not config.AGENT_RAG_ENABLED:
-        return json.dumps({"ok": False, "error": "RAG disabled (AGENT_RAG_ENABLED=false)"})
+    if not operator_settings.rag_settings()["enabled"]:
+        return json.dumps({"ok": False, "error": "RAG disabled (operator settings)"})
     q = (arguments.get("query") or "").strip()
     if not q:
         return json.dumps({"ok": False, "error": "query is required"})
@@ -36,10 +36,11 @@ def rag_search(arguments: dict[str, Any]) -> str:
     dom = domain.strip() if isinstance(domain, str) else None
     if dom == "":
         dom = None
+    top_k = int(operator_settings.rag_settings()["top_k"])
     try:
-        limit = int(arguments.get("limit") or config.AGENT_RAG_TOP_K)
+        limit = int(arguments.get("limit") or top_k)
     except (TypeError, ValueError):
-        limit = config.AGENT_RAG_TOP_K
+        limit = top_k
     try:
         rows = rag_service.search_for_identity(q, domain=dom, limit=limit)
     except Exception as e:
@@ -80,7 +81,7 @@ TOOLS: list[dict[str, Any]] = [
                     },
                     "limit": {
                         "type": "integer",
-                        "TOOL_DESCRIPTION": "Max hits 1–50 (default from AGENT_RAG_TOP_K).",
+                        "TOOL_DESCRIPTION": "Max hits 1–50 (default from operator rag_top_k).",
                     },
                 },
                 "required": ["query"],

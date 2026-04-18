@@ -1,19 +1,25 @@
-"""User memory: structured facts + semantic notes (pgvector).
+"""User memory: structured facts + semantic notes (pgvector) + optional graph (nodes/edges).
 
 Facts are authoritative key/value JSON (opt-in writes).
 Notes are free-form and retrieved semantically via Ollama embeddings.
+The graph layer stores compact nodes and relations; activation uses **semantic** (embedding) + keyword
+match on label/summary, then expands 1 hop along edges.
 """
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
 import uuid
 from datetime import datetime
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 from src.api.rag import ollama_embed_one
-from src.core.config import config
 from src.domain.identity import get_identity
+from src.infrastructure import operator_settings
 from src.infrastructure.db import db
 
 _SECRET_RE = re.compile(
@@ -23,7 +29,20 @@ _SECRET_RE = re.compile(
 
 
 def _enabled() -> bool:
-    return bool(getattr(config, "AGENT_MEMORY_ENABLED", True))
+    return bool(operator_settings.memory_service_enabled())
+
+
+def _memory_graph_enabled() -> bool:
+    return _enabled() and bool(operator_settings.memory_graph_prompt_settings()["enabled"])
+
+
+def _tokenize_query_for_graph(q: str) -> list[str]:
+    return list(
+        dict.fromkeys(
+            m.group(0).lower()
+            for m in re.finditer(r"[a-z0-9äöüß]{2,}", (q or "").lower())
+        )
+    )[:32]
 
 
 def _require_identity() -> tuple[int, uuid.UUID]:
@@ -122,6 +141,182 @@ def note_delete_for_identity(*, note_id: int) -> bool:
     return db.memory_note_soft_delete(int(note_id))
 
 
+def graph_node_add_for_identity(
+    *,
+    workspace_id: uuid.UUID | None,
+    kind: str,
+    label: str,
+    summary: str,
+    payload: dict[str, Any] | None = None,
+    importance: float | None = None,
+    confidence: float | None = None,
+    source: str | None = None,
+    last_verified: datetime | None = None,
+    subject_key: str | None = None,
+    stability: str | None = None,
+    priority: float | None = None,
+) -> dict[str, Any]:
+    if not _memory_graph_enabled():
+        raise ValueError("memory graph is disabled on this server")
+    _require_identity()
+    _reject_secrets((label or "") + " " + (summary or ""))
+    lab = (label or "").strip()
+    summ = (summary or "").strip()
+    blurb = f"{lab}\n{summ}".strip() or lab
+    emb: list[float] | None = None
+    try:
+        emb = ollama_embed_one(blurb[:12_000])
+    except Exception:
+        emb = None
+    return db.memory_graph_node_insert(
+        workspace_id=workspace_id,
+        kind=kind,
+        label=lab,
+        summary=summ,
+        payload=payload,
+        importance=float(importance) if importance is not None else 1.0,
+        embedding=emb,
+        confidence=confidence,
+        source=source,
+        last_verified=last_verified,
+        subject_key=subject_key,
+        stability=stability,
+        priority=priority,
+    )
+
+
+def graph_edge_add_for_identity(
+    *,
+    src_node_id: int,
+    dst_node_id: int,
+    rel_type: str = "related",
+    weight: float = 1.0,
+) -> dict[str, Any]:
+    if not _memory_graph_enabled():
+        raise ValueError("memory graph is disabled on this server")
+    _require_identity()
+    return db.memory_graph_edge_insert(
+        src_node_id=int(src_node_id),
+        dst_node_id=int(dst_node_id),
+        rel_type=rel_type,
+        weight=weight,
+    )
+
+
+def graph_nodes_list_for_identity(
+    *,
+    workspace_id: uuid.UUID | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    if not _memory_graph_enabled():
+        return []
+    _require_identity()
+    return db.memory_graph_list_nodes(workspace_id=workspace_id, limit=limit)
+
+
+def graph_node_delete_for_identity(*, node_id: int) -> bool:
+    if not _memory_graph_enabled():
+        raise ValueError("memory graph is disabled on this server")
+    _require_identity()
+    return db.memory_graph_node_soft_delete(node_id=int(node_id))
+
+
+def _maybe_log_graph_activation(
+    workspace_id: uuid.UUID | None,
+    user_query: str,
+    rows: list[dict[str, Any]],
+) -> None:
+    """Persist activated node ids + per-node scores for later RL / analytics (no raw query text)."""
+    mg = operator_settings.memory_graph_prompt_settings()
+    if not mg["log_activations"]:
+        return
+    if not rows:
+        return
+    try:
+        from src.api.memory_graph_scoring import activation_score
+
+        q = (user_query or "").strip().lower()
+        qhash = hashlib.sha256(q.encode("utf-8")).hexdigest() if q else None
+        scores = {str(int(r["id"])): round(float(activation_score(r)), 5) for r in rows}
+        nids = [int(r["id"]) for r in rows]
+        db.memory_graph_activation_log_insert(
+            workspace_id=workspace_id,
+            node_ids=nids,
+            query_sha256=qhash,
+            meta={
+                "scores": scores,
+                "max_hops": int(mg["max_hops"]),
+                "node_count": len(nids),
+            },
+        )
+    except Exception as e:
+        logger.debug("memory graph activation log skipped: %s", e)
+
+
+def graph_render_for_identity(
+    *,
+    workspace_id: uuid.UUID | None,
+    user_query: str,
+    max_nodes: int = 12,
+) -> str:
+    """Compact bullet list for system prompt injection (decay/conflict-aware)."""
+    if not _memory_graph_enabled():
+        return ""
+    _require_identity()
+    from src.api.memory_graph_scoring import build_graph_prompt_section, rank_and_filter_nodes
+
+    tokens = _tokenize_query_for_graph(user_query)
+    qemb: list[float] | None = None
+    raw_q = (user_query or "").strip()
+    if raw_q:
+        try:
+            qemb = ollama_embed_one(raw_q[:12_000])
+        except Exception:
+            qemb = None
+    hops = int(mg["max_hops"])
+    hops = max(0, min(hops, 4))
+    rows = db.memory_graph_activate(
+        workspace_id=workspace_id,
+        tokens=tokens,
+        query_embedding=qemb,
+        vec_seed_limit=8,
+        keyword_seed_limit=6,
+        max_nodes=max_nodes,
+        max_hops=hops,
+    )
+    rows = rank_and_filter_nodes(rows)
+    _maybe_log_graph_activation(workspace_id, user_query, rows)
+    return build_graph_prompt_section(rows)
+
+
+def graph_stats_for_identity() -> dict[str, Any]:
+    if not _memory_graph_enabled():
+        return {}
+    _require_identity()
+    return db.memory_graph_stats()
+
+
+def graph_activation_log_for_identity(*, limit: int = 100) -> list[dict[str, Any]]:
+    if not _memory_graph_enabled():
+        return []
+    _require_identity()
+    return db.memory_graph_activation_log_list(limit=limit)
+
+
+def graph_propose_from_text_for_identity(
+    *,
+    text: str,
+    workspace_id: uuid.UUID | None,
+    apply: bool,
+) -> dict[str, Any]:
+    if not _memory_graph_enabled():
+        raise ValueError("memory graph is disabled on this server")
+    _require_identity()
+    from src.api.memory_graph_extract import propose_graph_from_text
+
+    return propose_graph_from_text(text=text, workspace_id=workspace_id, apply=apply)
+
+
 def render_memory_context(
     *,
     workspace_id: uuid.UUID | None,
@@ -138,8 +333,9 @@ def render_memory_context(
     for f in facts_ws:
         merged[str(f["key"])] = f
     notes = note_search_for_identity(query=user_query, workspace_id=workspace_id, limit=notes_limit)
+    graph_snip = graph_render_for_identity(workspace_id=workspace_id, user_query=user_query)
 
-    if not merged and not notes:
+    if not merged and not notes and not graph_snip:
         return ""
 
     lines: list[str] = []
@@ -163,5 +359,8 @@ def render_memory_context(
             lines.append(f"{i}) {txt}" + (f" (tags: {tag_str})" if tag_str else ""))
     else:
         lines.append("(none)")
-    return "\n".join(lines).strip()
+    out = "\n".join(lines).strip()
+    if graph_snip:
+        out = out + "\n\n" + graph_snip
+    return out
 

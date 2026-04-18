@@ -16,6 +16,7 @@ ICON_MAP: dict[str, str] = {
     "kb": "notebook-pen",
     "rag": "search",
     "memory": "brain",
+    "memory_graph": "share-2",
     "web_search": "globe",
     "github": "github",
     "local_files": "folder-open",

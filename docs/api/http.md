@@ -50,17 +50,24 @@ Persona/profile/KB sharing:
 - `GET /v1/user/persona`
 - `PUT /v1/user/persona`
 
-Memory (facts + notes):
+Memory (facts + notes + graph):
 - `POST /v1/user/memory/facts/upsert`
 - `GET /v1/user/memory/facts`
 - `DELETE /v1/user/memory/facts/{key}`
 - `POST /v1/user/memory/notes`
 - `GET /v1/user/memory/notes/search`
 - `DELETE /v1/user/memory/notes/{note_id}`
+- `POST /v1/user/memory/graph/nodes` — structured graph node (label, summary, optional `workspace_id`)
+- `POST /v1/user/memory/graph/edges` — link two node ids (`src_node_id`, `dst_node_id`)
+- `GET /v1/user/memory/graph/nodes`
+- `DELETE /v1/user/memory/graph/nodes/{node_id}`
+- `GET /v1/user/memory/graph/stats` — counts (nodes, missing embeddings, goal nodes, conflict groups)
+- `GET /v1/user/memory/graph/activation-log?limit=100` — recent graph activation events (requires **`memory_graph_log_activations`** in operator settings + migration `schema_019`)
+- `POST /v1/user/memory/graph/propose` — body `{ "text": "...", "apply": false, "workspace_id": null }` — LLM proposes nodes/edges; set `apply` true to persist
 
 ## RAG (admin)
 
-Requires Bearer for a user with `role=admin`.
+Requires Bearer for a user with `role=admin`. Ingest/search require **`rag_enabled`** (and related fields) in **`operator_settings`** — **Admin → Interfaces**, not environment variables.
 
 - `POST /v1/admin/rag/ingest`
 - `POST /v1/admin/rag/ingest-docs` — batch Markdown under `docs_root` (default repo `docs/`), domain `agentlayer_docs`

@@ -1,4 +1,4 @@
-"""Persisted operator preferences: integrations, agent execution class, LLM routing."""
+"""Persisted operator preferences: integrations, agent execution class, LLM routing, memory, RAG."""
 
 from __future__ import annotations
 
@@ -23,6 +23,11 @@ def _invalidate() -> None:
     _CACHE = None
 
 
+def invalidate_operator_settings_cache() -> None:
+    """Call after external LLM endpoint sync (and similar) so cached operator row refreshes."""
+    _invalidate()
+
+
 def _fetch_row() -> dict[str, Any]:
     empty = {
         "discord_application_id": None,
@@ -43,12 +48,6 @@ def _fetch_row() -> dict[str, Any]:
         "workspace_upload_max_file_mb": None,
         "workspace_upload_allowed_mime": None,
         "llm_primary_backend": "ollama",
-        "llm_external_base_url": None,
-        "llm_external_api_key": None,
-        "llm_external_model_default": None,
-        "llm_external_model_vlm": None,
-        "llm_external_model_agent": None,
-        "llm_external_model_coding": None,
         "llm_smart_routing_enabled": False,
         "llm_router_ollama_model": "nemotron-3-nano:4b",
         "llm_router_local_confidence_min": 0.7,
@@ -57,6 +56,22 @@ def _fetch_row() -> dict[str, Any]:
         "llm_route_short_local_max_chars": 220,
         "llm_route_many_code_fences": 3,
         "llm_route_many_messages": 14,
+        "memory_graph_enabled": True,
+        "memory_graph_max_hops": 2,
+        "memory_graph_min_score": 0.03,
+        "memory_graph_max_bullets": 14,
+        "memory_graph_max_prompt_chars": 3500,
+        "memory_graph_log_activations": False,
+        "memory_enabled": True,
+        "rag_enabled": True,
+        "rag_ollama_model": "nomic-embed-text",
+        "rag_embedding_dim": 768,
+        "rag_chunk_size": 1200,
+        "rag_chunk_overlap": 200,
+        "rag_top_k": 8,
+        "rag_embed_timeout_sec": 120.0,
+        "rag_tenant_shared_domains": "agentlayer_docs",
+        "docs_root": None,
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -69,13 +84,17 @@ def _fetch_row() -> dict[str, Any]:
                        telegram_application_id, telegram_bot_enabled, telegram_bot_token,
                        telegram_bot_agent_bearer, telegram_trigger_prefix, telegram_chat_model,
                        workspace_upload_max_file_mb, workspace_upload_allowed_mime,
-                       llm_primary_backend, llm_external_base_url, llm_external_api_key,
-                       llm_external_model_default, llm_external_model_vlm,
-                       llm_external_model_agent, llm_external_model_coding,
+                       llm_primary_backend,
                        llm_smart_routing_enabled, llm_router_ollama_model,
                        llm_router_local_confidence_min, llm_router_timeout_sec,
                        llm_route_long_prompt_chars, llm_route_short_local_max_chars,
-                       llm_route_many_code_fences, llm_route_many_messages
+                       llm_route_many_code_fences, llm_route_many_messages,
+                       memory_graph_enabled, memory_graph_max_hops, memory_graph_min_score,
+                       memory_graph_max_bullets, memory_graph_max_prompt_chars,
+                       memory_graph_log_activations,
+                       memory_enabled, rag_enabled, rag_ollama_model, rag_embedding_dim,
+                       rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
+                       rag_tenant_shared_domains, docs_root
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -105,20 +124,32 @@ def _fetch_row() -> dict[str, Any]:
         "workspace_upload_max_file_mb": row[15],
         "workspace_upload_allowed_mime": row[16],
         "llm_primary_backend": (str(row[17]).strip().lower() if row[17] is not None else "") or "ollama",
-        "llm_external_base_url": row[18],
-        "llm_external_api_key": row[19],
-        "llm_external_model_default": row[20],
-        "llm_external_model_vlm": row[21],
-        "llm_external_model_agent": row[22],
-        "llm_external_model_coding": row[23],
-        "llm_smart_routing_enabled": bool(row[24]) if row[24] is not None else False,
-        "llm_router_ollama_model": (str(row[25]).strip() if row[25] is not None else "") or "nemotron-3-nano:4b",
-        "llm_router_local_confidence_min": float(row[26]) if row[26] is not None else 0.7,
-        "llm_router_timeout_sec": float(row[27]) if row[27] is not None else 12.0,
-        "llm_route_long_prompt_chars": int(row[28]) if row[28] is not None else 8000,
-        "llm_route_short_local_max_chars": int(row[29]) if row[29] is not None else 220,
-        "llm_route_many_code_fences": int(row[30]) if row[30] is not None else 3,
-        "llm_route_many_messages": int(row[31]) if row[31] is not None else 14,
+        "llm_smart_routing_enabled": bool(row[18]) if row[18] is not None else False,
+        "llm_router_ollama_model": (str(row[19]).strip() if row[19] is not None else "") or "nemotron-3-nano:4b",
+        "llm_router_local_confidence_min": float(row[20]) if row[20] is not None else 0.7,
+        "llm_router_timeout_sec": float(row[21]) if row[21] is not None else 12.0,
+        "llm_route_long_prompt_chars": int(row[22]) if row[22] is not None else 8000,
+        "llm_route_short_local_max_chars": int(row[23]) if row[23] is not None else 220,
+        "llm_route_many_code_fences": int(row[24]) if row[24] is not None else 3,
+        "llm_route_many_messages": int(row[25]) if row[25] is not None else 14,
+        "memory_graph_enabled": bool(row[26]) if row[26] is not None else True,
+        "memory_graph_max_hops": int(row[27]) if row[27] is not None else 2,
+        "memory_graph_min_score": float(row[28]) if row[28] is not None else 0.03,
+        "memory_graph_max_bullets": int(row[29]) if row[29] is not None else 14,
+        "memory_graph_max_prompt_chars": int(row[30]) if row[30] is not None else 3500,
+        "memory_graph_log_activations": bool(row[31]) if row[31] is not None else False,
+        "memory_enabled": bool(row[32]) if row[32] is not None else True,
+        "rag_enabled": bool(row[33]) if row[33] is not None else True,
+        "rag_ollama_model": (str(row[34]).strip() if row[34] is not None else "") or "nomic-embed-text",
+        "rag_embedding_dim": int(row[35]) if row[35] is not None else 768,
+        "rag_chunk_size": int(row[36]) if row[36] is not None else 1200,
+        "rag_chunk_overlap": int(row[37]) if row[37] is not None else 200,
+        "rag_top_k": int(row[38]) if row[38] is not None else 8,
+        "rag_embed_timeout_sec": float(row[39]) if row[39] is not None else 120.0,
+        "rag_tenant_shared_domains": (
+            str(row[40]) if row[40] is not None else "agentlayer_docs"
+        ),
+        "docs_root": row[41],
     }
 
 
@@ -197,6 +228,60 @@ def smart_routing_params() -> dict[str, Any]:
     }
 
 
+def memory_graph_prompt_settings() -> dict[str, Any]:
+    """Graph memory injection + activation logging (operator_settings / Admin → Interfaces)."""
+    r = _cached_row()
+    return {
+        "enabled": bool(r.get("memory_graph_enabled", True)),
+        "max_hops": _bound_int(r.get("memory_graph_max_hops"), 2, 0, 4),
+        "min_score": _bound_float(r.get("memory_graph_min_score"), 0.03, 0.0, 1.0),
+        "max_bullets": _bound_int(r.get("memory_graph_max_bullets"), 14, 1, 50),
+        "max_prompt_chars": _bound_int(r.get("memory_graph_max_prompt_chars"), 3500, 200, 50_000),
+        "log_activations": bool(r.get("memory_graph_log_activations", False)),
+    }
+
+
+def memory_service_enabled() -> bool:
+    """Facts + semantic notes (and graph when enabled). Admin → Interfaces ``memory_enabled``."""
+    return bool(_cached_row().get("memory_enabled", True))
+
+
+def rag_settings() -> dict[str, Any]:
+    """RAG chunking, embed model, top_k (operator_settings / Admin → Interfaces)."""
+    r = _cached_row()
+    return {
+        "enabled": bool(r.get("rag_enabled", True)),
+        "ollama_model": (str(r.get("rag_ollama_model") or "").strip() or "nomic-embed-text")[:256],
+        "embedding_dim": _bound_int(r.get("rag_embedding_dim"), 768, 32, 4096),
+        "chunk_size": _bound_int(r.get("rag_chunk_size"), 1200, 200, 8000),
+        "chunk_overlap": _bound_int(r.get("rag_chunk_overlap"), 200, 0, 2000),
+        "top_k": _bound_int(r.get("rag_top_k"), 8, 1, 50),
+        "embed_timeout_sec": _bound_float(r.get("rag_embed_timeout_sec"), 120.0, 5.0, 600.0),
+    }
+
+
+def effective_rag_tenant_shared_domains() -> frozenset[str]:
+    """Comma-separated domain ids; empty string → none; default list includes ``agentlayer_docs``."""
+    r = _cached_row()
+    raw = r.get("rag_tenant_shared_domains")
+    if raw is None:
+        return frozenset({"agentlayer_docs"})
+    s = str(raw).strip()
+    if not s:
+        return frozenset()
+    return frozenset(x.strip().lower() for x in s.split(",") if x.strip())
+
+
+def effective_docs_root_str() -> str | None:
+    """Optional filesystem root for markdown ingest; None/empty → use repository ``docs/`` in callers."""
+    r = _cached_row()
+    raw = r.get("docs_root")
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
 def _strip_opt(s: Any) -> str | None:
     if s is None:
         return None
@@ -260,36 +345,81 @@ def external_models_list_url(base_url: str) -> str:
 def resolve_external_llm_credentials_for_catalog(
     base_url_override: str | None,
     api_key_override: str | None,
+    endpoint_id: int | None = None,
 ) -> tuple[str, str]:
-    """Host prefix and API key for admin model list."""
-    r = _cached_row()
+    """Host prefix and API key for admin model list (``GET …/v1/models``)."""
     if base_url_override is not None and str(base_url_override).strip():
         bu = normalize_external_llm_base_url(str(base_url_override).strip())
-    else:
-        bu = normalize_external_llm_base_url(_strip_opt(r.get("llm_external_base_url")))
-    if api_key_override is not None and str(api_key_override).strip():
-        key = str(api_key_override).strip()
-    else:
-        key = _strip_opt(r.get("llm_external_api_key")) or ""
-    if not bu:
-        raise ValueError("missing_base_url")
-    if not key:
-        raise ValueError("missing_api_key")
-    return bu, key
+        key = (
+            str(api_key_override).strip()
+            if api_key_override is not None and str(api_key_override).strip()
+            else ""
+        )
+        if not bu:
+            raise ValueError("missing_base_url")
+        if not key:
+            raise ValueError("missing_api_key")
+        return bu, key
+
+    if endpoint_id is not None:
+        row = db.external_llm_endpoint_by_id(int(endpoint_id))
+        if not row:
+            raise ValueError("unknown_endpoint")
+        bu = normalize_external_llm_base_url(_strip_opt(row.get("base_url")))
+        key = _strip_opt(row.get("api_key")) or ""
+        if not bu or not key:
+            raise ValueError("missing_api_key")
+        return bu, key
+
+    rows = db.external_llm_endpoints_enabled_ordered()
+    if rows:
+        row0 = rows[0]
+        bu = normalize_external_llm_base_url(_strip_opt(row0.get("base_url")))
+        key = _strip_opt(row0.get("api_key")) or ""
+        if bu and key:
+            return bu, key
+
+    raise ValueError("no_external_endpoint")
 
 
-def _external_model_for_profile(r: dict[str, Any], profile_key: str) -> str | None:
+def _external_model_for_endpoint_row(
+    row: dict[str, Any],
+    profile_key: str,
+    is_override: bool,
+    model_from_resolution: str,
+) -> str | None:
+    pk = (profile_key or "default").strip().lower()
+    if pk not in ("default", "vlm", "agent", "coding"):
+        pk = "default"
+
     def col(name: str) -> str | None:
-        return _strip_opt(r.get(name))
+        return _strip_opt(row.get(name))
 
-    d = col("llm_external_model_default")
-    if profile_key == "vlm":
-        return col("llm_external_model_vlm") or d
-    if profile_key == "agent":
-        return col("llm_external_model_agent") or d
-    if profile_key == "coding":
-        return col("llm_external_model_coding") or d
-    return d
+    d = col("model_default")
+    if pk == "vlm":
+        prof = col("model_vlm") or d
+    elif pk == "agent":
+        prof = col("model_agent") or d
+    elif pk == "coding":
+        prof = col("model_coding") or d
+    else:
+        prof = d
+
+    if is_override:
+        raw = _strip_opt(model_from_resolution)
+        if raw and ":" in raw:
+            logger.info(
+                "llm: external endpoint but model override looks like an Ollama id (%r); using profile model",
+                raw,
+            )
+            return prof
+        return raw
+    return prof
+
+
+def external_llm_should_failover(http_status: int) -> bool:
+    """Try next external endpoint on these status codes (quota, auth, overload)."""
+    return http_status in (401, 403, 408, 429, 500, 502, 503, 504)
 
 
 def llm_chat_transport(
@@ -298,7 +428,7 @@ def llm_chat_transport(
     is_override: bool,
     *,
     backend_override: Literal["ollama", "external"] | None = None,
-) -> tuple[str, dict[str, str], str, Literal["ollama", "external"]]:
+) -> tuple[list[tuple[str, dict[str, str], str]], Literal["ollama", "external"]]:
     ollama_base = (getattr(config, "OLLAMA_BASE_URL", None) or "http://ollama:11434").strip().rstrip("/")
     ollama_url = f"{ollama_base}/v1/chat/completions"
     ollama_headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -308,44 +438,30 @@ def llm_chat_transport(
     )
 
     if primary == "ollama":
-        return ollama_url, ollama_headers, model_from_resolution, "ollama"
-
-    r = _cached_row()
-    base_url = normalize_external_llm_base_url(_strip_opt(r.get("llm_external_base_url")))
-    key = _strip_opt(r.get("llm_external_api_key")) or ""
+        return [(ollama_url, ollama_headers, model_from_resolution)], "ollama"
 
     pk = (profile_key or "default").strip().lower()
     if pk not in ("default", "vlm", "agent", "coding"):
         pk = "default"
 
-    if is_override:
-        raw = _strip_opt(model_from_resolution)
-        # Ollama tags are ``name:tag``; OpenAI/Gemini model ids do not use that shape. Smart routing
-        # may pick external while the session still has an Ollama override (e.g. Discord model) — never
-        # forward those to external APIs.
-        if raw and ":" in raw:
-            logger.info(
-                "llm: external backend but model override looks like an Ollama id (%r); using external profile model",
-                raw,
-            )
-            ext_model = _external_model_for_profile(r, pk)
-        else:
-            ext_model = raw
-    else:
-        ext_model = _external_model_for_profile(r, pk)
+    attempts: list[tuple[str, dict[str, str], str]] = []
+    for row in db.external_llm_endpoints_enabled_ordered():
+        bu = normalize_external_llm_base_url(_strip_opt(row.get("base_url")))
+        key = _strip_opt(row.get("api_key")) or ""
+        ext_model = _external_model_for_endpoint_row(row, pk, is_override, model_from_resolution)
+        if not bu or not key or not ext_model:
+            continue
+        chat_url = external_chat_completions_url(bu)
+        headers = external_api_headers(bu, key)
+        attempts.append((chat_url, headers, ext_model))
 
-    if not base_url or not key or not ext_model:
+    if not attempts:
         logger.warning(
-            "llm: primary=external but incomplete (url=%s key=%s model=%r); using Ollama",
-            bool(base_url),
-            bool(key),
-            ext_model,
+            "llm: primary=external but no complete enabled endpoint rows; using Ollama",
         )
-        return ollama_url, ollama_headers, model_from_resolution, "ollama"
+        return [(ollama_url, ollama_headers, model_from_resolution)], "ollama"
 
-    chat_url = external_chat_completions_url(base_url)
-    headers = external_api_headers(base_url, key)
-    return chat_url, headers, ext_model, "external"
+    return attempts, "external"
 
 
 def _discord_trigger_prefix_public(r: dict[str, Any]) -> str:
@@ -415,12 +531,6 @@ def public_dict() -> dict[str, Any]:
         "workspace_upload_effective_max_bytes": effective_workspace_upload_max_bytes(),
         "workspace_upload_effective_allowed_mime": sorted(effective_workspace_upload_mime()),
         "llm_primary_backend": resolved_primary_llm_backend(),
-        "llm_external_base_url": (str(r.get("llm_external_base_url") or "").strip())[:512],
-        "llm_external_api_key_configured": bool((r.get("llm_external_api_key") or "").strip()),
-        "llm_external_model_default": (str(r.get("llm_external_model_default") or "").strip())[:256],
-        "llm_external_model_vlm": (str(r.get("llm_external_model_vlm") or "").strip())[:256],
-        "llm_external_model_agent": (str(r.get("llm_external_model_agent") or "").strip())[:256],
-        "llm_external_model_coding": (str(r.get("llm_external_model_coding") or "").strip())[:256],
         "llm_smart_routing_enabled": bool(r.get("llm_smart_routing_enabled")),
         "llm_router_ollama_model": (str(r.get("llm_router_ollama_model") or "").strip())[:128],
         "llm_router_local_confidence_min": _bound_float(r.get("llm_router_local_confidence_min"), 0.7, 0.0, 1.0),
@@ -429,6 +539,23 @@ def public_dict() -> dict[str, Any]:
         "llm_route_short_local_max_chars": _bound_int(r.get("llm_route_short_local_max_chars"), 220, 1, 50_000),
         "llm_route_many_code_fences": _bound_int(r.get("llm_route_many_code_fences"), 3, 1, 100),
         "llm_route_many_messages": _bound_int(r.get("llm_route_many_messages"), 14, 1, 500),
+        "memory_graph_enabled": bool(r.get("memory_graph_enabled", True)),
+        "memory_graph_max_hops": _bound_int(r.get("memory_graph_max_hops"), 2, 0, 4),
+        "memory_graph_min_score": _bound_float(r.get("memory_graph_min_score"), 0.03, 0.0, 1.0),
+        "memory_graph_max_bullets": _bound_int(r.get("memory_graph_max_bullets"), 14, 1, 50),
+        "memory_graph_max_prompt_chars": _bound_int(r.get("memory_graph_max_prompt_chars"), 3500, 200, 50_000),
+        "memory_graph_log_activations": bool(r.get("memory_graph_log_activations", False)),
+        "memory_enabled": bool(r.get("memory_enabled", True)),
+        "rag_enabled": bool(r.get("rag_enabled", True)),
+        "rag_ollama_model": (str(r.get("rag_ollama_model") or "").strip() or "nomic-embed-text")[:256],
+        "rag_embedding_dim": _bound_int(r.get("rag_embedding_dim"), 768, 32, 4096),
+        "rag_chunk_size": _bound_int(r.get("rag_chunk_size"), 1200, 200, 8000),
+        "rag_chunk_overlap": _bound_int(r.get("rag_chunk_overlap"), 200, 0, 2000),
+        "rag_top_k": _bound_int(r.get("rag_top_k"), 8, 1, 50),
+        "rag_embed_timeout_sec": _bound_float(r.get("rag_embed_timeout_sec"), 120.0, 5.0, 600.0),
+        "rag_tenant_shared_domains": (str(r.get("rag_tenant_shared_domains") or "").strip()),
+        "rag_tenant_shared_domains_effective": sorted(effective_rag_tenant_shared_domains()),
+        "docs_root": (str(r.get("docs_root") or "").strip()),
     }
 
 
@@ -457,12 +584,6 @@ class OperatorSettingsPatch(BaseModel):
     workspace_upload_max_file_mb: int | None = None
     workspace_upload_allowed_mime: str | None = Field(default=None, max_length=2000)
     llm_primary_backend: str | None = Field(default=None, max_length=32)
-    llm_external_base_url: str | None = Field(default=None, max_length=512)
-    llm_external_api_key: str | None = Field(default=None, max_length=4096)
-    llm_external_model_default: str | None = Field(default=None, max_length=256)
-    llm_external_model_vlm: str | None = Field(default=None, max_length=256)
-    llm_external_model_agent: str | None = Field(default=None, max_length=256)
-    llm_external_model_coding: str | None = Field(default=None, max_length=256)
     llm_smart_routing_enabled: bool | None = None
     llm_router_ollama_model: str | None = Field(default=None, max_length=128)
     llm_router_local_confidence_min: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -471,6 +592,22 @@ class OperatorSettingsPatch(BaseModel):
     llm_route_short_local_max_chars: int | None = Field(default=None, ge=1, le=50000)
     llm_route_many_code_fences: int | None = Field(default=None, ge=1, le=100)
     llm_route_many_messages: int | None = Field(default=None, ge=1, le=500)
+    memory_graph_enabled: bool | None = None
+    memory_graph_max_hops: int | None = Field(default=None, ge=0, le=4)
+    memory_graph_min_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    memory_graph_max_bullets: int | None = Field(default=None, ge=1, le=50)
+    memory_graph_max_prompt_chars: int | None = Field(default=None, ge=200, le=50000)
+    memory_graph_log_activations: bool | None = None
+    memory_enabled: bool | None = None
+    rag_enabled: bool | None = None
+    rag_ollama_model: str | None = Field(default=None, max_length=256)
+    rag_embedding_dim: int | None = Field(default=None, ge=32, le=4096)
+    rag_chunk_size: int | None = Field(default=None, ge=200, le=8000)
+    rag_chunk_overlap: int | None = Field(default=None, ge=0, le=2000)
+    rag_top_k: int | None = Field(default=None, ge=1, le=50)
+    rag_embed_timeout_sec: float | None = Field(default=None, ge=5.0, le=600.0)
+    rag_tenant_shared_domains: str | None = Field(default=None, max_length=4000)
+    docs_root: str | None = Field(default=None, max_length=4096)
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -601,28 +738,6 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
         else:
             s = str(v).strip().lower()
             r["llm_primary_backend"] = "external" if s == "external" else "ollama"
-    if "llm_external_base_url" in patch:
-        v = patch["llm_external_base_url"]
-        r["llm_external_base_url"] = None if v is None else (str(v).strip() or None)
-    if "llm_external_api_key" in patch:
-        v = patch["llm_external_api_key"]
-        if v is None:
-            r["llm_external_api_key"] = None
-        else:
-            s = str(v).strip()
-            r["llm_external_api_key"] = s or None
-    if "llm_external_model_default" in patch:
-        v = patch["llm_external_model_default"]
-        r["llm_external_model_default"] = None if v is None else (str(v).strip() or None)
-    if "llm_external_model_vlm" in patch:
-        v = patch["llm_external_model_vlm"]
-        r["llm_external_model_vlm"] = None if v is None else (str(v).strip() or None)
-    if "llm_external_model_agent" in patch:
-        v = patch["llm_external_model_agent"]
-        r["llm_external_model_agent"] = None if v is None else (str(v).strip() or None)
-    if "llm_external_model_coding" in patch:
-        v = patch["llm_external_model_coding"]
-        r["llm_external_model_coding"] = None if v is None else (str(v).strip() or None)
     if "llm_smart_routing_enabled" in patch:
         r["llm_smart_routing_enabled"] = bool(patch["llm_smart_routing_enabled"])
     if "llm_router_ollama_model" in patch:
@@ -648,6 +763,59 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
     if "llm_route_many_messages" in patch:
         v = patch["llm_route_many_messages"]
         r["llm_route_many_messages"] = _bound_int(v, 14, 1, 500) if v is not None else 14
+    if "memory_graph_enabled" in patch:
+        r["memory_graph_enabled"] = bool(patch["memory_graph_enabled"])
+    if "memory_graph_max_hops" in patch:
+        v = patch["memory_graph_max_hops"]
+        r["memory_graph_max_hops"] = _bound_int(v, 2, 0, 4) if v is not None else 2
+    if "memory_graph_min_score" in patch:
+        v = patch["memory_graph_min_score"]
+        r["memory_graph_min_score"] = _bound_float(v, 0.03, 0.0, 1.0) if v is not None else 0.03
+    if "memory_graph_max_bullets" in patch:
+        v = patch["memory_graph_max_bullets"]
+        r["memory_graph_max_bullets"] = _bound_int(v, 14, 1, 50) if v is not None else 14
+    if "memory_graph_max_prompt_chars" in patch:
+        v = patch["memory_graph_max_prompt_chars"]
+        r["memory_graph_max_prompt_chars"] = _bound_int(v, 3500, 200, 50_000) if v is not None else 3500
+    if "memory_graph_log_activations" in patch:
+        r["memory_graph_log_activations"] = bool(patch["memory_graph_log_activations"])
+    if "memory_enabled" in patch:
+        r["memory_enabled"] = bool(patch["memory_enabled"])
+    if "rag_enabled" in patch:
+        r["rag_enabled"] = bool(patch["rag_enabled"])
+    if "rag_ollama_model" in patch:
+        v = patch["rag_ollama_model"]
+        r["rag_ollama_model"] = (
+            (str(v).strip()[:256] or "nomic-embed-text") if v is not None else "nomic-embed-text"
+        )
+    if "rag_embedding_dim" in patch:
+        v = patch["rag_embedding_dim"]
+        r["rag_embedding_dim"] = _bound_int(v, 768, 32, 4096) if v is not None else 768
+    if "rag_chunk_size" in patch:
+        v = patch["rag_chunk_size"]
+        r["rag_chunk_size"] = _bound_int(v, 1200, 200, 8000) if v is not None else 1200
+    if "rag_chunk_overlap" in patch:
+        v = patch["rag_chunk_overlap"]
+        r["rag_chunk_overlap"] = _bound_int(v, 200, 0, 2000) if v is not None else 200
+    if "rag_top_k" in patch:
+        v = patch["rag_top_k"]
+        r["rag_top_k"] = _bound_int(v, 8, 1, 50) if v is not None else 8
+    if "rag_embed_timeout_sec" in patch:
+        v = patch["rag_embed_timeout_sec"]
+        r["rag_embed_timeout_sec"] = _bound_float(v, 120.0, 5.0, 600.0) if v is not None else 120.0
+    if "rag_tenant_shared_domains" in patch:
+        v = patch["rag_tenant_shared_domains"]
+        if v is None:
+            r["rag_tenant_shared_domains"] = "agentlayer_docs"
+        else:
+            r["rag_tenant_shared_domains"] = str(v).strip()
+    if "docs_root" in patch:
+        v = patch["docs_root"]
+        if v is None:
+            r["docs_root"] = None
+        else:
+            s = str(v).strip()
+            r["docs_root"] = s or None
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -673,12 +841,6 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   workspace_upload_max_file_mb = %s,
                   workspace_upload_allowed_mime = %s,
                   llm_primary_backend = %s,
-                  llm_external_base_url = %s,
-                  llm_external_api_key = %s,
-                  llm_external_model_default = %s,
-                  llm_external_model_vlm = %s,
-                  llm_external_model_agent = %s,
-                  llm_external_model_coding = %s,
                   llm_smart_routing_enabled = %s,
                   llm_router_ollama_model = %s,
                   llm_router_local_confidence_min = %s,
@@ -687,6 +849,22 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   llm_route_short_local_max_chars = %s,
                   llm_route_many_code_fences = %s,
                   llm_route_many_messages = %s,
+                  memory_graph_enabled = %s,
+                  memory_graph_max_hops = %s,
+                  memory_graph_min_score = %s,
+                  memory_graph_max_bullets = %s,
+                  memory_graph_max_prompt_chars = %s,
+                  memory_graph_log_activations = %s,
+                  memory_enabled = %s,
+                  rag_enabled = %s,
+                  rag_ollama_model = %s,
+                  rag_embedding_dim = %s,
+                  rag_chunk_size = %s,
+                  rag_chunk_overlap = %s,
+                  rag_top_k = %s,
+                  rag_embed_timeout_sec = %s,
+                  rag_tenant_shared_domains = %s,
+                  docs_root = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -709,12 +887,6 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("workspace_upload_max_file_mb"),
                     r.get("workspace_upload_allowed_mime"),
                     r.get("llm_primary_backend") or "ollama",
-                    r.get("llm_external_base_url"),
-                    r.get("llm_external_api_key"),
-                    r.get("llm_external_model_default"),
-                    r.get("llm_external_model_vlm"),
-                    r.get("llm_external_model_agent"),
-                    r.get("llm_external_model_coding"),
                     bool(r.get("llm_smart_routing_enabled")),
                     (str(r.get("llm_router_ollama_model") or "").strip() or "nemotron-3-nano:4b")[:128],
                     _bound_float(r.get("llm_router_local_confidence_min"), 0.7, 0.0, 1.0),
@@ -723,6 +895,26 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     _bound_int(r.get("llm_route_short_local_max_chars"), 220, 1, 50_000),
                     _bound_int(r.get("llm_route_many_code_fences"), 3, 1, 100),
                     _bound_int(r.get("llm_route_many_messages"), 14, 1, 500),
+                    bool(r.get("memory_graph_enabled", True)),
+                    _bound_int(r.get("memory_graph_max_hops"), 2, 0, 4),
+                    _bound_float(r.get("memory_graph_min_score"), 0.03, 0.0, 1.0),
+                    _bound_int(r.get("memory_graph_max_bullets"), 14, 1, 50),
+                    _bound_int(r.get("memory_graph_max_prompt_chars"), 3500, 200, 50_000),
+                    bool(r.get("memory_graph_log_activations", False)),
+                    bool(r.get("memory_enabled", True)),
+                    bool(r.get("rag_enabled", True)),
+                    (str(r.get("rag_ollama_model") or "").strip() or "nomic-embed-text")[:256],
+                    _bound_int(r.get("rag_embedding_dim"), 768, 32, 4096),
+                    _bound_int(r.get("rag_chunk_size"), 1200, 200, 8000),
+                    _bound_int(r.get("rag_chunk_overlap"), 200, 0, 2000),
+                    _bound_int(r.get("rag_top_k"), 8, 1, 50),
+                    _bound_float(r.get("rag_embed_timeout_sec"), 120.0, 5.0, 600.0),
+                    (
+                        str(r.get("rag_tenant_shared_domains"))
+                        if r.get("rag_tenant_shared_domains") is not None
+                        else "agentlayer_docs"
+                    ),
+                    r.get("docs_root"),
                 ),
             )
         conn.commit()

@@ -45,6 +45,7 @@ from src.infrastructure.operator_settings import (
     apply_operator_settings_patch,
     apply_update as operator_settings_apply,
     interface_hints_public,
+    invalidate_operator_settings_cache,
     public_dict as operator_settings_public,
     resolve_external_llm_credentials_for_catalog,
     external_api_headers,
@@ -299,12 +300,77 @@ async def patch_operator_settings(request: Request, body: OperatorSettingsPatch)
 
 
 class ExternalLlmModelsBody(BaseModel):
-    """Optional form overrides; omitted fields use saved operator_settings."""
+    """Optional form overrides; omitted fields use first endpoint or legacy operator_settings."""
 
     model_config = ConfigDict(extra="forbid")
 
     base_url: str | None = None
     api_key: str | None = None
+    endpoint_id: int | None = Field(
+        default=None,
+        description="Use this endpoint's URL+key when base_url/api_key not sent.",
+    )
+
+
+class ExternalLlmEndpointItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int | None = None
+    sort_order: int = 0
+    enabled: bool = True
+    label: str = ""
+    base_url: str = ""
+    api_key: str | None = None
+    model_default: str | None = None
+    model_vlm: str | None = None
+    model_agent: str | None = None
+    model_coding: str | None = None
+
+
+class ExternalLlmEndpointsPutBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoints: list[ExternalLlmEndpointItem] = Field(default_factory=list)
+
+
+@app.get("/v1/admin/external-llm/endpoints")
+async def admin_get_external_llm_endpoints(request: Request):
+    """List external OpenAI-compatible endpoints (keys redacted)."""
+    await require_admin(request)
+    out: list[dict[str, Any]] = []
+    for r in db.external_llm_endpoints_list_all():
+        k = str(r.get("api_key") or "")
+        out.append(
+            {
+                "id": r["id"],
+                "sort_order": r["sort_order"],
+                "enabled": r["enabled"],
+                "label": r.get("label") or "",
+                "base_url": r.get("base_url") or "",
+                "api_key_configured": bool(k.strip()),
+                "api_key_last4": (k[-4:] if len(k) >= 4 else None),
+                "model_default": r.get("model_default"),
+                "model_vlm": r.get("model_vlm"),
+                "model_agent": r.get("model_agent"),
+                "model_coding": r.get("model_coding"),
+                "created_at": r.get("created_at"),
+                "updated_at": r.get("updated_at"),
+            }
+        )
+    return {"endpoints": out}
+
+
+@app.put("/v1/admin/external-llm/endpoints")
+async def admin_put_external_llm_endpoints(request: Request, body: ExternalLlmEndpointsPutBody):
+    """Replace/sync external LLM endpoints (multi-provider, multi-key failover order = sort_order)."""
+    await require_admin(request)
+    raw = [e.model_dump() for e in body.endpoints]
+    try:
+        db.external_llm_endpoints_sync(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    invalidate_operator_settings_cache()
+    return await admin_get_external_llm_endpoints(request)
 
 
 @app.post("/v1/admin/external-llm/models")
@@ -312,12 +378,14 @@ async def admin_external_llm_models(request: Request, body: ExternalLlmModelsBod
     """
     List models from the configured external OpenAI-compatible API (``GET {base}/v1/models``).
 
-    Uses non-empty ``base_url`` / ``api_key`` from the body when provided; otherwise the persisted
-    operator settings (so you can load after saving, or pass unsaved form values).
+    Uses non-empty ``base_url`` / ``api_key`` from the body when provided; otherwise the first
+    enabled row in ``operator_external_llm_endpoints`` (or ``endpoint_id`` when set).
     """
     await require_admin(request)
     try:
-        bu, key = resolve_external_llm_credentials_for_catalog(body.base_url, body.api_key)
+        bu, key = resolve_external_llm_credentials_for_catalog(
+            body.base_url, body.api_key, endpoint_id=body.endpoint_id
+        )
     except ValueError as e:
         tag = str(e)
         if tag == "missing_base_url":
@@ -329,6 +397,13 @@ async def admin_external_llm_models(request: Request, body: ExternalLlmModelsBod
             raise HTTPException(
                 status_code=400,
                 detail="API-Key fehlt (einmalig eintragen oder zuerst speichern).",
+            ) from e
+        if tag == "unknown_endpoint":
+            raise HTTPException(status_code=400, detail="Unbekannter endpoint_id.") from e
+        if tag == "no_external_endpoint":
+            raise HTTPException(
+                status_code=400,
+                detail="Kein externer LLM-Endpunkt konfiguriert (Admin → External LLM Endpoints).",
             ) from e
         raise
     url = external_models_list_url(bu)

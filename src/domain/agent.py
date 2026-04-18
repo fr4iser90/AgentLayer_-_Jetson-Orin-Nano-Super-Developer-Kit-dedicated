@@ -44,7 +44,11 @@ from src.domain.tool_invocation_context import (
 from src.domain.llm_smart_route import decide_smart_backend
 from src.domain.model_routing import resolve_effective_model
 from src.domain.user_persona import apply_user_persona_system
-from src.infrastructure.operator_settings import llm_chat_transport, smart_llm_routing_enabled
+from src.infrastructure.operator_settings import (
+    external_llm_should_failover,
+    llm_chat_transport,
+    smart_llm_routing_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1049,7 +1053,7 @@ async def chat_completion(
             bo, smart_route_reason = await asyncio.to_thread(decide_smart_backend, messages)
             backend_override = bo
             logger.info("smart LLM route: %s -> backend=%s", smart_route_reason, bo)
-        url, headers, model, llm_backend = llm_chat_transport(
+        attempts, llm_backend = llm_chat_transport(
             model,
             profile_key,
             model_is_override,
@@ -1309,33 +1313,63 @@ async def chat_completion(
                     }
                 )
 
-            payload: dict[str, Any] = {
-                "model": model,
+            payload_base: dict[str, Any] = {
                 "messages": messages,
                 "stream": False,
                 **options,
             }
             if tools_for_round:
-                payload["tools"] = tools_for_round
+                payload_base["tools"] = tools_for_round
 
-            try:
-                data, tools_omitted = await asyncio.to_thread(
-                    ollama_post_chat_completions,
-                    url,
-                    payload,
-                    headers=headers,
-                    timeout=600.0,
-                )
-            except httpx.HTTPStatusError as e:
-                err_body = (e.response.text or "")[:4000]
-                logger.error(
-                    "LLM chat/completions failed (%s): status=%s model=%s body=%s",
-                    llm_backend,
-                    e.response.status_code,
-                    model,
-                    err_body or "(empty)",
-                )
-                raise
+            last_failover: httpx.HTTPStatusError | None = None
+            chosen: tuple[str, dict[str, str], str] | None = None
+            data: dict[str, Any] = {}
+            tools_omitted = False
+            for b_url, b_headers, b_model in attempts:
+                pl = dict(payload_base)
+                pl["model"] = b_model
+                try:
+                    data, tools_omitted = await asyncio.to_thread(
+                        ollama_post_chat_completions,
+                        b_url,
+                        pl,
+                        headers=b_headers,
+                        timeout=600.0,
+                    )
+                    chosen = (b_url, b_headers, b_model)
+                    model = b_model
+                    break
+                except httpx.HTTPStatusError as e:
+                    last_failover = e
+                    if llm_backend == "external" and external_llm_should_failover(
+                        e.response.status_code
+                    ):
+                        logger.warning(
+                            "LLM external attempt failed (status=%s); trying next endpoint",
+                            e.response.status_code,
+                        )
+                        continue
+                    err_body = (e.response.text or "")[:4000]
+                    logger.error(
+                        "LLM chat/completions failed (%s): status=%s model=%s body=%s",
+                        llm_backend,
+                        e.response.status_code,
+                        b_model,
+                        err_body or "(empty)",
+                    )
+                    raise
+            else:
+                if last_failover is not None:
+                    err_body = (last_failover.response.text or "")[:4000]
+                    logger.error(
+                        "LLM external: all endpoints failed, last status=%s body=%s",
+                        last_failover.response.status_code,
+                        err_body or "(empty)",
+                    )
+                    raise last_failover
+                raise RuntimeError("LLM: no chat/completions attempts")
+
+            assert chosen is not None
 
             if tools_omitted:
                 tools_for_round = []
@@ -1360,14 +1394,15 @@ async def chat_completion(
                 and not tools_omitted
                 and config.AGENT_TOOL_CHOICE_REQUIRED_RETRY
             ):
-                payload_retry = dict(payload)
+                payload_retry = dict(payload_base)
+                payload_retry["model"] = chosen[2]
                 payload_retry["tool_choice"] = "required"
                 try:
                     data_r, tools_omitted_r = await asyncio.to_thread(
                         ollama_post_chat_completions,
-                        url,
+                        chosen[0],
                         payload_retry,
-                        headers=headers,
+                        headers=chosen[1],
                         timeout=600.0,
                     )
                 except httpx.HTTPStatusError as e:

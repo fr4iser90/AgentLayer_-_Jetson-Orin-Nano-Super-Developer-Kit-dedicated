@@ -1,6 +1,6 @@
-"""HTTP API for user memory (facts + semantic notes).
+"""HTTP API for user memory (facts + semantic notes + optional graph nodes/edges).
 
-This is a user-facing wrapper around the same storage used by the `memory_*` agent tool.
+This is a user-facing wrapper around the same storage used by the `memory_*` and `memory_graph_*` tools.
 All operations are scoped to the authenticated chat identity (tenant_id + user_id).
 """
 
@@ -137,4 +137,139 @@ def delete_note(request: Request, note_id: int) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "deleted": bool(ok)}
+
+
+class GraphNodeBody(BaseModel):
+    workspace_id: str | None = None
+    kind: str = Field(default="event", max_length=64)
+    label: str = Field(min_length=1, max_length=500)
+    summary: str = Field(default="", max_length=20_000)
+    payload: dict[str, Any] | None = None
+    importance: float | None = Field(default=None, ge=0.0, le=10.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    source: str | None = Field(default=None, max_length=256)
+    last_verified: str | None = None
+    subject_key: str | None = Field(default=None, max_length=512)
+    stability: str | None = Field(default=None, max_length=16)
+    priority: float | None = Field(default=None, ge=-50.0, le=50.0)
+
+
+@router.post("/graph/nodes")
+def graph_add_node(request: Request, body: GraphNodeBody) -> dict:
+    resolve_chat_identity(request)
+    wid = _parse_uuid(body.workspace_id)
+    lv: datetime | None = None
+    if body.last_verified and body.last_verified.strip():
+        try:
+            lv = datetime.fromisoformat(body.last_verified.strip())
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="last_verified must be ISO timestamp") from e
+    try:
+        row = memory_service.graph_node_add_for_identity(
+            workspace_id=wid,
+            kind=body.kind,
+            label=body.label,
+            summary=body.summary,
+            payload=body.payload,
+            importance=body.importance,
+            confidence=body.confidence,
+            source=body.source,
+            last_verified=lv,
+            subject_key=body.subject_key,
+            stability=body.stability,
+            priority=body.priority,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, "node": row}
+
+
+class GraphEdgeBody(BaseModel):
+    src_node_id: int = Field(ge=1)
+    dst_node_id: int = Field(ge=1)
+    rel_type: str = Field(default="related", max_length=64)
+    weight: float = Field(default=1.0, ge=0.0, le=10.0)
+
+
+@router.post("/graph/edges")
+def graph_add_edge(request: Request, body: GraphEdgeBody) -> dict:
+    resolve_chat_identity(request)
+    try:
+        row = memory_service.graph_edge_add_for_identity(
+            src_node_id=body.src_node_id,
+            dst_node_id=body.dst_node_id,
+            rel_type=body.rel_type,
+            weight=body.weight,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, "edge": row}
+
+
+@router.get("/graph/nodes")
+def graph_list_nodes(request: Request, workspace_id: str | None = None, limit: int = 100) -> dict:
+    resolve_chat_identity(request)
+    wid = _parse_uuid(workspace_id)
+    try:
+        nodes = memory_service.graph_nodes_list_for_identity(workspace_id=wid, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, "nodes": nodes, "count": len(nodes)}
+
+
+@router.delete("/graph/nodes/{node_id}")
+def graph_delete_node(request: Request, node_id: int) -> dict:
+    resolve_chat_identity(request)
+    try:
+        ok = memory_service.graph_node_delete_for_identity(node_id=node_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "deleted": bool(ok)}
+
+
+@router.get("/graph/stats")
+def graph_stats(request: Request) -> dict:
+    resolve_chat_identity(request)
+    try:
+        stats = memory_service.graph_stats_for_identity()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, **stats}
+
+
+@router.get("/graph/activation-log")
+def graph_activation_log(request: Request, limit: int = 100) -> dict:
+    resolve_chat_identity(request)
+    try:
+        rows = memory_service.graph_activation_log_for_identity(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return {"ok": True, "events": rows, "count": len(rows)}
+
+
+class GraphProposeBody(BaseModel):
+    text: str = Field(min_length=1, max_length=48_000)
+    workspace_id: str | None = None
+    apply: bool = False
+
+
+@router.post("/graph/propose")
+def graph_propose(request: Request, body: GraphProposeBody) -> dict:
+    resolve_chat_identity(request)
+    wid = _parse_uuid(body.workspace_id)
+    try:
+        out = memory_service.graph_propose_from_text_for_identity(
+            text=body.text,
+            workspace_id=wid,
+            apply=body.apply,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return out
 

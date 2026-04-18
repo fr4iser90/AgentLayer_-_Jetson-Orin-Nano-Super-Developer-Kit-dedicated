@@ -261,6 +261,75 @@ CREATE INDEX idx_user_memory_notes_scope_updated
 CREATE INDEX idx_user_memory_notes_embedding
   ON user_memory_notes USING hnsw (embedding vector_cosine_ops);
 
+-- Structured memory graph (FMA-style MVP): nodes + edges, activated into prompt as compact bullets.
+
+CREATE TABLE user_memory_graph_nodes (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'event',
+  label TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  importance REAL NOT NULL DEFAULT 1.0,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  source TEXT NOT NULL DEFAULT 'user',
+  last_verified TIMESTAMPTZ NULL,
+  subject_key TEXT NULL,
+  stability TEXT NOT NULL DEFAULT 'normal',
+  priority REAL NOT NULL DEFAULT 0,
+  embedding vector(768),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX idx_user_memory_graph_nodes_scope_updated
+  ON user_memory_graph_nodes (tenant_id, user_id, workspace_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_user_memory_graph_nodes_subject
+  ON user_memory_graph_nodes (tenant_id, user_id, subject_key)
+  WHERE deleted_at IS NULL AND subject_key IS NOT NULL;
+
+CREATE INDEX idx_user_memory_graph_nodes_embedding
+  ON user_memory_graph_nodes USING hnsw (embedding vector_cosine_ops)
+  WHERE deleted_at IS NULL AND embedding IS NOT NULL;
+
+CREATE TABLE user_memory_graph_edges (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  src_node_id BIGINT NOT NULL REFERENCES user_memory_graph_nodes(id) ON DELETE CASCADE,
+  dst_node_id BIGINT NOT NULL REFERENCES user_memory_graph_nodes(id) ON DELETE CASCADE,
+  rel_type TEXT NOT NULL DEFAULT 'related',
+  weight REAL NOT NULL DEFAULT 1.0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ck_user_memory_graph_edges_no_self CHECK (src_node_id <> dst_node_id),
+  CONSTRAINT ux_user_memory_graph_edges_unique UNIQUE (src_node_id, dst_node_id, rel_type)
+);
+
+CREATE INDEX idx_user_memory_graph_edges_src
+  ON user_memory_graph_edges (tenant_id, user_id, src_node_id);
+
+CREATE INDEX idx_user_memory_graph_edges_dst
+  ON user_memory_graph_edges (tenant_id, user_id, dst_node_id);
+
+CREATE TABLE user_memory_graph_activation_log (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE SET NULL,
+  node_ids BIGINT[] NOT NULL DEFAULT '{}',
+  query_sha256 CHAR(64) NULL,
+  meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_graph_activation_user_created
+  ON user_memory_graph_activation_log (tenant_id, user_id, created_at DESC);
+
 CREATE TABLE rss_articles (
   id BIGSERIAL PRIMARY KEY,
   article_id TEXT NOT NULL UNIQUE,
@@ -350,12 +419,6 @@ CREATE TABLE operator_settings (
   workspace_upload_max_file_mb INTEGER,
   workspace_upload_allowed_mime TEXT,
   llm_primary_backend TEXT NOT NULL DEFAULT 'ollama',
-  llm_external_base_url TEXT,
-  llm_external_api_key TEXT,
-  llm_external_model_default TEXT,
-  llm_external_model_vlm TEXT,
-  llm_external_model_agent TEXT,
-  llm_external_model_coding TEXT,
   llm_smart_routing_enabled BOOLEAN NOT NULL DEFAULT false,
   llm_router_ollama_model TEXT NOT NULL DEFAULT 'nemotron-3-nano:4b',
   llm_router_local_confidence_min DOUBLE PRECISION NOT NULL DEFAULT 0.7,
@@ -364,11 +427,45 @@ CREATE TABLE operator_settings (
   llm_route_short_local_max_chars INTEGER NOT NULL DEFAULT 220,
   llm_route_many_code_fences INTEGER NOT NULL DEFAULT 3,
   llm_route_many_messages INTEGER NOT NULL DEFAULT 14,
+  memory_graph_enabled BOOLEAN NOT NULL DEFAULT true,
+  memory_graph_max_hops INTEGER NOT NULL DEFAULT 2,
+  memory_graph_min_score DOUBLE PRECISION NOT NULL DEFAULT 0.03,
+  memory_graph_max_bullets INTEGER NOT NULL DEFAULT 14,
+  memory_graph_max_prompt_chars INTEGER NOT NULL DEFAULT 3500,
+  memory_graph_log_activations BOOLEAN NOT NULL DEFAULT false,
+  memory_enabled BOOLEAN NOT NULL DEFAULT true,
+  rag_enabled BOOLEAN NOT NULL DEFAULT true,
+  rag_ollama_model TEXT NOT NULL DEFAULT 'nomic-embed-text',
+  rag_embedding_dim INTEGER NOT NULL DEFAULT 768,
+  rag_chunk_size INTEGER NOT NULL DEFAULT 1200,
+  rag_chunk_overlap INTEGER NOT NULL DEFAULT 200,
+  rag_top_k INTEGER NOT NULL DEFAULT 8,
+  rag_embed_timeout_sec DOUBLE PRECISION NOT NULL DEFAULT 120,
+  rag_tenant_shared_domains TEXT NOT NULL DEFAULT 'agentlayer_docs',
+  docs_root TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 INSERT INTO operator_settings (id) VALUES (1)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE operator_external_llm_endpoints (
+  id BIGSERIAL PRIMARY KEY,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  label TEXT NOT NULL DEFAULT '',
+  base_url TEXT NOT NULL,
+  api_key TEXT NOT NULL,
+  model_default TEXT,
+  model_vlm TEXT,
+  model_agent TEXT,
+  model_coding TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_operator_external_llm_endpoints_sort
+  ON operator_external_llm_endpoints (sort_order ASC, id ASC);
 
 CREATE TABLE operator_tool_policies (
   package_id TEXT NOT NULL,

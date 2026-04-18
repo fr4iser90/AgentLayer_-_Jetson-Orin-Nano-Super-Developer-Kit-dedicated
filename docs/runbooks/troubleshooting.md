@@ -8,9 +8,9 @@ tags: [runbook, troubleshooting]
 
 **Checks**
 
-- `AGENT_RAG_ENABLED=true`
+- **`rag_enabled`** on in **Admin → Interfaces** (`operator_settings`)
 - Docs ingested via `POST /v1/admin/rag/ingest` or batch `POST /v1/admin/rag/ingest-docs`
-- Embedding dims match DB (`AGENT_RAG_EMBEDDING_DIM` vs `vector(768)`)
+- **`rag_embedding_dim`** matches the DB column (e.g. `vector(768)`) and the Ollama embedding model output
 
 ## Discord gateway DNS failures
 

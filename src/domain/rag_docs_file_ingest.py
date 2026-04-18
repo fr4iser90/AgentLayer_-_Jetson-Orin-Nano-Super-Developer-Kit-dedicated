@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from src.core.config import config
+from src.infrastructure import operator_settings
 from src.infrastructure.db import db
 import src.api.rag as rag_service
 
@@ -22,8 +22,9 @@ _DEFAULT_DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 
 
 def resolve_docs_root() -> Path:
-    if config.AGENT_DOCS_ROOT:
-        return Path(config.AGENT_DOCS_ROOT).expanduser().resolve()
+    s = operator_settings.effective_docs_root_str()
+    if s:
+        return Path(s).expanduser().resolve()
     return _DEFAULT_DOCS_DIR.resolve()
 
 
@@ -123,7 +124,7 @@ def run_startup_rag_docs_ingest() -> None:
     Ingest ``docs/**/*.md`` at API process start when RAG is enabled.
     Uses the oldest admin user as document owner (``agentlayer_docs`` is tenant-wide for search).
     """
-    if not config.AGENT_RAG_ENABLED:
+    if not operator_settings.rag_settings()["enabled"]:
         return
     admin_id = db.user_first_admin_id()
     if admin_id is None:

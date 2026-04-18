@@ -258,32 +258,9 @@ CREATE_TOOL_CODEGEN_MAX_ATTEMPTS = max(
     1, min(_env_int("AGENT_CREATE_TOOL_CODEGEN_MAX_ATTEMPTS", 1), 20)
 )
 
-# --- RAG (Postgres + pgvector, Ollama embeddings) ---
-AGENT_RAG_ENABLED = _env_bool("AGENT_RAG_ENABLED", True)
-# Ollama embedding model (pull separately: e.g. ollama pull nomic-embed-text). Must match DB column width.
-AGENT_RAG_OLLAMA_MODEL = (
-    os.environ.get("AGENT_RAG_OLLAMA_MODEL") or "nomic-embed-text"
-).strip()
-AGENT_RAG_EMBEDDING_DIM = max(32, min(_env_int("AGENT_RAG_EMBEDDING_DIM", 768), 4096))
-AGENT_RAG_CHUNK_SIZE = max(200, min(_env_int("AGENT_RAG_CHUNK_SIZE", 1200), 8000))
-AGENT_RAG_CHUNK_OVERLAP = max(0, min(_env_int("AGENT_RAG_CHUNK_OVERLAP", 200), 2000))
-AGENT_RAG_TOP_K = max(1, min(_env_int("AGENT_RAG_TOP_K", 8), 50))
-AGENT_RAG_EMBED_TIMEOUT = max(5, min(_env_int("AGENT_RAG_EMBED_TIMEOUT", 120), 600))
-# Domains where search is tenant-wide (any user in the tenant sees the same chunks). Comma-separated.
-# Unset → default ``agentlayer_docs``; set empty string to disable tenant-wide domains.
-_rag_shared_raw = os.environ.get("AGENT_RAG_TENANT_SHARED_DOMAINS")
-if _rag_shared_raw is None:
-    AGENT_RAG_TENANT_SHARED_DOMAINS = frozenset({"agentlayer_docs"})
-else:
-    AGENT_RAG_TENANT_SHARED_DOMAINS = frozenset(
-        x.strip().lower() for x in _rag_shared_raw.split(",") if x.strip()
-    )
-# Optional filesystem root for ``POST /v1/admin/rag/ingest-docs`` when ``docs_root`` is omitted.
-AGENT_DOCS_ROOT = (os.environ.get("AGENT_DOCS_ROOT") or "").strip()
-
-# --- Memory (facts + semantic notes) ---
-# Legacy kill-switch only (default on). Operators enable/disable the memory tool package via Admin → Tools (DB), not via this env.
-AGENT_MEMORY_ENABLED = _env_bool("AGENT_MEMORY_ENABLED", True)
+# --- RAG + memory (facts/notes) ---
+# Chunking, embedding model, tenant-wide domains, docs ingest path, and memory kill-switch live in
+# ``operator_settings`` (Admin → Interfaces), not environment variables.
 
 
 def tool_log_redact_keys() -> frozenset[str]:

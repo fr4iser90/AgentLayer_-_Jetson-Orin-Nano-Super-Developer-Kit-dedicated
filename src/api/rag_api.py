@@ -9,8 +9,8 @@ import httpx
 from fastapi import APIRouter, Body, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from src.core.config import config
 from src.domain.rag_docs_file_ingest import ingest_markdown_tree, resolve_docs_root
+from src.infrastructure import operator_settings
 from src.infrastructure.auth import require_admin
 from src.infrastructure.db import db
 import src.api.rag as rag_service
@@ -40,8 +40,8 @@ async def admin_rag_ingest(request: Request):
     Ingest plain text into pgvector-backed RAG for the admin's tenant (``users.tenant_id``).
     """
     user = await require_admin(request)
-    if not config.AGENT_RAG_ENABLED:
-        raise HTTPException(status_code=503, detail="RAG disabled (AGENT_RAG_ENABLED=false)")
+    if not operator_settings.rag_settings()["enabled"]:
+        raise HTTPException(status_code=503, detail="RAG disabled (operator settings)")
     try:
         body = await request.json()
     except Exception:
@@ -88,8 +88,8 @@ async def admin_rag_ingest_docs(
     Purges all rows for that tenant+domain first when ``purge_first`` is true so reindex is idempotent.
     """
     user = await require_admin(request)
-    if not config.AGENT_RAG_ENABLED:
-        raise HTTPException(status_code=503, detail="RAG disabled (AGENT_RAG_ENABLED=false)")
+    if not operator_settings.rag_settings()["enabled"]:
+        raise HTTPException(status_code=503, detail="RAG disabled (operator settings)")
     opts = body or IngestDocsBody()
     domain = opts.domain.strip()
     if not domain:

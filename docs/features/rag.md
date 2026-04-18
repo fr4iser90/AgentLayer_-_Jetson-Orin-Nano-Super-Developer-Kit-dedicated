@@ -13,7 +13,7 @@ RAG provides **semantic search** over ingested documents using:
 
 By default, vectors are scoped to **tenant + user** (private notes and uploads stay per user).
 
-The domain **`agentlayer_docs`** is **tenant-wide**: after an admin ingests documentation, every user in that tenant can retrieve the same chunks with `rag_search(..., domain="agentlayer_docs")`. Configure the allowlist with `AGENT_RAG_TENANT_SHARED_DOMAINS` (comma-separated; unset defaults to `agentlayer_docs`; set to empty to disable tenant-wide domains).
+The domain **`agentlayer_docs`** is **tenant-wide**: after an admin ingests documentation, every user in that tenant can retrieve the same chunks with `rag_search(..., domain="agentlayer_docs")`. Configure the allowlist in **Admin → Interfaces** as **`rag_tenant_shared_domains`** (comma-separated; default includes `agentlayer_docs`; empty string disables tenant-wide domains).
 
 ## Where it lives
 
@@ -24,14 +24,14 @@ The domain **`agentlayer_docs`** is **tenant-wide**: after an admin ingests docu
 
 ## Config
 
-In `src/core/config.py`:
+In **`operator_settings`** ( **Admin → Interfaces** or `GET/PATCH /v1/admin/operator-settings` ):
 
-- `AGENT_RAG_ENABLED`
-- `AGENT_RAG_OLLAMA_MODEL`
-- `AGENT_RAG_EMBEDDING_DIM` (must match DB column `vector(768)` by default)
-- `AGENT_RAG_TOP_K`
-- `AGENT_RAG_TENANT_SHARED_DOMAINS` — domains searched without per-user filter
-- `AGENT_DOCS_ROOT` — optional filesystem override for markdown ingest (default: `<repo>/docs`)
+- **`rag_enabled`** — master switch for ingest and search
+- **`rag_ollama_model`** — Ollama embedding model (must match DB vector width)
+- **`rag_embedding_dim`** — must match `rag_chunks.embedding` column (e.g. 768)
+- **`rag_chunk_size`**, **`rag_chunk_overlap`**, **`rag_top_k`**, **`rag_embed_timeout_sec`**
+- **`rag_tenant_shared_domains`** — comma list; tenant-wide domains for search without per-user filter
+- **`docs_root`** — optional filesystem root for startup / `ingest-docs` when body omits `docs_root` (default: `<repo>/docs` in the image)
 
 ## Ingest (admin HTTP)
 
@@ -62,6 +62,6 @@ Use `domain: "agentlayer_docs"` when answering questions about AgentLayer produc
 
 ## Troubleshooting
 
-- If you see embedding dim mismatch: check `AGENT_RAG_EMBEDDING_DIM` and DB vector column size.
-- If search returns nothing: ensure ingest happened, `AGENT_RAG_ENABLED=true`, and Ollama serves the configured embedding model.
-- If `ingest-docs` reports missing directory: mount or copy `docs/` into the container, or set `AGENT_DOCS_ROOT` / request body `docs_root`.
+- If you see embedding dim mismatch: align **`rag_embedding_dim`** in operator settings with the DB vector column and the model output size.
+- If search returns nothing: ensure ingest happened, **`rag_enabled`** is on, and Ollama serves **`rag_ollama_model`**.
+- If `ingest-docs` reports missing directory: mount or copy `docs/` into the container, set **`docs_root`** in Interfaces, or pass `docs_root` in the request body.

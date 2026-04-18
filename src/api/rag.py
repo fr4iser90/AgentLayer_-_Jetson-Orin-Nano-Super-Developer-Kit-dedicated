@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from src.core.config import config
+from src.infrastructure import operator_settings
 from src.infrastructure.ollama_gate import ollama_post_json
 from src.infrastructure.db import db
 from src.domain.identity import get_identity
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def _expected_dim() -> int:
-    return int(config.AGENT_RAG_EMBEDDING_DIM)
+    return int(operator_settings.rag_settings()["embedding_dim"])
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -62,10 +63,11 @@ def ollama_embed_one(text: str) -> list[float]:
     base = (config.OLLAMA_BASE_URL or "").strip().rstrip("/")
     if not base:
         raise ValueError("OLLAMA_BASE_URL is empty")
-    model = (config.AGENT_RAG_OLLAMA_MODEL or "").strip()
+    rs = operator_settings.rag_settings()
+    model = (rs["ollama_model"] or "").strip()
     if not model:
-        raise ValueError("AGENT_RAG_OLLAMA_MODEL is empty")
-    timeout = float(config.AGENT_RAG_EMBED_TIMEOUT)
+        raise ValueError("rag_ollama_model is empty (operator settings)")
+    timeout = float(rs["embed_timeout_sec"])
     want = _expected_dim()
 
     attempts: list[tuple[str, dict[str, Any]]] = [
@@ -88,8 +90,8 @@ def ollama_embed_one(text: str) -> list[float]:
             continue
         if len(vec) != want:
             raise ValueError(
-                f"embedding dim {len(vec)} != AGENT_RAG_EMBEDDING_DIM {want} "
-                f"(model {model!r}; DB column is vector(768))"
+                f"embedding dim {len(vec)} != configured rag_embedding_dim {want} "
+                f"(model {model!r}; align operator_settings with DB vector column)"
             )
         return vec
 
@@ -114,14 +116,13 @@ def ingest_for_user(
     text: str,
     source_uri: str | None = None,
 ) -> dict[str, Any]:
-    if not config.AGENT_RAG_ENABLED:
-        raise ValueError("RAG is disabled (AGENT_RAG_ENABLED=false)")
+    rs = operator_settings.rag_settings()
+    if not rs["enabled"]:
+        raise ValueError("RAG is disabled (operator settings)")
     raw = (text or "").strip()
     if not raw:
         raise ValueError("text is required")
-    chunks = chunk_text(
-        raw, config.AGENT_RAG_CHUNK_SIZE, config.AGENT_RAG_CHUNK_OVERLAP
-    )
+    chunks = chunk_text(raw, rs["chunk_size"], rs["chunk_overlap"])
     if not chunks:
         raise ValueError("no chunks after splitting")
     indexed: list[tuple[int, str, list[float]]] = []
@@ -152,7 +153,8 @@ def search_for_identity(
     domain: str | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    if not config.AGENT_RAG_ENABLED:
+    rs = operator_settings.rag_settings()
+    if not rs["enabled"]:
         return []
     q = (query or "").strip()
     if not q:
@@ -161,10 +163,10 @@ def search_for_identity(
     tenant_id, user_id = get_identity()
     if user_id is None:
         return []
-    lim = limit if limit is not None else config.AGENT_RAG_TOP_K
+    lim = limit if limit is not None else int(rs["top_k"])
     dom_raw = (domain or "").strip() if domain else ""
     dom_lc = dom_raw.lower()
-    tenant_wide = bool(dom_lc and dom_lc in config.AGENT_RAG_TENANT_SHARED_DOMAINS)
+    tenant_wide = bool(dom_lc and dom_lc in operator_settings.effective_rag_tenant_shared_domains())
     return db.rag_vector_search(
         tenant_id,
         user_id,
