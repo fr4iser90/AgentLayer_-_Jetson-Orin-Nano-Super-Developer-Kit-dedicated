@@ -106,6 +106,7 @@ def _load_bridge_cfg_with_reason() -> tuple[_BridgeCfg | None, str]:
 
 async def _run_polling_session(cfg: _BridgeCfg) -> None:
     from telegram.constants import ChatAction
+    from telegram.error import TelegramError
     from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
     async def cmd_start(update: Any, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -159,23 +160,72 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
         bearer_role = role if role in ("user", "admin") else None
         id_token = set_identity(tenant_id, user_id)
         chat = msg.chat
+
+        thread_kw: dict[str, Any] = {}
+        if getattr(msg, "message_thread_id", None) is not None:
+            thread_kw["message_thread_id"] = msg.message_thread_id
+
+        async def _typing_heartbeat() -> None:
+            """Telegram typing expires after ~5s; refresh like Discord's sustained typing."""
+            try:
+                while True:
+                    await context.bot.send_chat_action(
+                        chat_id=chat.id,
+                        action=ChatAction.TYPING,
+                        **thread_kw,
+                    )
+                    await asyncio.sleep(4.0)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.debug("telegram_bridge: typing heartbeat failed", exc_info=True)
+
+        typing_task = asyncio.create_task(_typing_heartbeat())
         try:
-            await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
             try:
                 result = await chat_completion(work, bearer_user_role=bearer_role)
                 reply_text = _extract_reply(result if isinstance(result, dict) else {})
             except ValueError as e:
-                await msg.reply_text(f"AgentLayer: {e!s:.1500}")
+                try:
+                    await msg.reply_text(f"AgentLayer: {e!s:.1500}", **thread_kw)
+                except TelegramError as te:
+                    logger.exception("telegram_bridge: reply after ValueError failed: %s", te)
                 return
             except Exception as e:
                 logger.exception("telegram_bridge: chat completion failed")
-                await msg.reply_text(f"Request failed: {e!s:.500}")
+                try:
+                    await msg.reply_text(f"Request failed: {e!s:.500}", **thread_kw)
+                except TelegramError as te:
+                    logger.exception("telegram_bridge: reply after chat error failed: %s", te)
                 return
             parts = _chunk_text(reply_text)
-            await msg.reply_text(parts[0])
-            for part in parts[1:]:
-                await context.bot.send_message(chat_id=chat.id, text=part)
+            try:
+                await msg.reply_text(parts[0], **thread_kw)
+                for part in parts[1:]:
+                    await context.bot.send_message(chat_id=chat.id, text=part, **thread_kw)
+                logger.info(
+                    "telegram_bridge: sent reply (%d chunk(s), ~%d chars)",
+                    len(parts),
+                    sum(len(p) for p in parts),
+                )
+            except TelegramError as e:
+                logger.exception(
+                    "telegram_bridge: Telegram rejected outgoing message (reply or chunk): %s",
+                    e,
+                )
+                try:
+                    await msg.reply_text(
+                        f"AgentLayer: could not send the reply via Telegram ({e!s:.200})",
+                        **thread_kw,
+                    )
+                except TelegramError:
+                    logger.exception("telegram_bridge: could not send error fallback to user")
         finally:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except asyncio.CancelledError:
+                pass
             reset_identity(id_token)
 
     application = (
@@ -186,6 +236,12 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
     )
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+
+    async def _ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        err = context.error
+        logger.exception("telegram_bridge: PTB error handler", exc_info=err)
+
+    application.add_error_handler(_ptb_error_handler)
 
     await application.initialize()
     await application.start()
