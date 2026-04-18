@@ -72,8 +72,10 @@ from src.infrastructure.memory_api import router as memory_router
 from src.infrastructure.user_secrets_api import router as user_secrets_router
 from src.api.conversations_api import router as conversations_router
 from src.workspace.router import router as workspace_router
+from src.infrastructure.log_redaction import install_log_redaction_filters
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+install_log_redaction_filters()
 logger = logging.getLogger(__name__)
 
 REFRESH_COOKIE_NAME = "agent_refresh"

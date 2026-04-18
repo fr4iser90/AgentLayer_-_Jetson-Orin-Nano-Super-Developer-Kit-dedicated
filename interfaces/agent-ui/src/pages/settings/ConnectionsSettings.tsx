@@ -382,10 +382,10 @@ export function ConnectionsSettings() {
       <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
         <h2 className="text-sm font-medium text-white">Telegram</h2>
         <p className="mt-2 text-xs text-surface-muted">
-          Telegram does <strong className="text-neutral-300">not</strong> show your numeric user id in normal profile settings.
-          Open a chat with a bot like <span className="font-mono">@userinfobot</span> or{" "}
-          <span className="font-mono">@getidsbot</span>, send <span className="font-mono">/start</span> (or any message) — the
-          reply includes your <strong className="text-neutral-300">user id</strong> (digits only). Copy that number here.
+          Telegram does <strong className="text-neutral-300">not</strong> show your numeric user id under Settings / profile — you need a bot for that.
+          Open a chat with <span className="font-mono">@getidsbot</span>, tap <strong className="text-neutral-300">Start</strong> or send{" "}
+          <span className="font-mono">/start</span>; the reply lists your <strong className="text-neutral-300">user id</strong> (digits only). Copy that number here.
+          If <span className="font-mono">@getidsbot</span> does not answer, try another id bot (e.g. <span className="font-mono">@RawDataBot</span>).
           The Telegram gateway runs <strong className="text-neutral-300">inside agent-layer</strong> when an admin enables
           it under{" "}
           <Link to="/admin/interfaces" className="text-sky-400 hover:underline">

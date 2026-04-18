@@ -165,14 +165,14 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
                 result = await chat_completion(work, bearer_user_role=bearer_role)
                 reply_text = _extract_reply(result if isinstance(result, dict) else {})
             except ValueError as e:
-                await msg.reply(f"AgentLayer: {e!s:.1500}")
+                await msg.reply_text(f"AgentLayer: {e!s:.1500}")
                 return
             except Exception as e:
                 logger.exception("telegram_bridge: chat completion failed")
-                await msg.reply(f"Request failed: {e!s:.500}")
+                await msg.reply_text(f"Request failed: {e!s:.500}")
                 return
             parts = _chunk_text(reply_text)
-            await msg.reply(parts[0])
+            await msg.reply_text(parts[0])
             for part in parts[1:]:
                 await context.bot.send_message(chat_id=chat.id, text=part)
         finally:
