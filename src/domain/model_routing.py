@@ -81,6 +81,11 @@ def _model_for_profile(profile: str) -> str:
     return v or base
 
 
+def ollama_model_for_profile(profile: str) -> str:
+    """Ollama model id for ``default`` / ``vlm`` / ``agent`` / ``coding`` (env ``AGENT_MODEL_*``)."""
+    return _model_for_profile(_normalize_profile(profile))
+
+
 def _strip_model(s: Any) -> str | None:
     if s is None:
         return None

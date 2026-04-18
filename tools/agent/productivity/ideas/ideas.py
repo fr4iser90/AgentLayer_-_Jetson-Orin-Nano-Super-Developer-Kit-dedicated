@@ -388,9 +388,12 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "ideas_add_rows",
             "TOOL_DESCRIPTION": (
-                "Add one or more ideas. Each row needs title; optional tags, status "
+                "Add one or more ideas / memos (ideas workspace — not the task-list workspace). "
+                "Each row needs title; optional tags, status "
                 "(Neu | Später | In Arbeit | Erledigt / Archiv), snippet, pinned. "
-                "Omit workspace_id when the user has exactly one ideas workspace."
+                "Omit workspace_id when the user has exactly one ideas workspace. "
+                "For checkbox tasks / due dates use todo_* tools (kind todo), not this. "
+                "You MUST call this function with tool_calls — do not paste JSON or {\"rows\":[...]} as plain assistant text."
             ),
             "parameters": {
                 "type": "object",

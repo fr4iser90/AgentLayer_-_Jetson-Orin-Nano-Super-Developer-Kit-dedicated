@@ -31,7 +31,7 @@ TOOL_TRIGGERS = (
     "einkaufsliste",
     "shopping list",
     "groceries",
-    "liste",
+    # Avoid bare "liste" — it matches "To-do-Liste" / task lists (wrong category).
 )
 TOOL_CAPABILITIES = ("workspace.shopping.read", "workspace.shopping.write")
 

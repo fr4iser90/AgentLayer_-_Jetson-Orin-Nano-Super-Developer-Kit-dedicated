@@ -7,6 +7,7 @@ from __future__ import annotations
 
 ICON_MAP: dict[str, str] = {
     "gmail": "mail",
+    "todo": "list-checks",
     "todos": "list-checks",
     "calendar_ics": "calendar",
     "shopping_list": "shopping-cart",

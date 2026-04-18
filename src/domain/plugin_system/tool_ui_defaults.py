@@ -16,6 +16,12 @@ PACKAGE_UI_DEFAULTS: dict[str, dict[str, Any]] = {
         "display_name": "Todos",
         "order": 20,
     },
+    "todo": {
+        "category": "productivity",
+        "display_name": "Task list",
+        "order": 21,
+        "tagline": "List, read, and add tasks on kind=todo workspaces",
+    },
     "calendar_ics": {
         "category": "productivity",
         "display_name": "Calendar",

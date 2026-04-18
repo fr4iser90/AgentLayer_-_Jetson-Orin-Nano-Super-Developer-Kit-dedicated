@@ -42,7 +42,7 @@ from src.domain.tool_invocation_context import (
     set_tool_invocation_messages,
 )
 from src.domain.llm_smart_route import decide_smart_backend
-from src.domain.model_routing import resolve_effective_model
+from src.domain.model_routing import ollama_model_for_profile, resolve_effective_model
 from src.domain.user_persona import apply_user_persona_system
 from src.infrastructure.operator_settings import (
     external_llm_should_failover,
@@ -1050,6 +1050,7 @@ async def chat_completion(
         smart_route_reason = ""
         backend_override: Literal["ollama", "external"] | None = None
         if not plain_completion and smart_llm_routing_enabled():
+            # Smart routing: 0–1 extra local router call (Ollama), then one main completion — never two externals.
             bo, smart_route_reason = await asyncio.to_thread(decide_smart_backend, messages)
             backend_override = bo
             logger.info("smart LLM route: %s -> backend=%s", smart_route_reason, bo)
@@ -1325,49 +1326,70 @@ async def chat_completion(
             chosen: tuple[str, dict[str, str], str] | None = None
             data: dict[str, Any] = {}
             tools_omitted = False
-            for b_url, b_headers, b_model in attempts:
-                pl = dict(payload_base)
-                pl["model"] = b_model
-                try:
-                    data, tools_omitted = await asyncio.to_thread(
-                        ollama_post_chat_completions,
-                        b_url,
-                        pl,
-                        headers=b_headers,
-                        timeout=600.0,
-                    )
-                    chosen = (b_url, b_headers, b_model)
-                    model = b_model
-                    break
-                except httpx.HTTPStatusError as e:
-                    last_failover = e
-                    if llm_backend == "external" and external_llm_should_failover(
-                        e.response.status_code
-                    ):
-                        logger.warning(
-                            "LLM external attempt failed (status=%s); trying next endpoint",
-                            e.response.status_code,
+            while True:
+                last_failover = None
+                for b_url, b_headers, b_model in attempts:
+                    pl = dict(payload_base)
+                    pl["model"] = b_model
+                    try:
+                        data, tools_omitted = await asyncio.to_thread(
+                            ollama_post_chat_completions,
+                            b_url,
+                            pl,
+                            headers=b_headers,
+                            timeout=600.0,
                         )
-                        continue
-                    err_body = (e.response.text or "")[:4000]
-                    logger.error(
-                        "LLM chat/completions failed (%s): status=%s model=%s body=%s",
-                        llm_backend,
-                        e.response.status_code,
-                        b_model,
-                        err_body or "(empty)",
-                    )
-                    raise
-            else:
-                if last_failover is not None:
-                    err_body = (last_failover.response.text or "")[:4000]
-                    logger.error(
-                        "LLM external: all endpoints failed, last status=%s body=%s",
-                        last_failover.response.status_code,
-                        err_body or "(empty)",
-                    )
-                    raise last_failover
-                raise RuntimeError("LLM: no chat/completions attempts")
+                        chosen = (b_url, b_headers, b_model)
+                        model = b_model
+                        break
+                    except httpx.HTTPStatusError as e:
+                        last_failover = e
+                        if llm_backend == "external" and external_llm_should_failover(
+                            e.response.status_code
+                        ):
+                            logger.warning(
+                                "LLM external attempt failed (status=%s); trying next endpoint",
+                                e.response.status_code,
+                            )
+                            continue
+                        err_body = (e.response.text or "")[:4000]
+                        logger.error(
+                            "LLM chat/completions failed (%s): status=%s model=%s body=%s",
+                            llm_backend,
+                            e.response.status_code,
+                            b_model,
+                            err_body or "(empty)",
+                        )
+                        raise
+                else:
+                    if last_failover is not None:
+                        err_body = (last_failover.response.text or "")[:4000]
+                        if (
+                            llm_backend == "external"
+                            and last_failover.response.status_code == 429
+                        ):
+                            local_model = ollama_model_for_profile(profile_key)
+                            attempts, llm_backend = llm_chat_transport(
+                                local_model,
+                                profile_key,
+                                False,
+                                backend_override="ollama",
+                            )
+                            model = local_model
+                            logger.warning(
+                                "LLM external: all endpoints returned 429 (quota/rate limit); "
+                                "falling back to Ollama for this request (model=%s). Next rounds use Ollama.",
+                                local_model,
+                            )
+                            continue
+                        logger.error(
+                            "LLM external: all endpoints failed, last status=%s body=%s",
+                            last_failover.response.status_code,
+                            err_body or "(empty)",
+                        )
+                        raise last_failover
+                    raise RuntimeError("LLM: no chat/completions attempts")
+                break
 
             assert chosen is not None
 

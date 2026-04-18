@@ -4,6 +4,16 @@ Heuristic + small local model routing: Ollama vs external API per chat request.
 Enable ``llm_smart_routing_enabled`` in operator settings (Web UI / DB). External
 credentials still come from operator_settings; this module only picks which backend
 to use for the main completion.
+
+**How many LLM HTTP calls per user chat turn (this module + main completion)?**
+
+- Heuristics alone decide (``smart_route:heuristic_*``): **one** call — only the main
+  ``/v1/chat/completions`` (Ollama or external).
+- Heuristics are inconclusive: **two** calls — first a **local** Ollama router
+  (same ``OLLAMA_BASE_URL``), then the main completion. The router never hits the
+  external API.
+- Fail-safe: if the local router call fails or returns unusable JSON, we fall back
+  to **Ollama** for the main completion so we do not burn external quota by mistake.
 """
 
 from __future__ import annotations
@@ -171,6 +181,9 @@ def decide_smart_backend(
 
     - ``ollama`` = use local OpenAI-compatible Ollama endpoint.
     - ``external`` = use operator-configured external API.
+
+    Call budget: 0 or 1 extra **local** router request (see module docstring), then
+    exactly one main completion — never two external calls caused by routing alone.
     """
     p = smart_routing_params()
     snap = _heuristic_snapshot(messages, p)
@@ -183,7 +196,8 @@ def decide_smart_backend(
 
     parsed = _call_local_router_model(messages, snap, p)
     if not parsed:
-        return "external", "smart_route:router_fail_external"
+        # Router is local-only; do not send the main request to external on parse/HTTP failure.
+        return "ollama", "smart_route:router_fail_fallback_ollama"
 
     route = str(parsed.get("route") or "").strip().lower()
     try:
@@ -202,4 +216,5 @@ def decide_smart_backend(
             return "external", f"smart_route:low_confidence_local({conf:.2f}<{min_conf})"
         return "ollama", f"smart_route:router_local({conf:.2f}):{reason or 'ok'}"
 
-    return "external", "smart_route:router_ambiguous_external"
+    # Unclear route token — prefer local main completion to avoid surprise external quota use.
+    return "ollama", "smart_route:router_ambiguous_fallback_ollama"
