@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { WorkspaceSummary } from "./types";
-import { DEFAULT_HUBS, groupWorkspacesByHub } from "./workspaceHubNav";
+import { DEFAULT_HUBS, groupWorkspacesByHub, type WorkspaceHubId } from "./workspaceHubNav";
 
 function relativeActivityEn(iso: string): string {
   const t = Date.parse(iso);

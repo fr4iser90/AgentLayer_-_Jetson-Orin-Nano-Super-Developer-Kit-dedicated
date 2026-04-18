@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
 import { WorkspaceEmbeddedChat } from "../features/workspace/WorkspaceEmbeddedChat";
@@ -142,6 +150,12 @@ export function WorkspacePage() {
   const [toolCatalogNames, setToolCatalogNames] = useState<string[]>([]);
   const [toolsCatalogErr, setToolsCatalogErr] = useState<string | null>(null);
   const [manualToolName, setManualToolName] = useState("");
+
+  const selectedIdRef = useRef<string | null>(selectedId);
+  selectedIdRef.current = selectedId;
+
+  /** Never render blocks/chat from `detail` unless it matches the selected workspace id. */
+  const workspaceReady = Boolean(selectedId && detail && detail.id === selectedId);
 
   const accessRole = detail?.access_role ?? "owner";
   const isViewer = accessRole === "viewer";
@@ -292,6 +306,7 @@ export function WorkspacePage() {
     async (id: string) => {
       setError(null);
       const res = await apiFetch(`/v1/workspaces/${id}`, auth);
+      if (selectedIdRef.current !== id) return;
       if (!res.ok) {
         setError(await res.text());
         setDetail(null);
@@ -299,6 +314,7 @@ export function WorkspacePage() {
       }
       const j = (await res.json()) as { workspace?: WorkspaceDetail };
       const w = j.workspace;
+      if (selectedIdRef.current !== id) return;
       if (!w) {
         setDetail(null);
         return;
@@ -322,12 +338,13 @@ export function WorkspacePage() {
     };
   }, [loadList]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setLayoutEditMode(false);
     if (!selectedId) {
       setDetail(null);
       setData({});
       setTitle("");
+      setLayoutDraft({ version: 1, blocks: [] });
       return;
     }
     void loadDetail(selectedId);
@@ -433,11 +450,11 @@ export function WorkspacePage() {
   );
   const effectiveHubId = activeHubOverride ?? selectedHubId ?? "other";
 
+  // Clear hub-tab override only when the selected workspace changes — not when the user
+  // picks another hub tab while a workspace stays open (that was resetting to Pets, etc.).
   useEffect(() => {
-    // If selection moved to a different hub, drop manual override to keep UX predictable.
-    if (!selectedHubId) return;
-    if (activeHubOverride && activeHubOverride !== selectedHubId) setActiveHubOverride(null);
-  }, [selectedHubId, activeHubOverride]);
+    setActiveHubOverride(null);
+  }, [selectedId]);
 
   const catalogRows = useMemo(() => {
     const q = catalogQuery.trim().toLowerCase();
@@ -625,6 +642,12 @@ export function WorkspacePage() {
       setNewWsModalOpen(false);
       setHubPanel("home");
       await loadList();
+      setLayoutEditMode(false);
+      setDetail(null);
+      setData({});
+      setTitle("");
+      setError(null);
+      setLayoutDraft({ version: 1, blocks: [] });
       setSelectedId(j.workspace.id);
     }
   };
@@ -643,28 +666,19 @@ export function WorkspacePage() {
     await loadList();
   };
 
-  const deleteWsEntry = async (id: string, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const row = list.find((x) => x.id === id);
-    if ((row?.access_role ?? "owner") !== "owner") return;
-    if (!window.confirm("Delete this workspace?")) return;
-    setError(null);
-    const res = await apiFetch(`/v1/workspaces/${id}`, auth, { method: "DELETE" });
-    if (!res.ok) {
-      setError(await res.text());
-      return;
-    }
-    if (selectedId === id) setSelectedId(null);
-    await loadList();
-  };
-
   const openCatalog = () => {
     setSelectedId(null);
     setHubPanel("catalog");
   };
 
   const selectWorkspace = (id: string) => {
+    if (id === selectedId) return;
+    setLayoutEditMode(false);
+    setDetail(null);
+    setData({});
+    setTitle("");
+    setError(null);
+    setLayoutDraft({ version: 1, blocks: [] });
     setSelectedId(id);
     setHubPanel("home");
   };
@@ -820,63 +834,9 @@ export function WorkspacePage() {
   }
 
   const sidebar = (
-    <aside className="flex w-full shrink-0 flex-col border-surface-border bg-surface-raised/40 md:w-56 md:border-r">
-      <div className="border-b border-surface-border p-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">Workspaces</p>
-        <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-          Yours &amp; shared
-        </p>
-        <div className="mt-1 max-h-48 min-h-0 overflow-y-auto">
-          {list.length === 0 ? (
-            <p className="py-2 text-xs text-surface-muted">None yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-0.5">
-              {list.map((w) => (
-                <li key={w.id}>
-                  <div
-                    className={[
-                      "flex items-stretch gap-0.5 rounded-md",
-                      selectedId === w.id ? "bg-white/15" : "hover:bg-white/5",
-                    ].join(" ")}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => selectWorkspace(w.id)}
-                      className={[
-                        "min-w-0 flex-1 px-2 py-2 text-left text-sm",
-                        selectedId === w.id ? "text-white" : "text-surface-muted hover:text-neutral-200",
-                      ].join(" ")}
-                    >
-                      <span className="block truncate font-medium">{w.title || w.kind}</span>
-                      <span className="block truncate text-[10px] text-white/35">
-                        {subtitleForWorkspaceKind(w.kind, kindCatalog)}
-                        {w.access_role === "viewer"
-                          ? " · read-only"
-                          : w.access_role === "editor"
-                            ? " · shared"
-                            : w.access_role === "co_owner"
-                              ? " · co-owner"
-                              : ""}
-                      </span>
-                    </button>
-                    {(w.access_role ?? "owner") === "owner" ? (
-                      <button
-                        type="button"
-                        title="Delete"
-                        className="shrink-0 px-2 text-sm text-red-300/90 hover:bg-red-950/50 hover:text-red-200"
-                        onClick={(e) => void deleteWsEntry(w.id, e)}
-                      >
-                        ×
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col gap-1 border-t border-surface-border p-2">
+    <aside className="flex w-full shrink-0 flex-col border-surface-border bg-surface-raised/40 md:w-44 md:border-r">
+      <div className="flex flex-col gap-1 p-2">
+        <p className="px-2.5 pt-1 text-xs font-semibold uppercase tracking-wide text-surface-muted">Actions</p>
         <button
           type="button"
           onClick={() => {
@@ -1079,7 +1039,10 @@ export function WorkspacePage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="shrink-0 border-b border-surface-border px-4 py-3 md:px-6">
           <p className="text-sm text-surface-muted">
-            Workspace / <span className="text-white">{detail?.title || title || "…"}</span>
+            Workspace /{" "}
+            <span className="text-white">
+              {workspaceReady ? detail?.title || title || "…" : "…"}
+            </span>
           </p>
         </div>
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -1090,21 +1053,21 @@ export function WorkspacePage() {
                 {error}
               </div>
             ) : null}
-            {!detail ? (
+            <div className="mb-4">
+              <WorkspaceHubNavigator
+                hubs={DEFAULT_HUBS}
+                grouped={groupedByHub}
+                activeHubId={effectiveHubId}
+                setActiveHubId={(id) => setActiveHubOverride(id)}
+                selectedId={selectedId}
+                onSelectWorkspace={(id) => selectWorkspace(id)}
+                kindLabelFor={(k) => subtitleForWorkspaceKind(k, kindCatalog)}
+              />
+            </div>
+            {!workspaceReady ? (
               <p className="text-sm text-surface-muted">Loading…</p>
             ) : (
               <>
-                <div className="mb-4">
-                  <WorkspaceHubNavigator
-                    hubs={DEFAULT_HUBS}
-                    grouped={groupedByHub}
-                    activeHubId={effectiveHubId}
-                    setActiveHubId={(id) => setActiveHubOverride(id)}
-                    selectedId={selectedId}
-                    onSelectWorkspace={(id) => selectWorkspace(id)}
-                    kindLabelFor={(k) => subtitleForWorkspaceKind(k, kindCatalog)}
-                  />
-                </div>
                 {isViewer ? (
                   <p className="mb-4 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-surface-muted">
                     {detail?.access_scope === "granular" ? (
@@ -1187,9 +1150,12 @@ export function WorkspacePage() {
                 ) : null}
                 <p className="mb-4 text-xs text-surface-muted">
                   Template:{" "}
-                  <span className="text-white/80">{subtitleForWorkspaceKind(detail.kind, kindCatalog)}</span>
+                  <span className="text-white/80">
+                    {subtitleForWorkspaceKind(detail!.kind, kindCatalog)}
+                  </span>
                 </p>
                 <WorkspaceGridCanvas
+                  key={selectedId}
                   layout={gridLayout}
                   setLayout={setLayoutDraft}
                   data={data}
@@ -1202,10 +1168,11 @@ export function WorkspacePage() {
             )}
             </div>
           </div>
-          {detail ? (
+          {workspaceReady ? (
             <aside className="flex min-h-[min(380px,50vh)] w-full shrink-0 flex-col border-t border-surface-border bg-[#0d0d0d]/80 lg:min-h-0 lg:w-[min(400px,36vw)] lg:max-w-md lg:border-t-0 lg:border-l lg:border-surface-border">
               <div className="flex min-h-[280px] flex-1 flex-col p-3 md:p-4 lg:min-h-0 lg:max-h-[calc(100vh-7rem)]">
                 <WorkspaceEmbeddedChat
+                  key={selectedId}
                   workspaceId={selectedId}
                   workspaceTitle={title || detail?.title}
                   readOnly={isViewer}
@@ -1238,7 +1205,7 @@ export function WorkspacePage() {
       {sidebar}
       {main}
 
-      {detail ? (
+      {workspaceReady && detail ? (
         <WorkspaceSettingsDrawer
           open={settingsOpen}
           title={`Settings — ${detail.title || subtitleForWorkspaceKind(detail.kind, kindCatalog)}`}
