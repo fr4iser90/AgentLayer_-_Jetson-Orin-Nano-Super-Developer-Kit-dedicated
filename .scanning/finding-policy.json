@@ -30,6 +30,12 @@
                 "reason": "Dynamic SQL builds fixed clause shapes (OR/SET fragments); user-derived values use %s placeholders. Memory-graph keyword branch repeats (label ILIKE %s OR summary ILIKE %s) per token—tokens never interpolated as SQL keywords."
             },
             {
+                "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
+                "path_regex": ".*/src/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
+                "message_regex": "Avoiding SQL string concatenation|raw query|SQL string|concatenat",
+                "reason": "Alembic migration downgrade: `op.execute(f\"ALTER TABLE … DROP COLUMN … {col}\")` where `col` is iterated from a fixed tuple in this file only—no runtime user input."
+            },
+            {
                 "rule_id": "python.lang.security.audit.formatted-sql-query.formatted-sql-query",
                 "path_regex": ".*/src/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
                 "message_regex": "formatted SQL|parameterized",
