@@ -15,7 +15,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 from json import JSONDecoder
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -41,10 +41,97 @@ from src.domain.tool_invocation_context import (
     reset_tool_invocation_messages,
     set_tool_invocation_messages,
 )
+from src.domain.llm_smart_route import decide_smart_backend
 from src.domain.model_routing import resolve_effective_model
 from src.domain.user_persona import apply_user_persona_system
+from src.infrastructure.operator_settings import llm_chat_transport, smart_llm_routing_enabled
 
 logger = logging.getLogger(__name__)
+
+# Extra system text from ``workspace.data._agentlayer`` (see workspace settings UI).
+_MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS = 8000
+
+
+def _workspace_data_agent_instructions(data: Any) -> str:
+    """Return trimmed instructions from ``data._agentlayer`` (optional)."""
+    if not isinstance(data, dict):
+        return ""
+    meta = data.get("_agentlayer")
+    if not isinstance(meta, dict):
+        return ""
+    raw = meta.get("system_prompt_extra")
+    if raw is None:
+        raw = meta.get("instructions")
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    if not s:
+        return ""
+    if len(s) > _MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS:
+        logger.warning(
+            "workspace agent instructions truncated from %d to %d chars",
+            len(s),
+            _MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS,
+        )
+        return s[:_MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS]
+    return s
+
+
+# Non-empty allowlist: only these tool function names (after policy / disabled filters).
+_MAX_WORKSPACE_TOOL_ALLOWLIST_LEN = 200
+
+
+def _workspace_data_tool_allowlist(data: Any) -> frozenset[str] | None:
+    """Return allowed tool names from ``data._agentlayer.tool_allowlist`` or None if unset/empty."""
+    if not isinstance(data, dict):
+        return None
+    meta = data.get("_agentlayer")
+    if not isinstance(meta, dict):
+        return None
+    raw = meta.get("tool_allowlist")
+    if raw is None:
+        raw = meta.get("allowed_tools")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        parts = [x.strip() for x in raw.replace(",", " ").split() if x.strip()]
+        if not parts:
+            return None
+        names = parts
+    elif isinstance(raw, list):
+        names = [str(x).strip() for x in raw if isinstance(x, str) and str(x).strip()]
+        if not names:
+            return None
+    else:
+        return None
+    if len(names) > _MAX_WORKSPACE_TOOL_ALLOWLIST_LEN:
+        logger.warning(
+            "workspace tool_allowlist truncated from %d to %d entries",
+            len(names),
+            _MAX_WORKSPACE_TOOL_ALLOWLIST_LEN,
+        )
+        names = names[:_MAX_WORKSPACE_TOOL_ALLOWLIST_LEN]
+    return frozenset(names)
+
+
+def _workspace_tool_allowlist_from_request_context(workspace_ctx: Any) -> frozenset[str] | None:
+    if not isinstance(workspace_ctx, dict):
+        return None
+    wid_s = workspace_ctx.get("workspace_id")
+    if not isinstance(wid_s, str) or not wid_s.strip():
+        return None
+    try:
+        wid = uuid.UUID(wid_s.strip())
+    except ValueError:
+        return None
+    ident = get_identity()
+    if ident[1] is None:
+        return None
+    tid, uid = ident
+    ws = workspace_db.workspace_get(uid, tid, wid)
+    if ws is None:
+        return None
+    return _workspace_data_tool_allowlist(ws.get("data"))
 
 
 class AgentChatCancelled(Exception):
@@ -225,6 +312,9 @@ def _inject_workspace_context(
             f"when kind is ideas, use the same id. If unsure which list, call shopping_list_workspaces; "
             f"for pets boards pets_workspaces; for ideas boards ideas_workspaces."
         )
+        extra = _workspace_data_agent_instructions(ws.get("data"))
+        if extra:
+            note = note + "\n\n[Workspace-specific agent instructions]\n" + extra
     out = list(messages)
     if not out:
         return [{"role": "system", "content": note}]
@@ -336,7 +426,7 @@ def _catalog_tool_function(name: str, fn: dict[str, Any]) -> dict[str, Any]:
             "properties": {
                 "tool_name": {
                     "type": "string",
-                    "TOOL_DESCRIPTION": "Exact tool name from list_tools_in_category or list_available_tools",
+                    "description": "Exact tool name from list_tools_in_category or list_available_tools",
                 },
             },
             "required": ["tool_name"],
@@ -347,7 +437,7 @@ def _catalog_tool_function(name: str, fn: dict[str, Any]) -> dict[str, Any]:
             "properties": {
                 "category": {
                     "type": "string",
-                    "TOOL_DESCRIPTION": "Category id from list_tool_categories",
+                    "description": "Category id from list_tool_categories",
                 },
             },
             "required": ["category"],
@@ -362,7 +452,7 @@ def _catalog_tool_function(name: str, fn: dict[str, Any]) -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": name,
-            "TOOL_DESCRIPTION": desc,
+            "description": desc,
             "parameters": params,
         },
     }
@@ -946,12 +1036,24 @@ async def chat_completion(
         messages = apply_user_persona_system(messages)
         messages = _inject_user_memory_context(messages, workspace_ctx)
 
-        model, model_reason = resolve_effective_model(
+        model, model_reason, profile_key, model_is_override = resolve_effective_model(
             messages=messages,
             body_model=body.get("model"),
             profile_header=model_profile_header,
             override_header=model_override_header,
             bearer_user_role=bearer_user_role,
+        )
+        smart_route_reason = ""
+        backend_override: Literal["ollama", "external"] | None = None
+        if not plain_completion and smart_llm_routing_enabled():
+            bo, smart_route_reason = await asyncio.to_thread(decide_smart_backend, messages)
+            backend_override = bo
+            logger.info("smart LLM route: %s -> backend=%s", smart_route_reason, bo)
+        url, headers, model, llm_backend = llm_chat_transport(
+            model,
+            profile_key,
+            model_is_override,
+            backend_override=backend_override,
         )
 
         if plain_completion:
@@ -1024,6 +1126,26 @@ async def chat_completion(
                 for t in merged_tools
                 if (n := _tool_spec_name(t)) is None or n not in disabled_names
             ]
+
+        wl = _workspace_tool_allowlist_from_request_context(workspace_ctx)
+        if wl:
+            before_ct = len(merged_tools)
+            merged_tools = [
+                t
+                for t in merged_tools
+                if (n := _tool_spec_name(t)) is None or n in wl
+            ]
+            if len(merged_tools) < before_ct:
+                logger.info(
+                    "workspace tool allowlist: tools %d -> %d",
+                    before_ct,
+                    len(merged_tools),
+                )
+            if not merged_tools:
+                logger.warning(
+                    "workspace tool allowlist left no tools after filters (allowed=%r…)",
+                    sorted(wl)[:24],
+                )
 
         # Stufenweise Erkundung: tools[] immer nur Katalog — volles Schema nur via get_tool_help-Antwort.
         tools_for_request = _tools_for_chat_request(merged_tools)
@@ -1154,11 +1276,10 @@ async def chat_completion(
                     "forwarded_tools": forwarded_preview,
                     "effective_model": model,
                     "model_resolution": model_reason,
+                    "llm_backend": llm_backend,
+                    "smart_route_reason": smart_route_reason or None,
                 }
             )
-
-        url = f"{config.OLLAMA_BASE_URL}/v1/chat/completions"
-        headers = {"Content-Type": "application/json"}
 
         for round_i in range(config.MAX_TOOL_ROUNDS):
             await drain_control_queue()
@@ -1208,7 +1329,8 @@ async def chat_completion(
             except httpx.HTTPStatusError as e:
                 err_body = (e.response.text or "")[:4000]
                 logger.error(
-                    "Ollama chat/completions failed: status=%s model=%s body=%s",
+                    "LLM chat/completions failed (%s): status=%s model=%s body=%s",
+                    llm_backend,
                     e.response.status_code,
                     model,
                     err_body or "(empty)",
@@ -1258,7 +1380,8 @@ async def chat_completion(
                     else:
                         err_body = (e.response.text or "")[:4000]
                         logger.error(
-                            "Ollama chat/completions retry failed: status=%s model=%s body=%s",
+                            "LLM chat/completions retry failed (%s): status=%s model=%s body=%s",
+                            llm_backend,
                             e.response.status_code,
                             model,
                             err_body or "(empty)",

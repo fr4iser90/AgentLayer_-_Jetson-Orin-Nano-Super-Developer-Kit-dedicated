@@ -271,3 +271,36 @@ def put_user_discord_link(request: Request, body: DiscordLinkBody) -> dict:
             ) from e
         raise
     return {"ok": True, "discord_user_id": stored}
+
+
+class TelegramLinkBody(BaseModel):
+    """Telegram numeric user id for this AgentLayer user (unique per tenant)."""
+
+    telegram_user_id: str = Field(default="", max_length=32)
+
+
+@router.put("/telegram")
+def put_user_telegram_link(request: Request, body: TelegramLinkBody) -> dict:
+    """
+    Link or unlink your Telegram user id for bridge bots (stored on ``users.telegram_user_id``).
+    Empty string clears the link.
+    """
+    uid, tid = resolve_chat_identity(request)
+    try:
+        stored = db.user_telegram_user_id_set(uid, tid, body.telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except UniqueViolation as e:
+        raise HTTPException(
+            status_code=409,
+            detail="This Telegram user id is already linked to another account in your tenant.",
+        ) from e
+    except Exception as e:
+        cause = getattr(e, "__cause__", None)
+        if isinstance(cause, UniqueViolation):
+            raise HTTPException(
+                status_code=409,
+                detail="This Telegram user id is already linked to another account in your tenant.",
+            ) from e
+        raise
+    return {"ok": True, "telegram_user_id": stored}

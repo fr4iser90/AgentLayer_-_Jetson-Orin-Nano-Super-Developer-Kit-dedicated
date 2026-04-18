@@ -9,6 +9,7 @@ type MeResponse = {
   role?: string;
   created_at?: string;
   discord_user_id?: string | null;
+  telegram_user_id?: string | null;
   detail?: unknown;
 };
 
@@ -47,6 +48,7 @@ export function ProfileSettings() {
   const role = me?.role ?? user?.role ?? "—";
   const id = me?.id ?? user?.id ?? "—";
   const discordLinked = me?.discord_user_id?.trim() || null;
+  const telegramLinked = me?.telegram_user_id?.trim() || null;
   const created = me?.created_at
     ? new Date(me.created_at).toLocaleString(undefined, {
         dateStyle: "medium",
@@ -60,7 +62,7 @@ export function ProfileSettings() {
         <h1 className="text-lg font-semibold text-white">Profile</h1>
         <p className="mt-2 text-sm text-surface-muted">
           Session and account data from <code className="rounded bg-white/5 px-1 text-xs">GET /auth/me</code>.
-          To link your Discord user id for bridge bots, use{" "}
+          To link your Discord or Telegram user id for bridge bots, use{" "}
           <Link to="/settings/connections" className="text-sky-400 hover:underline">
             Settings → Connections
           </Link>
@@ -86,6 +88,10 @@ export function ProfileSettings() {
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-surface-muted">Discord user id (linked)</dt>
               <dd className="mt-1 font-mono text-xs text-neutral-300">{discordLinked ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-surface-muted">Telegram user id (linked)</dt>
+              <dd className="mt-1 font-mono text-xs text-neutral-300">{telegramLinked ?? "—"}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-surface-muted">Role</dt>

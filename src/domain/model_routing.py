@@ -109,12 +109,14 @@ def resolve_effective_model(
     profile_header: str | None,
     override_header: str | None,
     bearer_user_role: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, str, bool]:
     """
-    Pick the Ollama model id for this chat completion.
+    Pick the logical model id for this chat completion (Ollama id when primary is local;
+    same string is reused for OpenAI-style overrides when primary is external).
 
-    Returns ``(model_id, reason)`` where ``reason`` is a short tag for logs
-    (e.g. ``profile:vlm``, ``override:header``, ``profile:default``).
+    Returns ``(model_id, reason, profile_key, is_override)`` where ``profile_key`` is
+    ``default`` / ``vlm`` / ``agent`` / ``coding``, and ``is_override`` is True when a
+    per-request model override won (header/body).
     """
     auto_vlm = messages_contain_image_parts(messages)
     if auto_vlm:
@@ -149,7 +151,7 @@ def resolve_effective_model(
                 chosen,
                 bearer_user_role,
             )
-            return chosen, "override:header" if oh else "override:body"
+            return chosen, "override:header" if oh else "override:body", profile, True
     if auto_vlm and _override_allowed(bearer_user_role):
         oh = _strip_model(override_header)
         bm = _strip_model(body_model)
@@ -170,4 +172,4 @@ def resolve_effective_model(
         base,
         profile,
     )
-    return base, reason_base
+    return base, reason_base, profile, False

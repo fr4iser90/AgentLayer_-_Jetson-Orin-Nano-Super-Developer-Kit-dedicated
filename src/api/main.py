@@ -12,8 +12,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -45,6 +46,9 @@ from src.infrastructure.operator_settings import (
     apply_update as operator_settings_apply,
     interface_hints_public,
     public_dict as operator_settings_public,
+    resolve_external_llm_credentials_for_catalog,
+    external_api_headers,
+    external_models_list_url,
 )
 from src.api.optional_http_access import (
     is_identity_deferred_route,
@@ -104,7 +108,7 @@ def _bearer_user_role_from_request(request: Request) -> str | None:
 
 
 from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
-from src.integrations import discord_bridge
+from src.integrations import discord_bridge, telegram_bridge
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -130,9 +134,17 @@ async def lifespan(_app: FastAPI):
         discord_bridge.start_background()
     except Exception:
         logger.exception("Discord bridge failed to start (optional)")
+    try:
+        telegram_bridge.start_background()
+    except Exception:
+        logger.exception("Telegram bridge failed to start (optional)")
     yield
     try:
         discord_bridge.stop_background()
+    except Exception:
+        pass
+    try:
+        telegram_bridge.stop_background()
     except Exception:
         pass
     stop_cron_scheduler()
@@ -246,12 +258,14 @@ async def get_current_user_info(request: Request):
     """
     user = await get_current_user(request)
     discord_uid = db.user_discord_user_id_get(user.id)
+    telegram_uid = db.user_telegram_user_id_get(user.id)
     base = {
         "id": str(user.id),
         "email": user.email,
         "role": user.role,
         "created_at": user.created_at.isoformat(),
         "discord_user_id": discord_uid,
+        "telegram_user_id": telegram_uid,
     }
     if user.role != "admin":
         id_token = set_identity(1, user.id)
@@ -280,6 +294,61 @@ async def patch_operator_settings(request: Request, body: OperatorSettingsPatch)
     await require_admin(request)
     apply_operator_settings_patch(body)
     return operator_settings_public()
+
+
+class ExternalLlmModelsBody(BaseModel):
+    """Optional form overrides; omitted fields use saved operator_settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+@app.post("/v1/admin/external-llm/models")
+async def admin_external_llm_models(request: Request, body: ExternalLlmModelsBody = ExternalLlmModelsBody()):
+    """
+    List models from the configured external OpenAI-compatible API (``GET {base}/v1/models``).
+
+    Uses non-empty ``base_url`` / ``api_key`` from the body when provided; otherwise the persisted
+    operator settings (so you can load after saving, or pass unsaved form values).
+    """
+    await require_admin(request)
+    try:
+        bu, key = resolve_external_llm_credentials_for_catalog(body.base_url, body.api_key)
+    except ValueError as e:
+        tag = str(e)
+        if tag == "missing_base_url":
+            raise HTTPException(
+                status_code=400,
+                detail="Base URL fehlt (im Formular eintragen oder zuerst speichern).",
+            ) from e
+        if tag == "missing_api_key":
+            raise HTTPException(
+                status_code=400,
+                detail="API-Key fehlt (einmalig eintragen oder zuerst speichern).",
+            ) from e
+        raise
+    url = external_models_list_url(bu)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                url,
+                headers=external_api_headers(bu, key),
+                timeout=httpx.Timeout(45.0),
+            )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Verbindung fehlgeschlagen: {e}") from e
+    if resp.status_code != 200:
+        snippet = (resp.text or "").strip()[:4000]
+        raise HTTPException(
+            status_code=min(resp.status_code, 599),
+            detail=snippet or f"HTTP {resp.status_code}",
+        )
+    try:
+        return resp.json()
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=502, detail="Antwort der API war kein JSON.") from e
 
 
 @app.get("/v1/admin/interfaces")

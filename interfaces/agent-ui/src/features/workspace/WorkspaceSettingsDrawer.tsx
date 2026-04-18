@@ -10,15 +10,15 @@ export function WorkspaceSettingsDrawer(props: {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 flex justify-end">
       <button
         type="button"
         aria-label="Close settings"
         className="absolute inset-0 bg-black/60"
         onClick={onClose}
       />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-xl flex-col border-l border-surface-border bg-surface-raised shadow-xl">
-        <div className="flex items-center justify-between gap-3 border-b border-surface-border px-4 py-3">
+      <aside className="relative flex h-full max-h-[100dvh] w-full max-w-xl flex-col overflow-hidden border-l border-surface-border bg-surface-raised shadow-xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-surface-border px-4 py-3">
           <p className="min-w-0 truncate text-sm font-medium text-white">{title}</p>
           <button
             type="button"
@@ -28,7 +28,7 @@ export function WorkspaceSettingsDrawer(props: {
             Close
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-4">{children}</div>
       </aside>
     </div>
   );

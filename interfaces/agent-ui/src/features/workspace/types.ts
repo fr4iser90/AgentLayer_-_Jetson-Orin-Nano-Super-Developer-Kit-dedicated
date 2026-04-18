@@ -53,8 +53,24 @@ export interface WorkspaceSummary {
   access_role?: string;
 }
 
+/** Reserved namespace inside workspace ``data`` (JSON). Safe alongside template-specific keys. */
+export type WorkspaceDataAgentlayer = {
+  /** Appended to the server system prompt when this workspace is active (embedded + API with context). */
+  system_prompt_extra?: string;
+  /** Alias for ``system_prompt_extra`` (same behavior). */
+  instructions?: string;
+  /**
+   * If non-empty: only these OpenAI tool function names are forwarded for this workspace
+   * (after routing/policy/client disabled-tools). Empty/unset = no extra restriction.
+   */
+  tool_allowlist?: string[];
+  /** Alias for ``tool_allowlist``. */
+  allowed_tools?: string[];
+};
+
 export interface WorkspaceDetail extends WorkspaceSummary {
   ui_layout: UiLayout | Record<string, unknown>;
+  /** Template payload; may include ``_agentlayer`` for AgentLayer agent settings. */
   data: Record<string, unknown>;
 }
 

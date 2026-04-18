@@ -6,6 +6,7 @@ Async handlers must not hold threading.Lock across await — use
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 from typing import Any
@@ -15,6 +16,26 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OLLAMA_HTTP_LOCK = threading.Lock()
+
+
+def _openai_strict_tools(obj: Any) -> Any:
+    """
+    Ollama tolerates extra JSON-Schema keys like ``TOOL_DESCRIPTION`` on tools; strict OpenAI-compatible
+    APIs (e.g. Google Gemini) reject unknown field names. Map ``TOOL_DESCRIPTION`` → ``description``.
+    """
+    if isinstance(obj, dict):
+        has_desc = "description" in obj
+        out: dict[str, Any] = {}
+        for k, v in obj.items():
+            if k == "TOOL_DESCRIPTION":
+                if not has_desc:
+                    out["description"] = _openai_strict_tools(v)
+                continue
+            out[k] = _openai_strict_tools(v)
+        return out
+    if isinstance(obj, list):
+        return [_openai_strict_tools(x) for x in obj]
+    return obj
 
 
 def ollama_post_json(
@@ -40,30 +61,24 @@ def ollama_post_chat_completions(
     timeout: float = 600.0,
 ) -> tuple[dict[str, Any], bool]:
     """
-    POST to ``/v1/chat/completions``. Some vision models reject ``tools`` (Ollama 400:
-    ``does not support tools``). In that case retry once without ``tools``.
+    POST to OpenAI-compatible ``…/chat/completions``.
 
-    Returns ``(response_json, tools_omitted)``.
+    Normalizes ``tools[]`` so strict backends accept them: Ollama allows non-standard JSON-Schema
+    keys such as ``TOOL_DESCRIPTION``; OpenAI-shaped APIs (e.g. Google Gemini) require standard
+    ``description`` fields instead.
+
+    Returns ``(response_json, tools_omitted)`` — ``tools_omitted`` is always ``False`` (reserved).
     """
     h = headers or {"Content-Type": "application/json"}
-    tools_omitted = False
+    body = json_body
+    if "tools" in json_body:
+        body = copy.deepcopy(json_body)
+        body["tools"] = _openai_strict_tools(body["tools"])
     with OLLAMA_HTTP_LOCK:
         with httpx.Client(timeout=timeout) as client:
-            resp = client.post(url, json=json_body, headers=h)
-            if (
-                resp.status_code == 400
-                and "tools" in json_body
-                and "support tools" in (resp.text or "").lower()
-            ):
-                logger.warning(
-                    "Ollama: model rejected tools; retrying without tools[] (preview=%r)",
-                    (resp.text or "")[:300],
-                )
-                retry_body = {k: v for k, v in json_body.items() if k != "tools"}
-                resp = client.post(url, json=retry_body, headers=h)
-                tools_omitted = True
+            resp = client.post(url, json=body, headers=h)
             resp.raise_for_status()
-            return resp.json(), tools_omitted
+            return resp.json(), False
 
 
 def ollama_get_json(

@@ -27,6 +27,7 @@ CREATE TABLE users (
   last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   discord_user_id TEXT,
+  telegram_user_id TEXT,
   UNIQUE (tenant_id, external_sub)
 );
 
@@ -34,6 +35,8 @@ CREATE INDEX idx_users_tenant ON users (tenant_id);
 CREATE INDEX idx_users_tenant_sub ON users (tenant_id, external_sub);
 CREATE UNIQUE INDEX idx_users_tenant_discord_user ON users (tenant_id, discord_user_id)
   WHERE discord_user_id IS NOT NULL AND btrim(discord_user_id) <> '';
+CREATE UNIQUE INDEX idx_users_tenant_telegram_user ON users (tenant_id, telegram_user_id)
+  WHERE telegram_user_id IS NOT NULL AND btrim(telegram_user_id) <> '';
 
 CREATE TABLE todos (
   id BIGSERIAL PRIMARY KEY,
@@ -338,8 +341,29 @@ CREATE TABLE operator_settings (
   discord_bot_agent_bearer TEXT,
   discord_trigger_prefix TEXT NOT NULL DEFAULT '!agent ',
   discord_chat_model TEXT,
+  telegram_application_id TEXT,
+  telegram_bot_enabled BOOLEAN NOT NULL DEFAULT false,
+  telegram_bot_token TEXT,
+  telegram_bot_agent_bearer TEXT,
+  telegram_trigger_prefix TEXT NOT NULL DEFAULT '!agent ',
+  telegram_chat_model TEXT,
   workspace_upload_max_file_mb INTEGER,
   workspace_upload_allowed_mime TEXT,
+  llm_primary_backend TEXT NOT NULL DEFAULT 'ollama',
+  llm_external_base_url TEXT,
+  llm_external_api_key TEXT,
+  llm_external_model_default TEXT,
+  llm_external_model_vlm TEXT,
+  llm_external_model_agent TEXT,
+  llm_external_model_coding TEXT,
+  llm_smart_routing_enabled BOOLEAN NOT NULL DEFAULT false,
+  llm_router_ollama_model TEXT NOT NULL DEFAULT 'nemotron-3-nano:4b',
+  llm_router_local_confidence_min DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+  llm_router_timeout_sec DOUBLE PRECISION NOT NULL DEFAULT 12,
+  llm_route_long_prompt_chars INTEGER NOT NULL DEFAULT 8000,
+  llm_route_short_local_max_chars INTEGER NOT NULL DEFAULT 220,
+  llm_route_many_code_fences INTEGER NOT NULL DEFAULT 3,
+  llm_route_many_messages INTEGER NOT NULL DEFAULT 14,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

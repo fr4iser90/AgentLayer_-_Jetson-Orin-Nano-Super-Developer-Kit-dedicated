@@ -92,7 +92,10 @@ class AgentDiscordClient(discord.Client):
     def __init__(self, *, intents: discord.Intents) -> None:
         super().__init__(intents=intents)
         self._base = _env("AGENT_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
-        self._prefix = _env("DISCORD_TRIGGER_PREFIX", "!agent ")
+        if "DISCORD_TRIGGER_PREFIX" in os.environ:
+            self._prefix = (os.environ.get("DISCORD_TRIGGER_PREFIX") or "").strip()
+        else:
+            self._prefix = "!agent "
         self._bearer = _env("AGENT_BEARER_TOKEN")
         self._model = _env("AGENT_CHAT_MODEL", "nemotron-3-nano:4b")
         self._timeout = float(_env("AGENT_HTTP_TIMEOUT_SEC", "180") or "180")
@@ -104,13 +107,17 @@ class AgentDiscordClient(discord.Client):
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return
-        if not self._prefix or not message.content.startswith(self._prefix):
-            return
-        prompt = message.content[len(self._prefix) :].strip()
+        if self._prefix:
+            if not message.content.startswith(self._prefix):
+                return
+            prompt = message.content[len(self._prefix) :].strip()
+        else:
+            prompt = (message.content or "").strip()
         if not prompt:
-            await message.reply(
-                f"Write your question after `{self._prefix.strip()}`, e.g. `{self._prefix.strip()} What is 2+2?`"
-            )
+            if self._prefix:
+                await message.reply(
+                    f"Write your question after `{self._prefix.strip()}`, e.g. `{self._prefix.strip()} What is 2+2?`"
+                )
             return
         author_id = str(message.author.id)
         if not _user_linked_in_db(author_id):

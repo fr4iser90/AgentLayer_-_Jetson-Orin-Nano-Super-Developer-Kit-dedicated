@@ -1,1 +1,1 @@
-"""Optional integrations (e.g. Discord gateway) started from the main API process."""
+"""Optional integrations (Discord / Telegram gateways) started from the main API process."""

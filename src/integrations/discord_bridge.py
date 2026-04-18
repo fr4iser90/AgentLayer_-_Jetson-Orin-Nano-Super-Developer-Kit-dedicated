@@ -94,7 +94,10 @@ def _load_bridge_cfg_with_reason() -> tuple[_BridgeCfg | None, str]:
     dt = _normalize_discord_bot_token(str(dtoken) if dtoken is not None else "")
     if not dt:
         return None, "discord_bot_token is empty (paste token in Admin → Interfaces → Discord)"
-    prefix = (str(trigger).strip() if trigger is not None else "") or "!agent "
+    if trigger is None:
+        prefix = "!agent "
+    else:
+        prefix = str(trigger).strip()
     if prefix and not prefix.endswith(" "):
         prefix = prefix + " "
     model_raw = (str(cmodel).strip() if cmodel is not None else "") or ""
@@ -125,19 +128,24 @@ def _make_client(cfg: _BridgeCfg) -> discord.Client:
             if not (message.content or "").strip():
                 if message.guild is not None and not _empty_text_hint["sent"]:
                     _empty_text_hint["sent"] = True
+                    pfx = cfg.prefix.strip() if cfg.prefix else "(no prefix)"
                     logger.warning(
                         "discord_bridge: saw a server message with no text — if your %r commands never run, "
                         "enable **Message Content Intent** (Discord Developer Portal → Bot → Privileged Gateway Intents).",
-                        cfg.prefix.strip(),
+                        pfx,
                     )
                 return
-            if not cfg.prefix or not message.content.startswith(cfg.prefix):
-                return
-            prompt = message.content[len(cfg.prefix) :].strip()
+            if cfg.prefix:
+                if not message.content.startswith(cfg.prefix):
+                    return
+                prompt = message.content[len(cfg.prefix) :].strip()
+            else:
+                prompt = (message.content or "").strip()
             if not prompt:
-                await message.reply(
-                    f"Add your question after `{cfg.prefix.strip()}`, e.g. `{cfg.prefix.strip()}What is 2+2?`"
-                )
+                if cfg.prefix:
+                    await message.reply(
+                        f"Add your question after `{cfg.prefix.strip()}`, e.g. `{cfg.prefix.strip()}What is 2+2?`"
+                    )
                 return
             author_id = str(message.author.id)
             linked = db.user_id_tenant_for_discord_global(author_id)

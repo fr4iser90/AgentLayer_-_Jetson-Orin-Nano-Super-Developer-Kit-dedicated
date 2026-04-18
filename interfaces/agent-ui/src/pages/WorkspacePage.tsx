@@ -5,6 +5,7 @@ import { WorkspaceEmbeddedChat } from "../features/workspace/WorkspaceEmbeddedCh
 import { WorkspaceGridCanvas } from "../features/workspace/WorkspaceGridCanvas";
 import { WorkspaceSettingsDrawer } from "../features/workspace/WorkspaceSettingsDrawer";
 import { WorkspaceHubNavigator } from "../features/workspace/WorkspaceHubNavigator";
+import { WorkspaceOverviewPanel } from "../features/workspace/WorkspaceOverviewPanel";
 import {
   DEFAULT_HUBS,
   groupWorkspacesByHub,
@@ -13,6 +14,7 @@ import {
 } from "../features/workspace/workspaceHubNav";
 import type {
   UiLayout,
+  WorkspaceDataAgentlayer,
   WorkspaceDetail,
   WorkspaceMemberRow,
   WorkspaceSummary,
@@ -101,7 +103,7 @@ function relativeActivityEn(iso: string): string {
   return `${d}d ago`;
 }
 
-type HubPanel = "home" | "catalog";
+type HubPanel = "home" | "catalog" | "overview";
 
 export function WorkspacePage() {
   const auth = useAuth();
@@ -130,6 +132,9 @@ export function WorkspacePage() {
   const [membersErr, setMembersErr] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeHubOverride, setActiveHubOverride] = useState<WorkspaceHubId | null>(null);
+  const [toolCatalogNames, setToolCatalogNames] = useState<string[]>([]);
+  const [toolsCatalogErr, setToolsCatalogErr] = useState<string | null>(null);
+  const [manualToolName, setManualToolName] = useState("");
 
   const accessRole = detail?.access_role ?? "owner";
   const isViewer = accessRole === "viewer";
@@ -141,6 +146,35 @@ export function WorkspacePage() {
   const gridLayout = useMemo(
     () => (layoutEditMode ? layoutDraft : uiLayout ?? { version: 1, blocks: [] }),
     [layoutEditMode, layoutDraft, uiLayout]
+  );
+
+  const agentSystemPromptExtra = useMemo(() => {
+    const raw = data._agentlayer;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+    const al = raw as WorkspaceDataAgentlayer;
+    const s =
+      typeof al.system_prompt_extra === "string"
+        ? al.system_prompt_extra
+        : typeof al.instructions === "string"
+          ? al.instructions
+          : "";
+    return s;
+  }, [data]);
+
+  const workspaceToolAllowlist = useMemo(() => {
+    const raw = data._agentlayer;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const al = raw as WorkspaceDataAgentlayer;
+    const arr = al.tool_allowlist ?? al.allowed_tools;
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.map((x) => String(x).trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [data]);
+
+  const pickableCatalogTools = useMemo(
+    () => toolCatalogNames.filter((n) => !workspaceToolAllowlist.includes(n)),
+    [toolCatalogNames, workspaceToolAllowlist]
   );
 
   const installableCatalog = useMemo(
@@ -325,6 +359,35 @@ export function WorkspacePage() {
       cancelled = true;
     };
   }, [selectedId, canManageMembers, auth]);
+
+  useEffect(() => {
+    if (!settingsOpen || !detail) return;
+    let cancelled = false;
+    setToolsCatalogErr(null);
+    void (async () => {
+      try {
+        const res = await apiFetch("/v1/tools", auth);
+        if (!res.ok) {
+          if (!cancelled) setToolsCatalogErr(await res.text());
+          return;
+        }
+        const j = (await res.json()) as { tools?: Array<{ function?: { name?: string } }> };
+        const names: string[] = [];
+        for (const t of j.tools ?? []) {
+          const n = t?.function?.name;
+          if (typeof n === "string" && n.trim()) names.push(n.trim());
+        }
+        if (!cancelled) {
+          setToolCatalogNames([...new Set(names)].sort((a, b) => a.localeCompare(b)));
+        }
+      } catch (e) {
+        if (!cancelled) setToolsCatalogErr(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsOpen, detail, auth]);
 
   const recentActivity = useMemo(() => {
     return [...list]
@@ -520,6 +583,44 @@ export function WorkspacePage() {
     setHubPanel("home");
   };
 
+  const addToolToWorkspaceAllowlist = useCallback(
+    (name: string) => {
+      const t = name.trim();
+      if (!t || !canEditContent) return;
+      setData((prev) => {
+        const next = { ...prev } as Record<string, unknown>;
+        const prevAl = next._agentlayer;
+        const merged: Record<string, unknown> =
+          prevAl && typeof prevAl === "object" && !Array.isArray(prevAl) ? { ...prevAl } : {};
+        const cur = merged.tool_allowlist;
+        const list = Array.isArray(cur) ? cur.map((x) => String(x).trim()).filter(Boolean) : [];
+        if (list.includes(t)) return prev;
+        merged.tool_allowlist = [...list, t];
+        next._agentlayer = merged;
+        return next;
+      });
+    },
+    [canEditContent]
+  );
+
+  const removeToolFromWorkspaceAllowlist = useCallback(
+    (name: string) => {
+      if (!canEditContent) return;
+      setData((prev) => {
+        const next = { ...prev } as Record<string, unknown>;
+        const prevAl = next._agentlayer;
+        if (!prevAl || typeof prevAl !== "object" || Array.isArray(prevAl)) return prev;
+        const merged = { ...prevAl } as Record<string, unknown>;
+        const cur = merged.tool_allowlist;
+        const list = Array.isArray(cur) ? cur.map((x) => String(x).trim()).filter(Boolean) : [];
+        merged.tool_allowlist = list.filter((x) => x !== name);
+        next._agentlayer = merged;
+        return next;
+      });
+    },
+    [canEditContent]
+  );
+
   const confirmInstallCatalogRow = (row: KindCatalogRow) => {
     if (!row.has_schema) return;
     setInstallModalRow(row);
@@ -703,6 +804,19 @@ export function WorkspacePage() {
         </button>
         <button
           type="button"
+          onClick={() => {
+            setSelectedId(null);
+            setHubPanel("overview");
+          }}
+          className={[
+            "rounded-lg px-2.5 py-2 text-left text-xs transition hover:bg-white/5",
+            !selectedId && hubPanel === "overview" ? "bg-white/10 text-white" : "text-neutral-200",
+          ].join(" ")}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
           disabled
           className="cursor-not-allowed rounded-lg px-2.5 py-2 text-left text-xs text-white/30"
           title="Coming soon"
@@ -721,6 +835,21 @@ export function WorkspacePage() {
         </button>
       </div>
     </aside>
+  );
+
+  const overviewMain = (
+    <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+      {error ? (
+        <div className="mb-4 rounded-lg border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+          {error}
+        </div>
+      ) : null}
+      <WorkspaceOverviewPanel
+        list={list}
+        kindLabelFor={(k) => subtitleForWorkspaceKind(k, kindCatalog)}
+        onOpenWorkspace={(id) => selectWorkspace(id)}
+      />
+    </div>
   );
 
   const hubHomeMain = (
@@ -994,6 +1123,8 @@ export function WorkspacePage() {
     );
   } else if (hubPanel === "catalog") {
     main = catalogMain;
+  } else if (hubPanel === "overview") {
+    main = overviewMain;
   } else {
     main = (
       <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
@@ -1034,6 +1165,160 @@ export function WorkspacePage() {
                   <span className="text-surface-muted">Updated:</span> {detail.updated_at}
                 </p>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-surface-border bg-black/20 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                Workspace assistant (agent)
+              </p>
+              <p className="mt-2 text-xs text-surface-muted">
+                Zusätzliche Anweisungen für das Modell, wenn dieses Workspace aktiv ist (eingebetteter Chat und jeder
+                Chat mit <span className="font-mono text-neutral-400">agent_workspace_context</span>). Werden
+                serverseitig an den System-Kontext angehängt — spezialisiert z.&nbsp;B. Ton, Tools oder Domain.
+                Mit <span className="text-white/80">Save</span> in der Hauptleiste speichern.
+              </p>
+              <label className="mt-3 block text-[10px] text-surface-muted" htmlFor="ws-agent-prompt">
+                Zusatz-Systemprompt / Instructions
+              </label>
+              <textarea
+                id="ws-agent-prompt"
+                readOnly={!canEditContent}
+                rows={8}
+                value={agentSystemPromptExtra}
+                onChange={(e) => {
+                  const text = e.target.value;
+                  setData((prev) => {
+                    const next = { ...prev } as Record<string, unknown>;
+                    const prevAl = next._agentlayer;
+                    const merged: Record<string, unknown> =
+                      prevAl && typeof prevAl === "object" && !Array.isArray(prevAl)
+                        ? { ...prevAl }
+                        : {};
+                    merged.system_prompt_extra = text;
+                    next._agentlayer = merged;
+                    return next;
+                  });
+                }}
+                placeholder="z. B. Du hilfst bei Haustier-Pflege; nutze bevorzugt pets_* Tools mit dieser workspace_id …"
+                className="mt-1 w-full resize-y rounded-lg border border-surface-border bg-black/30 px-3 py-2 font-mono text-sm leading-relaxed text-white outline-none placeholder:text-white/25 focus:border-sky-500/50 read-only:cursor-default read-only:opacity-90"
+              />
+              <p className="mt-2 text-[10px] text-surface-muted">
+                Gespeichert unter <span className="font-mono text-neutral-500">data._agentlayer.system_prompt_extra</span>
+                (max. ca. 8000 Zeichen serverseitig).
+              </p>
+              <p className="mt-3 text-[11px] text-surface-muted">
+                <span className="text-sky-400/90">↓</span> Direkt darunter (eigene Karte):{" "}
+                <span className="text-white/85">Tool-Präferenzen</span> — bei kleinem Fenster nach unten scrollen.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-surface-border bg-black/20 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-surface-muted">
+                Tool-Präferenzen (Allowlist)
+              </p>
+              <p className="mt-2 text-xs text-surface-muted">
+                Wenn du hier Tools einträgst, sieht der Agent in diesem Workspace <strong className="text-white/90">nur</strong>{" "}
+                diese Funktionsnamen (nach Router, Operator-Policies und deinen globalen Tool-Deaktivierungen). Leer =
+                keine Extra-Einschränkung. Gilt für eingebetteten Chat und alle Chats mit{" "}
+                <span className="font-mono text-neutral-400">agent_workspace_context</span>.
+              </p>
+              {toolsCatalogErr ? (
+                <p className="mt-2 text-xs text-amber-300/90">
+                  Tool-Katalog konnte nicht geladen werden ({toolsCatalogErr}). Du kannst Namen manuell eintragen.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {workspaceToolAllowlist.length === 0 ? (
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-surface-muted">
+                    Standard: alle erlaubten Tools
+                  </span>
+                ) : (
+                  workspaceToolAllowlist.map((name) => (
+                    <span
+                      key={name}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-sky-500/35 bg-sky-950/50 px-2.5 py-1 text-xs text-sky-100"
+                    >
+                      <span className="truncate font-mono">{name}</span>
+                      {canEditContent ? (
+                        <button
+                          type="button"
+                          className="shrink-0 text-sky-300 hover:text-white"
+                          aria-label={`${name} entfernen`}
+                          onClick={() => removeToolFromWorkspaceAllowlist(name)}
+                        >
+                          ×
+                        </button>
+                      ) : null}
+                    </span>
+                  ))
+                )}
+              </div>
+              {canEditContent ? (
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div className="min-w-[min(100%,220px)] flex-1">
+                    <label className="mb-1 block text-[10px] text-surface-muted" htmlFor="ws-tool-pick">
+                      Aus Katalog
+                    </label>
+                    <select
+                      id="ws-tool-pick"
+                      disabled={pickableCatalogTools.length === 0}
+                      className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-sky-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      defaultValue=""
+                      onChange={(e) => {
+                        const v = e.currentTarget.value;
+                        if (v) {
+                          addToolToWorkspaceAllowlist(v);
+                          e.currentTarget.selectedIndex = 0;
+                        }
+                      }}
+                    >
+                      <option value="">Tool wählen…</option>
+                      {pickableCatalogTools.map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="min-w-[min(100%,200px)] flex-1">
+                    <label className="mb-1 block text-[10px] text-surface-muted" htmlFor="ws-tool-manual">
+                      Manuell (z. B. Extra-Tools)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="ws-tool-manual"
+                        value={manualToolName}
+                        onChange={(e) => setManualToolName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addToolToWorkspaceAllowlist(manualToolName);
+                            setManualToolName("");
+                          }
+                        }}
+                        placeholder="function_name"
+                        className="min-w-0 flex-1 rounded-lg border border-surface-border bg-black/30 px-3 py-2 font-mono text-sm text-white outline-none focus:border-sky-500/50"
+                      />
+                      <button
+                        type="button"
+                        className="shrink-0 rounded-lg border border-surface-border px-3 py-2 text-sm text-neutral-200 hover:bg-white/5"
+                        onClick={() => {
+                          addToolToWorkspaceAllowlist(manualToolName);
+                          setManualToolName("");
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-xs text-surface-muted">Nur Editor/Owner können die Allowlist ändern.</p>
+              )}
+              <p className="mt-2 text-[10px] text-surface-muted">
+                <span className="font-mono text-neutral-500">data._agentlayer.tool_allowlist</span> · max. 200 Einträge
+                serverseitig
+              </p>
             </div>
 
             {canManageMembers ? (

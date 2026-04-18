@@ -61,6 +61,8 @@ export function ConnectionsSettings() {
   const [saving, setSaving] = useState(false);
   const [discordUserId, setDiscordUserId] = useState("");
   const [discordSaving, setDiscordSaving] = useState(false);
+  const [telegramUserId, setTelegramUserId] = useState("");
+  const [telegramSaving, setTelegramSaving] = useState(false);
 
   const formsByKey = useMemo(() => mergeSecretForms(meta), [meta]);
 
@@ -76,13 +78,17 @@ export function ConnectionsSettings() {
 
       const mdata = (await mres.json().catch(() => ({}))) as {
         discord_user_id?: string | null;
+        telegram_user_id?: string | null;
         detail?: unknown;
       };
       if (mres.ok) {
         const d = mdata.discord_user_id;
         setDiscordUserId(d != null && String(d).trim() ? String(d).trim() : "");
+        const t = mdata.telegram_user_id;
+        setTelegramUserId(t != null && String(t).trim() ? String(t).trim() : "");
       } else {
         setDiscordUserId("");
+        setTelegramUserId("");
       }
 
       const tdata = (await tres.json()) as { tools_meta?: ToolsMeta[] };
@@ -118,6 +124,30 @@ export function ConnectionsSettings() {
       setLoading(false);
     }
   }, [auth]);
+
+  async function saveTelegramLink() {
+    setMsg(null);
+    setTelegramSaving(true);
+    try {
+      const res = await apiFetch("/v1/user/telegram", auth, {
+        method: "PUT",
+        body: JSON.stringify({ telegram_user_id: telegramUserId.trim() }),
+      });
+      const data = (await res.json()) as { ok?: boolean; telegram_user_id?: string | null; detail?: unknown };
+      if (!res.ok) {
+        const d = data.detail;
+        setMsg(typeof d === "string" ? d : "Could not save Telegram link");
+        return;
+      }
+      const t = data.telegram_user_id;
+      setTelegramUserId(t != null && String(t).trim() ? String(t).trim() : "");
+      setMsg("Telegram link saved.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTelegramSaving(false);
+    }
+  }
 
   async function saveDiscordLink() {
     setMsg(null);
@@ -268,7 +298,7 @@ export function ConnectionsSettings() {
       <div>
         <h1 className="text-lg font-semibold text-white">Connections</h1>
         <p className="mt-2 text-sm text-surface-muted">
-          Link Discord below so your bridge bot can map your Discord account to this AgentLayer user (same{" "}
+          Link Discord and Telegram below so bridge bots can map those accounts to this AgentLayer user (same{" "}
           <span className="font-mono">tenant_id</span> as in Admin → Users). Tool credentials are stored per{" "}
           <span className="font-mono">service_key</span> (encrypted on the server).{" "}
           <strong className="font-medium text-neutral-300">Known tools</strong> can ship a small form schema in the tool
@@ -349,9 +379,90 @@ export function ConnectionsSettings() {
         </div>
       </section>
 
+      <section className="rounded-xl border border-surface-border bg-surface-raised p-5">
+        <h2 className="text-sm font-medium text-white">Telegram</h2>
+        <p className="mt-2 text-xs text-surface-muted">
+          Telegram does <strong className="text-neutral-300">not</strong> show your numeric user id in normal profile settings.
+          Open a chat with a bot like <span className="font-mono">@userinfobot</span> or{" "}
+          <span className="font-mono">@getidsbot</span>, send <span className="font-mono">/start</span> (or any message) — the
+          reply includes your <strong className="text-neutral-300">user id</strong> (digits only). Copy that number here.
+          The Telegram gateway runs <strong className="text-neutral-300">inside agent-layer</strong> when an admin enables
+          it under{" "}
+          <Link to="/admin/interfaces" className="text-sky-400 hover:underline">
+            Admin → Interfaces
+          </Link>
+          . In groups, disable bot privacy via @BotFather <span className="font-mono">/setprivacy</span> so the bot can see
+          normal messages (same idea as Discord channels). This field only links <em>your</em> Telegram account; it does not
+          replace normal login.
+        </p>
+        <label className="mt-4 block text-xs text-surface-muted" htmlFor="telegram-user-id">
+          Telegram numeric user ID
+        </label>
+        <input
+          id="telegram-user-id"
+          className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+          value={telegramUserId}
+          onChange={(e) => setTelegramUserId(e.target.value.replace(/\D/g, ""))}
+          autoComplete="off"
+          inputMode="numeric"
+          placeholder="e.g. 123456789"
+          spellCheck={false}
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={telegramSaving}
+            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-50"
+            onClick={() => void saveTelegramLink()}
+          >
+            {telegramSaving ? "Saving…" : "Save Telegram link"}
+          </button>
+          <button
+            type="button"
+            disabled={telegramSaving || !telegramUserId}
+            className="rounded-md border border-white/15 bg-white/5 px-4 py-2 text-sm text-neutral-200 hover:bg-white/10 disabled:opacity-40"
+            onClick={() => {
+              setTelegramUserId("");
+              void (async () => {
+                setTelegramSaving(true);
+                setMsg(null);
+                try {
+                  const res = await apiFetch("/v1/user/telegram", auth, {
+                    method: "PUT",
+                    body: JSON.stringify({ telegram_user_id: "" }),
+                  });
+                  const data = (await res.json()) as { detail?: unknown };
+                  if (!res.ok) {
+                    setMsg(typeof data.detail === "string" ? data.detail : "Could not clear link");
+                    await load();
+                    return;
+                  }
+                  setMsg("Telegram link removed.");
+                } catch (e) {
+                  setMsg(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setTelegramSaving(false);
+                }
+              })();
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      </section>
+
       {msg ? (
         <p
-          className={`text-sm ${msg === "Saved." || msg === "Removed." ? "text-emerald-400" : "text-amber-400"}`}
+          className={`text-sm ${
+            msg === "Saved." ||
+            msg === "Removed." ||
+            msg === "Discord link saved." ||
+            msg === "Telegram link saved." ||
+            msg === "Discord link removed." ||
+            msg === "Telegram link removed."
+              ? "text-emerald-400"
+              : "text-amber-400"
+          }`}
         >
           {msg}
         </p>
