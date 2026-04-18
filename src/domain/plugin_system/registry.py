@@ -37,6 +37,7 @@ _ALLOWED_ADMIN_BUCKETS = frozenset(
         "verticals",
         "meta",
         "media",
+        "productivity",
         "unsorted",
     }
 )
