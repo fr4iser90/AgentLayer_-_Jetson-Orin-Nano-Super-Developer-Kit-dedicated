@@ -200,14 +200,15 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
             user_id,
             cfg.model,
         )
-        conv_id = telegram_agent_conversation_ensure(
+        conv_id = bridge_agent_conversation_ensure(
             user_id,
             tenant_id,
-            telegram_chat_id=int(chat.id),
-            telegram_thread_id=getattr(msg, "message_thread_id", None),
+            provider=BRIDGE_TELEGRAM,
+            scope_chat_id=int(chat.id),
+            scope_thread_id=getattr(msg, "message_thread_id", None),
             model=cfg.model,
         )
-        msg_list = messages_for_telegram_completion(
+        msg_list = messages_for_bridge_completion(
             user_id, conv_id, new_user_text=prompt
         )
         logger.debug(
