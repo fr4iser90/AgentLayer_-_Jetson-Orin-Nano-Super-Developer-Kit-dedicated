@@ -1,0 +1,4 @@
+# Optional: PIDEA (Cursor DOM via Playwright CDP). Install only when PIDEA is enabled.
+#   pip install -r requirements-pidea.txt
+#   playwright install chromium
+playwright>=1.49.0,<2

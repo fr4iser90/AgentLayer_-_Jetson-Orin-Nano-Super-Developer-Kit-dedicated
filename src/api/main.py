@@ -299,6 +299,27 @@ async def patch_operator_settings(request: Request, body: OperatorSettingsPatch)
     return operator_settings_public()
 
 
+@app.get("/v1/experimental/status")
+async def experimental_status(request: Request):
+    """PIDEA / optional deps — jeder eingeloggte Nutzer (kein Admin nötig)."""
+    await get_current_user(request)
+
+    def playwright_installed() -> bool:
+        try:
+            import playwright  # noqa: F401
+
+            return True
+        except ImportError:
+            return False
+
+    from src.infrastructure import operator_settings
+
+    return {
+        "pidea_effective_enabled": operator_settings.pidea_effective_enabled(),
+        "pidea_playwright_installed": playwright_installed(),
+    }
+
+
 class ExternalLlmModelsBody(BaseModel):
     """Optional form overrides; omitted fields use first endpoint or legacy operator_settings."""
 

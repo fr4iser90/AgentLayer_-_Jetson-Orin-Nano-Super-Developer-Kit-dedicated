@@ -17,6 +17,7 @@ import { AgentSettings } from "./pages/settings/AgentSettings";
 import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
+import { ExperimentalSettings } from "./pages/settings/ExperimentalSettings";
 import { StudioPage } from "./pages/StudioPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
@@ -40,6 +41,7 @@ export function App() {
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="tools" element={<ToolsSettings />} />
               <Route path="agent" element={<AgentSettings />} />
+              <Route path="experimental" element={<ExperimentalSettings />} />
             </Route>
             <Route path="admin" element={<RequireAdmin />}>
               <Route element={<AdminLayout />}>

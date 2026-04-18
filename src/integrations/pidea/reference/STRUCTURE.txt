@@ -1,0 +1,9 @@
+Referenz-JS aus ~/Documents/Git/PIDEA/backend/ (nur Lesen beim Portieren nach Python).
+
+Quelle → Ziel
+domain/services/chat/     → reference/chat/
+domain/services/ide/      → reference/ide/ (inkl. implementations/)
+cli/                      → reference/cli/
+backend/selectors/        → ../selectors/ (aktive JSONs für Runtime)
+
+Aktualisieren: rsync aus dem PIDEA-Repo wie in der Agent-Session dokumentiert.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Literal
 
@@ -72,6 +73,10 @@ def _fetch_row() -> dict[str, Any]:
         "rag_embed_timeout_sec": 120.0,
         "rag_tenant_shared_domains": "agentlayer_docs",
         "docs_root": None,
+        "pidea_enabled": False,
+        "pidea_cdp_http_url": None,
+        "pidea_selector_ide": None,
+        "pidea_selector_version": None,
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -94,7 +99,8 @@ def _fetch_row() -> dict[str, Any]:
                        memory_graph_log_activations,
                        memory_enabled, rag_enabled, rag_ollama_model, rag_embedding_dim,
                        rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
-                       rag_tenant_shared_domains, docs_root
+                       rag_tenant_shared_domains, docs_root,
+                       pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -150,6 +156,10 @@ def _fetch_row() -> dict[str, Any]:
             str(row[40]) if row[40] is not None else "agentlayer_docs"
         ),
         "docs_root": row[41],
+        "pidea_enabled": bool(row[42]) if row[42] is not None else False,
+        "pidea_cdp_http_url": row[43],
+        "pidea_selector_ide": row[44],
+        "pidea_selector_version": row[45],
     }
 
 
@@ -503,6 +513,43 @@ def effective_workspace_upload_mime() -> frozenset[str]:
     return app_config.workspace_upload_env_allowed_mime()
 
 
+def pidea_effective_enabled() -> bool:
+    """DB ``pidea_enabled`` unless :envvar:`AGENT_PIDEA_ENABLED` overrides (true/false)."""
+    raw = (os.environ.get("AGENT_PIDEA_ENABLED") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    return bool(_cached_row().get("pidea_enabled", False))
+
+
+def resolved_pidea_connection_config() -> Any:
+    """``ConnectionConfig`` for PIDEA (DB overrides, sonst ``config``)."""
+    from src.integrations.pidea.types import ConnectionConfig
+
+    r = _cached_row()
+    cdp = (
+        str(r.get("pidea_cdp_http_url") or "").strip().rstrip("/")
+        or str(getattr(config, "PIDEA_CDP_HTTP_URL", "") or "").strip().rstrip("/")
+        or "http://127.0.0.1:9222"
+    )
+    ide = (
+        str(r.get("pidea_selector_ide") or "").strip().lower()
+        or str(getattr(config, "PIDEA_SELECTOR_IDE", "cursor") or "").strip().lower()
+    )
+    ver = (
+        str(r.get("pidea_selector_version") or "").strip()
+        or str(getattr(config, "PIDEA_SELECTOR_VERSION", "1.7.17") or "").strip()
+    )
+    timeout = int(getattr(config, "PIDEA_DEFAULT_TIMEOUT_MS", 30_000))
+    return ConnectionConfig(
+        cdp_http_url=cdp,
+        selector_ide=ide,
+        selector_version=ver,
+        default_timeout_ms=timeout,
+    )
+
+
 def public_dict() -> dict[str, Any]:
     r = _cached_row()
     dtok = (r.get("discord_bot_token") or "").strip()
@@ -556,6 +603,11 @@ def public_dict() -> dict[str, Any]:
         "rag_tenant_shared_domains": (str(r.get("rag_tenant_shared_domains") or "").strip()),
         "rag_tenant_shared_domains_effective": sorted(effective_rag_tenant_shared_domains()),
         "docs_root": (str(r.get("docs_root") or "").strip()),
+        "pidea_enabled": bool(r.get("pidea_enabled", False)),
+        "pidea_effective_enabled": pidea_effective_enabled(),
+        "pidea_cdp_http_url": (str(r.get("pidea_cdp_http_url") or "").strip()),
+        "pidea_selector_ide": (str(r.get("pidea_selector_ide") or "").strip()),
+        "pidea_selector_version": (str(r.get("pidea_selector_version") or "").strip()),
     }
 
 
@@ -608,6 +660,10 @@ class OperatorSettingsPatch(BaseModel):
     rag_embed_timeout_sec: float | None = Field(default=None, ge=5.0, le=600.0)
     rag_tenant_shared_domains: str | None = Field(default=None, max_length=4000)
     docs_root: str | None = Field(default=None, max_length=4096)
+    pidea_enabled: bool | None = None
+    pidea_cdp_http_url: str | None = Field(default=None, max_length=512)
+    pidea_selector_ide: str | None = Field(default=None, max_length=32)
+    pidea_selector_version: str | None = Field(default=None, max_length=64)
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -816,6 +872,17 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
         else:
             s = str(v).strip()
             r["docs_root"] = s or None
+    if "pidea_enabled" in patch:
+        r["pidea_enabled"] = bool(patch["pidea_enabled"])
+    if "pidea_cdp_http_url" in patch:
+        v = patch["pidea_cdp_http_url"]
+        r["pidea_cdp_http_url"] = None if v is None else (str(v).strip() or None)
+    if "pidea_selector_ide" in patch:
+        v = patch["pidea_selector_ide"]
+        r["pidea_selector_ide"] = None if v is None else (str(v).strip().lower()[:32] or None)
+    if "pidea_selector_version" in patch:
+        v = patch["pidea_selector_version"]
+        r["pidea_selector_version"] = None if v is None else (str(v).strip()[:64] or None)
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -865,6 +932,10 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   rag_embed_timeout_sec = %s,
                   rag_tenant_shared_domains = %s,
                   docs_root = %s,
+                  pidea_enabled = %s,
+                  pidea_cdp_http_url = %s,
+                  pidea_selector_ide = %s,
+                  pidea_selector_version = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -915,6 +986,10 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                         else "agentlayer_docs"
                     ),
                     r.get("docs_root"),
+                    bool(r.get("pidea_enabled", False)),
+                    r.get("pidea_cdp_http_url"),
+                    r.get("pidea_selector_ide"),
+                    r.get("pidea_selector_version"),
                 ),
             )
         conn.commit()
