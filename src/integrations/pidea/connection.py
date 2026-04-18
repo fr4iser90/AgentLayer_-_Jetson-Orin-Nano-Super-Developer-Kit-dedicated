@@ -66,7 +66,7 @@ class PideaConnection:
 
             if not operator_settings.pidea_effective_enabled():
                 raise PideaDisabledError(
-                    "PIDEA is disabled (Settings → Experimental as admin, or AGENT_PIDEA_ENABLED=1)"
+                    "PIDEA is disabled (Admin → IDE Agent, or AGENT_PIDEA_ENABLED=1)"
                 )
         sync_playwright = _import_sync_playwright()
         try:

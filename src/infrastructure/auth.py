@@ -32,6 +32,10 @@ class User(BaseModel):
     role: str
     created_at: datetime
     password_hash: str | None = Field(default=None, exclude=True)
+    ide_agent_allowed: bool = Field(
+        default=False,
+        description="Non-admins: IDE Agent when PIDEA on; admins always have access.",
+    )
 
     class Config:
         from_attributes = True
@@ -126,7 +130,7 @@ def get_user_by_email(email: str) -> Optional[User]:
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, email, role, created_at, password_hash
+                SELECT id, email, role, created_at, password_hash, ide_agent_allowed
                 FROM users
                 WHERE email = %s
             """, (email,))
@@ -139,6 +143,7 @@ def get_user_by_email(email: str) -> Optional[User]:
                 role=row[2],
                 created_at=row[3],
                 password_hash=row[4],
+                ide_agent_allowed=bool(row[5]) if row[5] is not None else False,
             )
 
 
@@ -152,7 +157,8 @@ def list_all_users() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT u.id, u.email, u.role, u.created_at, u.external_sub, u.display_name,
-                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id
+                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id,
+                       u.ide_agent_allowed
                 FROM users u
                 LEFT JOIN tenants t ON t.id = u.tenant_id
                 ORDER BY u.created_at ASC NULLS LAST, u.email ASC NULLS LAST, u.external_sub ASC
@@ -161,7 +167,19 @@ def list_all_users() -> list[dict[str, Any]]:
             rows = cur.fetchall()
     out: list[dict[str, Any]] = []
     for row in rows:
-        uid, email, role, created_at, external_sub, display_name, tenant_id, tenant_name, discord_uid, telegram_uid = row
+        (
+            uid,
+            email,
+            role,
+            created_at,
+            external_sub,
+            display_name,
+            tenant_id,
+            tenant_name,
+            discord_uid,
+            telegram_uid,
+            ide_agent_allowed,
+        ) = row
         tid = int(tenant_id) if tenant_id is not None else 1
         du = str(discord_uid).strip() if discord_uid is not None else ""
         tu = str(telegram_uid).strip() if telegram_uid is not None else ""
@@ -177,6 +195,7 @@ def list_all_users() -> list[dict[str, Any]]:
                 "tenant_name": (tenant_name or "") if tenant_name is not None else "",
                 "discord_user_id": du or None,
                 "telegram_user_id": tu or None,
+                "ide_agent_allowed": bool(ide_agent_allowed) if ide_agent_allowed is not None else False,
             }
         )
     return out
@@ -187,7 +206,7 @@ def get_user_by_id(user_id: uuid.UUID) -> Optional[User]:
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, email, role, created_at
+                SELECT id, email, role, created_at, ide_agent_allowed
                 FROM users
                 WHERE id = %s
             """, (user_id,))
@@ -198,7 +217,8 @@ def get_user_by_id(user_id: uuid.UUID) -> Optional[User]:
                 id=row[0],
                 email=row[1],
                 role=row[2],
-                created_at=row[3]
+                created_at=row[3],
+                ide_agent_allowed=bool(row[4]) if row[4] is not None else False,
             )
 
 
@@ -307,7 +327,13 @@ def insert_user_with_cursor(cur, email: str, password: str, role: str = "user", 
         (user_id, email, password_hash, role, tenant_id, external_sub),
     )
     created_at = cur.fetchone()[0]
-    return User(id=user_id, email=email, role=role, created_at=created_at)
+    return User(
+        id=user_id,
+        email=email,
+        role=role,
+        created_at=created_at,
+        ide_agent_allowed=False,
+    )
 
 
 def create_user(email: str, password: str, role: str = "user", tenant_id: int = 1) -> User:
@@ -317,6 +343,30 @@ def create_user(email: str, password: str, role: str = "user", tenant_id: int = 
             user = insert_user_with_cursor(cur, email, password, role, tenant_id=tenant_id)
             conn.commit()
     return user
+
+
+def ide_agent_access_for_user(user: User) -> bool:
+    """True when PIDEA is globally on and (admin or ``users.ide_agent_allowed``)."""
+    from src.infrastructure import operator_settings
+
+    if not operator_settings.pidea_effective_enabled():
+        return False
+    if user.role == "admin":
+        return True
+    return bool(user.ide_agent_allowed)
+
+
+def update_user_ide_agent_allowed(user_id: uuid.UUID, allowed: bool) -> bool:
+    """Set ``users.ide_agent_allowed``. Returns True if a row was updated."""
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET ide_agent_allowed = %s WHERE id = %s",
+                (allowed, user_id),
+            )
+            n = cur.rowcount or 0
+            conn.commit()
+    return n > 0
 
 
 def update_user_tenant(user_id: uuid.UUID, tenant_id: int) -> bool:

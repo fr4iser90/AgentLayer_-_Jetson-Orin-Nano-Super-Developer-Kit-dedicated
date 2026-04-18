@@ -134,7 +134,6 @@ export function ChatPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const agentHandlerRef = useRef<(ev: MessageEvent) => void>(() => {});
   const activeThreadIdRef = useRef<string | null>(null);
-  const chatsLoadedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   activeThreadIdRef.current = activeThreadId;
@@ -158,7 +157,6 @@ export function ChatPage() {
   const defaultModel = models[0] ?? "";
 
   useEffect(() => {
-    chatsLoadedRef.current = false;
     setHydrated(false);
   }, [userId]);
 
@@ -204,21 +202,31 @@ export function ChatPage() {
   }, [workspaceChatId, accessToken, auth]);
 
   useEffect(() => {
-    if (!accessToken || !userId || chatsLoadedRef.current) return;
+    if (!accessToken || !userId) return;
     let cancelled = false;
     void (async () => {
       try {
-        chatsLoadedRef.current = true;
         const listRaw = await fetchConversationList(auth);
         if (cancelled) return;
         if (listRaw.length === 0) {
+          let modelForNew = "";
+          try {
+            const mr = await fetch("/v1/models");
+            if (mr.ok) {
+              const md = (await mr.json()) as { data?: Array<{ id?: string }> };
+              modelForNew = (md.data ?? []).map((x) => x.id).filter(Boolean)[0] ?? "";
+            }
+          } catch {
+            /* use empty */
+          }
           const t = await createConversation(auth, {
             title: NEW_CHAT_TITLE,
             mode: "chat",
-            model: defaultModel,
+            model: modelForNew,
             messages: [],
             agent_log: [],
           });
+          if (cancelled) return;
           setThreads([t]);
           setActiveThreadId(t.id);
           setSearchParams({ c: t.id }, { replace: true });
@@ -237,7 +245,6 @@ export function ChatPage() {
         setSearchParams({ c: pick }, { replace: true });
         setHydrated(true);
       } catch (e) {
-        chatsLoadedRef.current = false;
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Could not load chats (server sync)");
           setHydrated(true);
@@ -247,7 +254,7 @@ export function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, userId, auth, defaultModel, setSearchParams]);
+  }, [accessToken, userId, auth, setSearchParams]);
 
   /** Prefill composer from Tools settings: `/chat?try=${encodeURIComponent(prompt)}` */
   useEffect(() => {

@@ -17,8 +17,9 @@ import { AgentSettings } from "./pages/settings/AgentSettings";
 import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
-import { ExperimentalSettings } from "./pages/settings/ExperimentalSettings";
+import { AdminIdeAgent } from "./pages/admin/AdminIdeAgent";
 import { StudioPage } from "./pages/StudioPage";
+import { IdeAgentPage } from "./pages/IdeAgentPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 
@@ -32,6 +33,7 @@ export function App() {
           <Route element={<RequireSession />}>
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />
+            <Route path="ide-agent" element={<IdeAgentPage />} />
             <Route path="studio" element={<StudioPage />} />
             <Route path="workspace" element={<WorkspacePage />} />
             <Route path="docs" element={<DocsPage />} />
@@ -41,7 +43,7 @@ export function App() {
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="tools" element={<ToolsSettings />} />
               <Route path="agent" element={<AgentSettings />} />
-              <Route path="experimental" element={<ExperimentalSettings />} />
+              <Route path="experimental" element={<Navigate to="/admin/ide-agent" replace />} />
             </Route>
             <Route path="admin" element={<RequireAdmin />}>
               <Route element={<AdminLayout />}>
@@ -52,6 +54,7 @@ export function App() {
                 <Route path="tools" element={<AdminTools />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="scheduled-jobs" element={<AdminScheduledJobs />} />
+                <Route path="ide-agent" element={<AdminIdeAgent />} />
                 <Route path="workflows" element={<Navigate to="../scheduled-jobs" replace />} />
               </Route>
             </Route>

@@ -27,6 +27,12 @@ export function AdminLayout() {
             Interfaces
           </NavLink>
           <NavLink
+            to="/admin/ide-agent"
+            className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
+          >
+            IDE Agent
+          </NavLink>
+          <NavLink
             to="/admin/tools"
             className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
           >

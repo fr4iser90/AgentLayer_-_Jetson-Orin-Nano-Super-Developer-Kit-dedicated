@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { useIdeAgentAvailable } from "../hooks/useIdeAgentAvailable";
 import { UserMenu } from "../components/UserMenu";
 
 const GITHUB_REPO =
@@ -19,6 +20,7 @@ const signInClass =
 export function AppLayout() {
   const { accessToken, user, loading } = useAuth();
   const signedIn = !!accessToken && !!user;
+  const { loading: ideAgentLoading, enabled: ideAgentEnabled } = useIdeAgentAvailable();
 
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
@@ -35,6 +37,11 @@ export function AppLayout() {
               <NavLink to="/chat" className={linkClass}>
                 Chat
               </NavLink>
+              {!ideAgentLoading && ideAgentEnabled ? (
+                <NavLink to="/ide-agent" className={linkClass}>
+                  IDE Agent
+                </NavLink>
+              ) : null}
               <NavLink to="/studio" className={linkClass}>
                 Image generation
               </NavLink>

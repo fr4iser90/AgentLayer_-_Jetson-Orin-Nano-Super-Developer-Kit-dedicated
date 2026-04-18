@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -32,8 +34,11 @@ from src.infrastructure.auth import (
     create_refresh_token,
     verify_password,
     get_user_by_email,
+    get_user_by_id,
     create_user,
     update_user_tenant,
+    update_user_ide_agent_allowed,
+    ide_agent_access_for_user,
     validate_refresh_token,
     revoke_refresh_token,
 )
@@ -192,6 +197,7 @@ async def login(request: Request, login_data: LoginRequest):
             "id": str(user.id),
             "email": user.email,
             "role": user.role,
+            "ide_agent_allowed": bool(getattr(user, "ide_agent_allowed", False)),
         },
     }
     response = JSONResponse(content=payload)
@@ -233,6 +239,7 @@ async def auth_refresh(request: Request):
             "id": str(user.id),
             "email": user.email,
             "role": user.role,
+            "ide_agent_allowed": bool(getattr(user, "ide_agent_allowed", False)),
         },
     }
 
@@ -269,6 +276,7 @@ async def get_current_user_info(request: Request):
         "created_at": user.created_at.isoformat(),
         "discord_user_id": discord_uid,
         "telegram_user_id": telegram_uid,
+        "ide_agent_allowed": bool(getattr(user, "ide_agent_allowed", False)),
     }
     if user.role != "admin":
         id_token = set_identity(1, user.id)
@@ -299,24 +307,70 @@ async def patch_operator_settings(request: Request, body: OperatorSettingsPatch)
     return operator_settings_public()
 
 
+def _pidea_playwright_import_ok() -> bool:
+    try:
+        import playwright  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _install_playwright_on_server_sync() -> tuple[bool, str]:
+    """Run ``pip install playwright`` then ``playwright install chromium`` (same Python as the API).
+
+    We intentionally omit ``--with-deps``: that runs ``apt-get`` and often fails in Docker (overlay/apt cache
+    rename errors, read-only layers). Browser binaries still download; if Chromium then fails at runtime with
+    missing ``.so``, install OS packages in the image or run ``playwright install-deps`` as root on the host.
+    """
+    chunks: list[str] = []
+    pip_cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "playwright>=1.49.0,<2"]
+    try:
+        p1 = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return False, "pip install playwright: timed out (10 min)"
+    chunks.append(p1.stdout or "")
+    chunks.append(p1.stderr or "")
+    if p1.returncode != 0:
+        return False, "\n".join(chunks)[-12000:]
+    # No --with-deps: avoids apt inside containers (see docstring).
+    pw_cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+    try:
+        p2 = subprocess.run(pw_cmd, capture_output=True, text=True, timeout=1200)
+    except subprocess.TimeoutExpired:
+        return False, ("\n".join(chunks) + "\nplaywright install chromium: timed out (20 min)")[-12000:]
+    chunks.append(p2.stdout or "")
+    chunks.append(p2.stderr or "")
+    if p2.returncode != 0:
+        return False, "\n".join(chunks)[-12000:]
+    return True, "\n".join(chunks)[-12000:]
+
+
 @app.get("/v1/experimental/status")
 async def experimental_status(request: Request):
-    """PIDEA / optional deps — jeder eingeloggte Nutzer (kein Admin nötig)."""
-    await get_current_user(request)
-
-    def playwright_installed() -> bool:
-        try:
-            import playwright  # noqa: F401
-
-            return True
-        except ImportError:
-            return False
+    """PIDEA / IDE Agent: global flag, per-user access (admin or ``ide_agent_allowed``), Playwright."""
+    user = await get_current_user(request)
 
     from src.infrastructure import operator_settings
 
+    global_on = operator_settings.pidea_effective_enabled()
     return {
-        "pidea_effective_enabled": operator_settings.pidea_effective_enabled(),
-        "pidea_playwright_installed": playwright_installed(),
+        "pidea_globally_enabled": global_on,
+        "pidea_effective_enabled": global_on,
+        "ide_agent_access": ide_agent_access_for_user(user),
+        "pidea_playwright_installed": _pidea_playwright_import_ok(),
+    }
+
+
+@app.post("/v1/admin/experimental/install-playwright")
+async def admin_install_playwright(request: Request):
+    """Admin-only: install Playwright + Chromium in the running API environment (subprocess)."""
+    await require_admin(request)
+    ok, log_text = await asyncio.to_thread(_install_playwright_on_server_sync)
+    return {
+        "ok": ok,
+        "detail": log_text,
+        "pidea_playwright_installed": _pidea_playwright_import_ok(),
     }
 
 
@@ -474,7 +528,10 @@ class AdminCreateTenantBody(BaseModel):
 
 
 class AdminPatchUserBody(BaseModel):
-    tenant_id: int = Field(..., ge=1)
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: int | None = Field(default=None, ge=1)
+    ide_agent_allowed: bool | None = None
 
 
 @app.get("/v1/admin/tenants")
@@ -501,13 +558,28 @@ async def admin_list_users(request: Request):
 
 @app.patch("/v1/admin/users/{user_id}")
 async def admin_patch_user(request: Request, user_id: uuid.UUID, body: AdminPatchUserBody):
-    """Update user fields (currently ``tenant_id`` only). Admin only."""
+    """Update ``tenant_id`` and/or ``ide_agent_allowed``. Admin only."""
     await require_admin(request)
-    if not db.tenant_exists(body.tenant_id):
-        raise HTTPException(status_code=400, detail="unknown tenant_id")
-    if not update_user_tenant(user_id, body.tenant_id):
+    if body.tenant_id is None and body.ide_agent_allowed is None:
+        raise HTTPException(status_code=400, detail="no fields to patch")
+    u = get_user_by_id(user_id)
+    if not u:
         raise HTTPException(status_code=404, detail="user not found")
-    return {"ok": True, "id": str(user_id), "tenant_id": body.tenant_id}
+    if body.tenant_id is not None:
+        if not db.tenant_exists(body.tenant_id):
+            raise HTTPException(status_code=400, detail="unknown tenant_id")
+        if not update_user_tenant(user_id, body.tenant_id):
+            raise HTTPException(status_code=404, detail="user not found")
+    if body.ide_agent_allowed is not None:
+        if not update_user_ide_agent_allowed(user_id, body.ide_agent_allowed):
+            raise HTTPException(status_code=404, detail="user not found")
+    u2 = get_user_by_id(user_id)
+    return {
+        "ok": True,
+        "id": str(user_id),
+        "tenant_id": db.user_tenant_id(user_id),
+        "ide_agent_allowed": bool(u2.ide_agent_allowed) if u2 else False,
+    }
 
 
 @app.post("/v1/admin/users")
