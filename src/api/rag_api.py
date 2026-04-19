@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from src.domain.rag_docs_file_ingest import ingest_markdown_tree, resolve_docs_root
 from src.infrastructure import operator_settings
+from src.infrastructure.public_error import http_500_detail
 from src.infrastructure.auth import require_admin
 from src.infrastructure.db import db
 import src.api.rag as rag_service
@@ -65,17 +66,23 @@ async def admin_rag_ingest(request: Request):
         raise HTTPException(status_code=400, detail=str(e)) from e
     except httpx.HTTPStatusError as e:
         logger.exception("RAG ingest Ollama error")
-        raise HTTPException(
-            status_code=502, detail=f"Ollama embeddings error: {e!s}"
-        ) from e
+        detail = (
+            f"Ollama embeddings error: {e!s}"
+            if operator_settings.expose_internal_errors_in_responses()
+            else "Ollama embeddings error"
+        )
+        raise HTTPException(status_code=502, detail=detail) from e
     except httpx.RequestError as e:
         logger.exception("RAG ingest cannot reach Ollama")
-        raise HTTPException(
-            status_code=502, detail=f"Ollama unreachable: {e!s}"
-        ) from e
+        detail = (
+            f"Ollama unreachable: {e!s}"
+            if operator_settings.expose_internal_errors_in_responses()
+            else "Ollama unreachable"
+        )
+        raise HTTPException(status_code=502, detail=detail) from e
     except Exception as e:
         logger.exception("RAG ingest failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     return out
 
 

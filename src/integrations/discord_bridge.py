@@ -9,6 +9,8 @@ then runs via :func:`src.domain.agent.chat_completion` in-process (same identity
 (``bridge_agent_sessions``), like Telegram. Send ``/clear`` / ``reset`` / ``neu`` after the
 prefix to start over. The web UI already sends full ``messages[]`` per turn — no bridge table.
 Restarts pick up DB changes on the next reconnect cycle after ``client.run`` ends.
+
+**New bridges:** Same persistence pattern as below; guide: ``integrations/bridges/README.md``.
 """
 
 from __future__ import annotations
@@ -205,6 +207,7 @@ def _make_client(cfg: _BridgeCfg) -> discord.Client:
                 user_id,
                 cfg.model,
             )
+            # Rolling DB context for this Discord channel; new gateways: README in integrations/bridges/.
             conv_id = bridge_agent_conversation_ensure(
                 user_id,
                 tenant_id,

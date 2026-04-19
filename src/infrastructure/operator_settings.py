@@ -1,4 +1,8 @@
-"""Persisted operator preferences: integrations, agent execution class, LLM routing, memory, RAG."""
+"""Persisted operator preferences: integrations, agent execution class, LLM routing, memory, RAG.
+
+New product/runtime toggles should be added here (``operator_settings`` row + PATCH API), not as
+new ``AGENT_*`` environment variables — those are legacy for bootstrapping containers and local dev.
+"""
 
 from __future__ import annotations
 
@@ -77,6 +81,7 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_cdp_http_url": None,
         "pidea_selector_ide": None,
         "pidea_selector_version": None,
+        "expose_internal_errors": False,
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -100,7 +105,8 @@ def _fetch_row() -> dict[str, Any]:
                        memory_enabled, rag_enabled, rag_ollama_model, rag_embedding_dim,
                        rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
                        rag_tenant_shared_domains, docs_root,
-                       pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version
+                       pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version,
+                       expose_internal_errors
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -160,6 +166,7 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_cdp_http_url": row[43],
         "pidea_selector_ide": row[44],
         "pidea_selector_version": row[45],
+        "expose_internal_errors": bool(row[46]) if row[46] is not None else False,
     }
 
 
@@ -254,6 +261,11 @@ def memory_graph_prompt_settings() -> dict[str, Any]:
 def memory_service_enabled() -> bool:
     """Facts + semantic notes (and graph when enabled). Admin → Interfaces ``memory_enabled``."""
     return bool(_cached_row().get("memory_enabled", True))
+
+
+def expose_internal_errors_in_responses() -> bool:
+    """When true, some HTTP 5xx ``detail`` may include ``str(exception)`` (debug). Admin → Interfaces."""
+    return bool(_cached_row().get("expose_internal_errors", False))
 
 
 def rag_settings() -> dict[str, Any]:
@@ -608,6 +620,7 @@ def public_dict() -> dict[str, Any]:
         "pidea_cdp_http_url": (str(r.get("pidea_cdp_http_url") or "").strip()),
         "pidea_selector_ide": (str(r.get("pidea_selector_ide") or "").strip()),
         "pidea_selector_version": (str(r.get("pidea_selector_version") or "").strip()),
+        "expose_internal_errors": bool(r.get("expose_internal_errors", False)),
     }
 
 
@@ -664,6 +677,7 @@ class OperatorSettingsPatch(BaseModel):
     pidea_cdp_http_url: str | None = Field(default=None, max_length=512)
     pidea_selector_ide: str | None = Field(default=None, max_length=32)
     pidea_selector_version: str | None = Field(default=None, max_length=64)
+    expose_internal_errors: bool | None = None
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -883,6 +897,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
     if "pidea_selector_version" in patch:
         v = patch["pidea_selector_version"]
         r["pidea_selector_version"] = None if v is None else (str(v).strip()[:64] or None)
+    if "expose_internal_errors" in patch:
+        r["expose_internal_errors"] = bool(patch["expose_internal_errors"])
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -936,6 +952,7 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   pidea_cdp_http_url = %s,
                   pidea_selector_ide = %s,
                   pidea_selector_version = %s,
+                  expose_internal_errors = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -990,6 +1007,7 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("pidea_cdp_http_url"),
                     r.get("pidea_selector_ide"),
                     r.get("pidea_selector_version"),
+                    bool(r.get("expose_internal_errors", False)),
                 ),
             )
         conn.commit()

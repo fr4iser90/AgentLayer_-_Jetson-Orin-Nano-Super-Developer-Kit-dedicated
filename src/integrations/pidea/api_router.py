@@ -19,6 +19,7 @@ from src.integrations.pidea.errors import (
 )
 from src.integrations.pidea.ide_agent_message import run_ide_agent_message_sync, run_ide_agent_snapshot_sync
 from src.integrations.pidea.ide_agents_admin_api import router as ide_agents_admin_router
+from src.infrastructure.public_error import http_500_detail
 from src.integrations.pidea.playwright_env import (
     install_playwright_on_server_sync,
     playwright_import_ok,
@@ -57,13 +58,13 @@ async def _run_ide_agent_with_mapping(run) -> Any:
     except PideaTimeoutError as e:
         raise HTTPException(status_code=504, detail=str(e)) from e
     except SelectorNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=f"Selector bundle not found: {e}") from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except PideaError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
 
 
 @router.get("/v1/ide-agent/snapshot")

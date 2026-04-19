@@ -11,6 +11,30 @@ import {
   exportThreadJson,
   titleFromFirstMessage,
 } from "../features/chat/chatThreadStorage";
+
+/** Workspace-linked thread: show whether other members see messages (shared) or only you (personal). */
+function WorkspaceChatVisibilityBadge({ thread }: { thread: Pick<ChatThread, "workspaceId" | "shared"> }) {
+  if (!thread.workspaceId) return null;
+  const shared = thread.shared === true;
+  if (shared) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center rounded-full border border-amber-400/40 bg-amber-950/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100/95"
+        title="Shared workspace chat — other members can read messages in this thread."
+      >
+        Shared
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-full border border-emerald-500/35 bg-emerald-950/45 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/90"
+      title="Personal workspace chat — only you see this thread."
+    >
+      Personal
+    </span>
+  );
+}
 import {
   createConversation,
   deleteConversationApi,
@@ -27,6 +51,7 @@ import {
   type PendingAttachment,
 } from "../features/chat/messageFormat";
 import { getDisabledToolNames } from "../features/settings/toolPrefs";
+import { buildSidebarGroups } from "../features/chat/groupThreadsForSidebar";
 
 const SUGGESTED = [
   "Show me a code snippet of a website's sticky header",
@@ -49,6 +74,10 @@ function parseWorkspaceQueryParam(raw: string | null): string | null {
     return null;
   }
   return s;
+}
+
+function threadMessageCount(t: ChatThread): number {
+  return t.messageCount ?? t.messages.length;
 }
 
 function assistantFromCompletion(data: unknown): string {
@@ -130,6 +159,7 @@ export function ChatPage() {
   const [models, setModels] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [composerDragActive, setComposerDragActive] = useState(false);
+  const [workspaceTitles, setWorkspaceTitles] = useState<Record<string, string>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const agentHandlerRef = useRef<(ev: MessageEvent) => void>(() => {});
@@ -201,6 +231,39 @@ export function ChatPage() {
     };
   }, [workspaceChatId, accessToken, auth]);
 
+  const workspaceIdsInThreads = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of threads) {
+      if (t.workspaceId) s.add(t.workspaceId);
+    }
+    return [...s].sort().join(",");
+  }, [threads]);
+
+  useEffect(() => {
+    if (!accessToken || !workspaceIdsInThreads) {
+      setWorkspaceTitles({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await apiFetch("/v1/workspaces", auth);
+        if (!r.ok || cancelled) return;
+        const j = (await r.json()) as { workspaces?: Array<{ id?: string; title?: string }> };
+        const map: Record<string, string> = {};
+        for (const w of j.workspaces || []) {
+          if (w.id && typeof w.title === "string") map[w.id] = w.title;
+        }
+        if (!cancelled) setWorkspaceTitles(map);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, workspaceIdsInThreads, auth]);
+
   useEffect(() => {
     if (!accessToken || !userId) return;
     let cancelled = false;
@@ -209,35 +272,26 @@ export function ChatPage() {
         const listRaw = await fetchConversationList(auth);
         if (cancelled) return;
         if (listRaw.length === 0) {
-          let modelForNew = "";
-          try {
-            const mr = await fetch("/v1/models");
-            if (mr.ok) {
-              const md = (await mr.json()) as { data?: Array<{ id?: string }> };
-              modelForNew = (md.data ?? []).map((x) => x.id).filter(Boolean)[0] ?? "";
-            }
-          } catch {
-            /* use empty */
-          }
-          const t = await createConversation(auth, {
-            title: NEW_CHAT_TITLE,
-            mode: "chat",
-            model: modelForNew,
-            messages: [],
-            agent_log: [],
-          });
-          if (cancelled) return;
-          setThreads([t]);
-          setActiveThreadId(t.id);
-          setSearchParams({ c: t.id }, { replace: true });
+          setThreads([]);
+          setActiveThreadId(null);
+          setSearchParams({}, { replace: true });
           setHydrated(true);
           return;
         }
         const mapped = listRaw.map((row) => mapListItemToThread(row as Record<string, unknown>));
         setThreads(mapped);
         const fromUrl = new URLSearchParams(window.location.search).get("c");
-        const pick =
-          fromUrl && mapped.some((x) => x.id === fromUrl) ? fromUrl : mapped[0].id;
+        let pick: string | null =
+          fromUrl && mapped.some((x) => x.id === fromUrl) ? fromUrl : null;
+        if (!pick) {
+          const withMsgs = mapped.find((x) => threadMessageCount(x) > 0);
+          pick = withMsgs?.id ?? mapped[0]?.id ?? null;
+        }
+        if (!pick) {
+          setActiveThreadId(null);
+          setHydrated(true);
+          return;
+        }
         setActiveThreadId(pick);
         const full = await fetchConversationDetail(auth, pick);
         if (cancelled) return;
@@ -316,7 +370,14 @@ export function ChatPage() {
 
   const patchThread = useCallback((id: string, patch: Partial<ChatThread>) => {
     setThreads((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...patch, updatedAt: Date.now() } : t))
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const merged: ChatThread = { ...t, ...patch, updatedAt: Date.now() };
+        if (patch.messages !== undefined) {
+          merged.messageCount = patch.messages.length;
+        }
+        return merged;
+      })
     );
   }, []);
 
@@ -417,6 +478,7 @@ export function ChatPage() {
           const updated: ChatThread = {
             ...th,
             messages: [...th.messages, { role: "assistant", content: content || "(empty)" }],
+            messageCount: th.messages.length + 1,
             updatedAt: Date.now(),
           };
           void putConversation(auth, updated).catch(() => {});
@@ -519,6 +581,7 @@ export function ChatPage() {
                 const updated: ChatThread = {
                   ...th,
                   messages: [...th.messages, { role: "assistant", content }],
+                  messageCount: th.messages.length + 1,
                   updatedAt: Date.now(),
                 };
                 void putConversation(auth, updated).catch(() => {});
@@ -634,22 +697,8 @@ export function ChatPage() {
       setThreads((prev) => {
         const next = prev.filter((t) => t.id !== id);
         if (next.length === 0) {
-          void (async () => {
-            try {
-              const t = await createConversation(auth, {
-                title: NEW_CHAT_TITLE,
-                mode: "chat",
-                model: defaultModel,
-                messages: [],
-                agent_log: [],
-              });
-              setThreads([t]);
-              setActiveThreadId(t.id);
-              setSearchParams({ c: t.id });
-            } catch (err) {
-              setError(err instanceof Error ? err.message : String(err));
-            }
-          })();
+          setActiveThreadId(null);
+          setSearchParams({}, { replace: true });
           return [];
         }
         if (id === activeThreadId) {
@@ -684,15 +733,22 @@ export function ChatPage() {
     }
   };
 
-  const sortedThreads = useMemo(
-    () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
-    [threads]
+  /** Hide empty threads unless they are the one currently open (avoids fake sidebar clutter). */
+  const sidebarThreads = useMemo(
+    () =>
+      threads.filter((t) => threadMessageCount(t) > 0 || t.id === activeThreadId),
+    [threads, activeThreadId]
+  );
+
+  const sidebarGroups = useMemo(
+    () => buildSidebarGroups(sidebarThreads, workspaceTitles),
+    [sidebarThreads, workspaceTitles]
   );
 
   const canSend = useMemo(() => {
-    if (loading || !(model || defaultModel) || !accessToken) return false;
+    if (!activeThreadId || loading || !(model || defaultModel) || !accessToken) return false;
     return buildUserMessageContent(draft, pendingAttachments) !== "";
-  }, [loading, model, defaultModel, accessToken, draft, pendingAttachments]);
+  }, [activeThreadId, loading, model, defaultModel, accessToken, draft, pendingAttachments]);
 
   if (!hydrated || !userId) {
     return (
@@ -746,66 +802,106 @@ export function ChatPage() {
           <p className="px-2 pb-1 text-xs font-medium uppercase tracking-wide text-surface-muted">
             Your chats
           </p>
-          <ul className="flex flex-col gap-1">
-            {sortedThreads.map((t) => (
-              <li key={t.id}>
-                <div
-                  className={`group flex items-start gap-1 rounded-md px-2 py-2 ${
-                    t.id === activeThreadId ? "bg-white/10" : "hover:bg-white/5"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left text-sm text-neutral-200"
-                    onClick={() => void selectThread(t.id)}
-                  >
-                    <span className="line-clamp-2">{t.title}</span>
-                    <span className="mt-0.5 block text-[10px] text-surface-muted">
-                      {new Date(t.updatedAt).toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </button>
-                  <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button
-                      type="button"
-                      className="rounded px-1 text-[10px] text-surface-muted hover:text-white"
-                      title="Rename"
-                      onClick={() => renameThread(t.id)}
-                    >
-                      Ren
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded px-1 text-[10px] text-surface-muted hover:text-white"
-                      title="Copy link + JSON"
-                      onClick={() => void shareThread(t)}
-                    >
-                      Share
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded px-1 text-[10px] text-red-400/90 hover:text-red-300"
-                      title="Delete"
-                      onClick={() => void deleteThread(t.id)}
-                    >
-                      Del
-                    </button>
-                  </div>
-                </div>
-              </li>
+          <p className="mb-2 px-2 text-[10px] leading-snug text-surface-muted/80">
+            Empty threads stay hidden until you open them or send a message. Workspace rows marked{" "}
+            <span className="text-amber-200/90">Shared</span> are older team chats (or API); new assistants are private
+            by default.
+          </p>
+          <div className="flex flex-col gap-3">
+            {sidebarGroups.map((g) => (
+              <section
+                key={g.kind === "workspace" ? `ws-${g.workspaceId}` : `src-${g.source}`}
+                className="min-w-0"
+              >
+                <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-surface-muted/90">
+                  {g.label}
+                </p>
+                <ul className="flex flex-col gap-1">
+                  {g.threads.map((t) => (
+                    <li key={t.id}>
+                      <div
+                        className={`group flex items-start gap-1 rounded-md px-2 py-2 ${
+                          t.id === activeThreadId ? "bg-white/10" : "hover:bg-white/5"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left text-sm text-neutral-200"
+                          onClick={() => void selectThread(t.id)}
+                        >
+                          <span className="flex flex-wrap items-start gap-1.5">
+                            <span className="line-clamp-2 min-w-0 flex-1 text-left">{t.title}</span>
+                            <WorkspaceChatVisibilityBadge thread={t} />
+                          </span>
+                          <span className="mt-0.5 block text-[10px] text-surface-muted">
+                            {new Date(t.updatedAt).toLocaleString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </button>
+                        <div className="flex shrink-0 flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            className="rounded px-1 text-[10px] text-surface-muted hover:text-white"
+                            title="Rename"
+                            onClick={() => renameThread(t.id)}
+                          >
+                            Ren
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded px-1 text-[10px] text-surface-muted hover:text-white"
+                            title="Copy link + JSON"
+                            onClick={() => void shareThread(t)}
+                          >
+                            Share
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded px-1 text-[10px] text-red-400/90 hover:text-red-300"
+                            title="Delete"
+                            onClick={() => void deleteThread(t.id)}
+                          >
+                            Del
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         </div>
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {!activeThreadId ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 py-12 text-center">
+            <p className="max-w-md text-sm text-surface-muted">
+              No conversation open. Threads with <strong className="text-neutral-400">no messages</strong> stay out of
+              the sidebar until you send something. Use <strong className="text-neutral-400">+ New chat</strong> to
+              start.
+            </p>
+            <button
+              type="button"
+              onClick={() => void startNewChat()}
+              className="rounded-lg border border-surface-border bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+            >
+              + New chat
+            </button>
+          </div>
+        ) : (
+          <>
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-border px-6 py-4">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">{activeThread?.title ?? "Chat"}</p>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="truncate text-sm font-medium text-white">{activeThread?.title ?? "Chat"}</p>
+              {activeThread ? <WorkspaceChatVisibilityBadge thread={activeThread} /> : null}
+            </div>
             <label className="mt-2 block text-xs text-surface-muted">Ollama model</label>
             <select
               className="mt-1 rounded-lg border border-surface-border bg-[#1a1a1a] px-3 py-2 text-sm text-neutral-100"
@@ -839,6 +935,29 @@ export function ChatPage() {
             <span className="ml-2 text-xs text-sky-300/80">
               (this workspace id is passed to the agent; say &quot;add milk&quot; for this list)
             </span>
+          </div>
+        ) : null}
+
+        {activeThread?.workspaceId && activeThread.shared ? (
+          <div
+            className="shrink-0 border-b border-amber-900/45 bg-amber-950/40 px-6 py-2.5 text-sm text-amber-50/95"
+            role="status"
+          >
+            <span className="font-medium text-amber-200">Shared workspace chat</span>
+            {" — "}
+            Other members who can access this workspace may see messages you send here. Do not post secrets or
+            private data.
+          </div>
+        ) : null}
+
+        {activeThread?.workspaceId && activeThread.shared !== true ? (
+          <div
+            className="shrink-0 border-b border-emerald-900/35 bg-emerald-950/25 px-6 py-2 text-sm text-emerald-100/90"
+            role="status"
+          >
+            <span className="font-medium text-emerald-200">Personal workspace chat</span>
+            {" — "}
+            Only your account sees this thread; it is not the shared team chat for this workspace.
           </div>
         ) : null}
 
@@ -1060,6 +1179,8 @@ export function ChatPage() {
             ) : null}
           </div>
         </div>
+          </>
+        )}
       </main>
     </div>
   );

@@ -2,6 +2,9 @@ export const NEW_CHAT_TITLE = "New chat";
 
 export type ChatMode = "chat" | "agent";
 
+/** ``web`` = first-party UI; otherwise bridge provider id from the server (e.g. telegram, slack). */
+export type ChatSource = string;
+
 export type UiMessage = { role: "user" | "assistant"; content: string };
 
 export type AgentTimelineEntry = { id: string; kind: string; text: string };
@@ -17,6 +20,12 @@ export type ChatThread = {
   updatedAt: number;
   /** Set when this thread is the workspace-scoped assistant chat (server-side). */
   workspaceId?: string;
+  /** Shared workspace thread (members see same messages). */
+  shared?: boolean;
+  /** Origin: first-party ``web`` or bridge provider id. */
+  source?: ChatSource;
+  /** Server list field ``message_count``; falls back to ``messages.length`` when loaded. */
+  messageCount?: number;
 };
 
 export type PersistedState = {

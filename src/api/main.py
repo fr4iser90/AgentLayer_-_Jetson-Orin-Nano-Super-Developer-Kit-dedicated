@@ -76,6 +76,7 @@ from src.infrastructure.user_secrets_api import router as user_secrets_router
 from src.api.conversations_api import router as conversations_router
 from src.workspace.router import router as workspace_router
 from src.infrastructure.log_redaction import install_log_redaction_filters
+from src.infrastructure.public_error import http_500_detail
 from src.integrations.pidea.api_router import router as pidea_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -115,6 +116,9 @@ def _bearer_user_role_from_request(request: Request) -> str | None:
 
 from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
 from src.integrations import discord_bridge, telegram_bridge
+
+# Optional out-of-band gateways (Telegram, Discord, …). New bridges: start/stop here like below;
+# implementation guide: src/integrations/bridges/README.md
 
 
 @asynccontextmanager
@@ -544,6 +548,11 @@ _agent_ui_dir = Path(__file__).resolve().parents[2] / "interfaces" / "agent-ui" 
 _agent_index = _agent_ui_dir / "index.html"
 if _agent_index.is_file():
 
+    @app.get("/app")
+    async def agent_ui_spa_root():
+        """``/app`` without trailing slash: same shell as ``/app/`` (hard refresh must not 405)."""
+        return FileResponse(_agent_index)
+
     @app.get("/app/chat")
     @app.get("/app/workspace")
     @app.get("/app/docs")
@@ -912,7 +921,7 @@ async def run_tool_direct(tool_name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Direct tool execution failed for {tool_name}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=http_500_detail(e))
     finally:
         reset_capability_confirmed(_cf_tok)
         reset_identity(id_token)
@@ -948,7 +957,7 @@ async def run_tool_openwebui(request: Request):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Open WebUI tool execution failed for {tool_name}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=http_500_detail(e))
     finally:
         reset_capability_confirmed(_cf_tok)
         reset_identity(id_token)

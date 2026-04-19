@@ -39,6 +39,20 @@ function assistantFromCompletion(data: unknown): string {
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+/** Which workspace-scoped conversation to open in this panel. */
+function pickWorkspaceConversationRow(
+  list: { id?: unknown; shared?: boolean }[],
+  readOnly: boolean
+): { id?: unknown; shared?: boolean } {
+  if (list.length === 0) return {};
+  if (readOnly) {
+    const shared = list.find((x) => x.shared === true);
+    return shared ?? list[0]!;
+  }
+  const personal = list.find((x) => x.shared !== true);
+  return personal ?? list.find((x) => x.shared === true) ?? list[0]!;
+}
+
 function formatUserBubbleForList(raw: string): string {
   const { parts } = parseContentParts(raw);
   if (!parts) return raw;
@@ -61,8 +75,9 @@ type Props = {
 };
 
 /**
- * Workspace assistant: one **shared** server conversation per workspace (all members see the same thread),
- * same completion API + `agent_workspace_context` as the full Chat page.
+ * Workspace assistant: **personal** thread by default (only you). A **shared** team thread is optional:
+ * create via API (`POST /v1/user/conversations` with `workspace_id` + `shared: true`) if all members should see it.
+ * Same completion API + `agent_workspace_context` as the full Chat page.
  */
 export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = false }: Props) {
   const auth = useAuth();
@@ -77,6 +92,7 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [noSharedChatYet, setNoSharedChatYet] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [modelBeforeFirstSend, setModelBeforeFirstSend] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,8 +137,11 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
         const list = await fetchConversationList(auth, { workspaceId });
         if (cancelled) return;
         if (list.length > 0) {
-          const shared = list.find((x) => (x as { shared?: boolean }).shared === true);
-          const row = (shared ?? list[0]) as { id?: string };
+          // Viewers: prefer the shared team thread if present. Editors: prefer personal (private) thread.
+          const row = pickWorkspaceConversationRow(
+            list as { id?: unknown; shared?: boolean }[],
+            readOnly
+          ) as { id?: string };
           const id = String(row.id ?? "");
           if (!id) throw new Error("missing conversation id");
           const full = await fetchConversationDetail(auth, id);
@@ -134,26 +153,8 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
           if (!cancelled) setNoSharedChatYet(true);
           return;
         }
-        const r = await fetch("/v1/models");
-        let first = "";
-        if (r.ok) {
-          const d = (await r.json()) as { data?: Array<{ id?: string }> };
-          first = (d.data ?? []).map((x) => x.id).filter(Boolean)[0] ?? "";
-        }
-        const title = workspaceTitle?.trim()
-          ? `Assistant · ${workspaceTitle.trim()}`
-          : "Workspace assistant";
-        const created = await createConversation(auth, {
-          title,
-          mode: "chat",
-          model: first,
-          messages: [],
-          agent_log: [],
-          workspace_id: workspaceId,
-          shared: true,
-        });
-        if (cancelled) return;
-        setThread(created);
+        /* No auto-create: first message creates a private workspace thread (avoids empty rows in /chat). */
+        if (!cancelled) setThread(null);
       } catch (e) {
         if (!cancelled) {
           setInitErr(e instanceof Error ? e.message : String(e));
@@ -190,7 +191,10 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
     }
   }, [messages, open, sendLoading]);
 
-  const modelValue = thread?.model?.trim() || models[0] || "";
+  const modelValue = useMemo(
+    () => thread?.model?.trim() || modelBeforeFirstSend.trim() || models[0] || "",
+    [thread?.model, modelBeforeFirstSend, models]
+  );
 
   const setModelOnThread = useCallback(
     (m: string) => {
@@ -202,14 +206,35 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
   const send = useCallback(async () => {
     if (readOnly) return;
     const userContent = buildUserMessageContent(draft, pendingAttachments);
-    if (!userContent || !accessToken || !thread || sendLoading) return;
+    if (!userContent || !accessToken || sendLoading) return;
     const mdl = modelValue.trim();
     if (!mdl) {
       setSendErr("No model available.");
       return;
     }
     setSendErr(null);
-    const prev = thread;
+    let prev = thread;
+    if (!prev) {
+      const title = workspaceTitle?.trim()
+        ? `Assistant · ${workspaceTitle.trim()}`
+        : "Workspace assistant";
+      try {
+        const created = await createConversation(auth, {
+          title,
+          mode: "chat",
+          model: mdl,
+          messages: [],
+          agent_log: [],
+          workspace_id: workspaceId,
+          shared: false,
+        });
+        prev = created;
+        setThread(created);
+      } catch (e) {
+        setSendErr(e instanceof Error ? e.message : String(e));
+        return;
+      }
+    }
     const prior = prev.messages.map((m) => ({ role: m.role, content: m.content }));
     const nextMessages = [...prior, { role: "user" as const, content: userContent }];
     const nextThread: ChatThread = {
@@ -284,6 +309,8 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
     readOnly,
     sendLoading,
     thread,
+    workspaceId,
+    workspaceTitle,
   ]);
 
   const hasComposerPayload =
@@ -295,8 +322,8 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
     hasComposerPayload &&
     !sendLoading &&
     !!accessToken &&
-    !!thread &&
-    !initLoading;
+    !initLoading &&
+    !!modelValue.trim();
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-surface-border bg-surface-raised/40">
@@ -317,15 +344,16 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
         <div className="flex min-h-0 flex-1 flex-col border-t border-surface-border">
           <p className="shrink-0 px-3 pt-2 text-[11px] leading-snug text-surface-muted">
             {readOnly
-              ? "Shared workspace chat (read-only for your role). Same history for all members."
-              : "Shared workspace chat — same thread for everyone with access. Text + images (same pipeline as main Chat: attachments as data URLs in the API). Reload-safe."}
+              ? "Team workspace chat when available (read-only for your role). If the owner has not created a shared thread yet, this panel may be empty."
+              : "Private assistant: your first message creates the thread (no empty placeholder in main Chat). Text + images like main Chat."}
           </p>
           {initLoading ? (
             <div className="px-3 py-4 text-sm text-surface-muted">Loading chat…</div>
           ) : noSharedChatYet && !thread ? (
             <div className="px-3 py-4 text-xs leading-snug text-surface-muted">
-              No shared workspace chat yet. Ask someone with edit access to open this panel once to create
-              it — then everyone will see the same thread here.
+              No workspace chat visible for your role yet. Viewers need a <strong className="text-neutral-400">shared</strong>{" "}
+              team conversation (created with <code className="text-neutral-500">shared: true</code> on the API) to
+              see the same thread as others.
             </div>
           ) : initErr ? (
             <div className="mx-3 mb-2 rounded border border-red-500/40 bg-red-950/30 px-2 py-2 text-xs text-red-200">
@@ -340,12 +368,14 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
                   value={modelValue}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setModelOnThread(v);
-                    if (thread && !readOnly) {
-                      void putConversation(auth, { ...thread, model: v }).catch(() => {});
+                    if (thread) {
+                      setModelOnThread(v);
+                      if (!readOnly) void putConversation(auth, { ...thread, model: v }).catch(() => {});
+                    } else {
+                      setModelBeforeFirstSend(v);
                     }
                   }}
-                  disabled={readOnly || !models.length || !thread}
+                  disabled={readOnly || !models.length}
                 >
                   {!models.length ? (
                     <option>Loading…</option>
@@ -367,7 +397,9 @@ export function WorkspaceEmbeddedChat({ workspaceId, workspaceTitle, readOnly = 
                 <div className="max-h-[min(320px,40vh)] overflow-y-auto rounded-lg border border-white/10 bg-black/20 px-2 py-2 text-sm lg:max-h-[min(480px,calc(100vh-280px))]">
                   {messages.length === 0 ? (
                     <p className="text-xs text-surface-muted">
-                      Ask questions or attach images (+) — same multimodal messages as the main Chat page.
+                      {thread
+                        ? "Ask questions or attach images (+) — same multimodal messages as the main Chat page."
+                        : "No conversation yet — send below to create your private thread (first message is stored)."}
                     </p>
                   ) : (
                     <ul className="flex flex-col gap-2">

@@ -20,6 +20,7 @@ from src.workspace import db as workspace_db
 from src.workspace import file_storage, files_db
 from src.workspace.bootstrap import ensure_workspace_schema, workspace_tables_exist
 from src.workspace.upload_bytes import normalized_content_type, sniff_image_mime
+from src.infrastructure.public_error import http_500_detail
 
 router = APIRouter(prefix="/v1/workspaces", tags=["workspaces"])
 
@@ -102,11 +103,11 @@ async def workspace_install(request: Request, body: WorkspaceInstallBody):
     try:
         ensure_workspace_schema(kinds)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"install failed: {e!s}") from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     tid = db.user_tenant_id(user.id)
     workspace_db.tenant_merge_installed_template_kinds(tid, kinds)
     return {"ok": True, "already": False}
@@ -126,11 +127,11 @@ async def workspace_install_templates(request: Request, body: WorkspaceInstallBo
     try:
         ensure_workspace_schema(kinds)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"install-templates failed: {e!s}") from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     tid = db.user_tenant_id(user.id)
     workspace_db.tenant_merge_installed_template_kinds(tid, kinds)
     merged = workspace_db.tenant_installed_template_kinds(tid)
@@ -233,7 +234,7 @@ async def workspace_file_upload(
     try:
         file_storage.write_bytes(config.workspace_upload_dir(), relpath, data)
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"storage failed: {e!s}") from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
 
     try:
         row = files_db.file_insert(

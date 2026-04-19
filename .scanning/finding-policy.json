@@ -58,6 +58,24 @@
                 "path_regex": ".*/interfaces/agent-ui/src/features/workspace/workspaceDataPaths\\.ts$",
                 "message_regex": "prototype|pollution",
                 "reason": "Paths are workspace dataPath strings; __proto__/constructor/prototype segments are now rejected. Residual scanner noise may remain on older branches."
+            },
+            {
+                "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+                "path_regex": ".*/src/core/config\\.py$",
+                "message_regex": "WebSocket|wss|ws",
+                "reason": "False positive: Python config file; line ~262 is a comment about CDP (mentions ws:// in prose). No browser WebSocket API in this file."
+            },
+            {
+                "rule_id": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
+                "path_regex": ".*/src/integrations/pidea/domkit/version_detector\\.py$",
+                "message_regex": "urllib|file",
+                "reason": "Same trust model as Bandit B310: HTTP(S) CDP /json/version only; base URL normalized to http/https."
+            },
+            {
+                "rule_id": "python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args",
+                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "message_regex": "subprocess|run",
+                "reason": "Static argv for pip and playwright install; env paths from operator (PIDEA_PLAYWRIGHT_PIP_TARGET), not request body. Matches Bandit B603 policy."
             }
         ]
     },
@@ -140,6 +158,48 @@
                 "path_regex": ".*/scripts/(memory_graph_stats|reindex_agentlayer_docs)\\.py$",
                 "message_regex": "url open|Audit url open",
                 "reason": "Operator CLI: urllib opens HTTP(S) URLs built from AGENT_BASE_URL + fixed API paths; not arbitrary file:// from user input. nosec on urlopen line."
+            },
+            {
+                "rule_id": "B310",
+                "path_regex": ".*/src/integrations/pidea/domkit/version_detector\\.py$",
+                "message_regex": "url open|Audit url open|urllib",
+                "reason": "CDP HTTP(S) only: _normalize_cdp_base forces http:// or https:// before urljoin + urlopen to local IDE debugging endpoint (operator-controlled PIDEA_CDP_HTTP_URL), not user-controlled file://."
+            },
+            {
+                "rule_id": "B112",
+                "path_regex": ".*/src/integrations/pidea/(automation/chat_reader|chat)\\.py$",
+                "message_regex": "Try, Except, Continue",
+                "reason": "PIDEA chat readers: skip bad frames/lines in bounded loops; continue is intentional."
+            },
+            {
+                "rule_id": "B112",
+                "path_regex": ".*/src/integrations/pidea/domkit/selector_validator\\.py$",
+                "message_regex": "Try, Except, Continue",
+                "reason": "Validator skips invalid selector rows; bounded iteration."
+            },
+            {
+                "rule_id": "B110",
+                "path_regex": ".*/src/integrations/pidea/connection\\.py$",
+                "message_regex": "Try, Except, Pass",
+                "reason": "Playwright teardown: best-effort close/stop; errors during shutdown are non-fatal."
+            },
+            {
+                "rule_id": "B110",
+                "path_regex": ".*/src/integrations/pidea/ide_agents_admin_service\\.py$",
+                "message_regex": "Try, Except, Pass",
+                "reason": "Optional page.url read when CDP page may be closing; failure is non-fatal for status payload."
+            },
+            {
+                "rule_id": "B404",
+                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "message_regex": "subprocess",
+                "reason": "Server-side pip/playwright install uses fixed argv (sys.executable -m pip/playwright); no user-controlled shell strings."
+            },
+            {
+                "rule_id": "B603",
+                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "message_regex": "subprocess",
+                "reason": "Same as B404: subprocess.run with static command list and env derived from operator config paths (PIDEA_PLAYWRIGHT_PIP_TARGET), not remote user input."
             }
         ]
     },
@@ -156,6 +216,18 @@
                 "path_regex": ".*/src/api/rag_api\\.py$",
                 "message_regex": "user-provided|path depends",
                 "reason": "Admin-only POST /v1/admin/rag/ingest-docs; docs_root is admin-controlled; resolved with Path.expanduser().resolve() for server-side ingest."
+            },
+            {
+                "rule_id": "py/path-injection",
+                "path_regex": ".*/src/integrations/pidea/ide_agents_admin_service\\.py$",
+                "message_regex": "user-provided|path depends",
+                "reason": "Selector JSON paths are under repo selectors/<ide>/<version>.json; resolve_version validates file exists; ide/version normalized. Admin/operator surface."
+            },
+            {
+                "rule_id": "py/path-injection",
+                "path_regex": ".*/src/integrations/pidea/selectors_loader\\.py$",
+                "message_regex": "user-provided|path depends",
+                "reason": "Loads selector bundles from fixed selectors/ tree; paths derived from validated ide/version, not arbitrary FS reads from chat users."
             },
             {
                 "rule_id": "py/clear-text-logging-sensitive-data",

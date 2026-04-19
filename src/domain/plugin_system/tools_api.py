@@ -23,6 +23,7 @@ from src.domain.plugin_system.tool_policy import (
 )
 from src.domain.http_identity import resolve_tools_list_identity
 from src.infrastructure.db import db
+from src.infrastructure.public_error import http_500_detail
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ async def admin_reload_tools(request: Request, user, scope: Literal["all", "extr
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("reload-tools failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     names = [_registered_function_name(t) for t in reg.chat_tool_specs]
     pmap = _policies_map_safe()
     tools = enrich_meta_for_admin(reg.tools_meta, pmap)
@@ -157,7 +158,7 @@ async def admin_put_tool_policies(request: Request, body: ToolPoliciesPutBody):
         replace_all_policies([p.model_dump() for p in body.policies])
     except Exception as e:
         logger.exception("tool-policies save failed")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
     return {"ok": True, "count": len(body.policies)}
 
 

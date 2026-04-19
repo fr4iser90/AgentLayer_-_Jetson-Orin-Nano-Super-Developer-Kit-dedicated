@@ -10,6 +10,10 @@ AgentLayer exposes an OpenAI-compatible chat endpoint plus app-specific endpoint
 
 This page is a **high-signal index**, not an exhaustive OpenAPI reference.
 
+### Configuration policy
+
+**Runtime and product toggles** (RAG, memory, whether HTTP 5xx responses may include exception text for debugging, etc.) live in **`operator_settings`** and are changed via **Admin → Interfaces** or `PATCH /v1/admin/operator-settings`. Do **not** add new `AGENT_*` environment variables for those — env is for legacy/bootstrap (containers, local dev), not for feature flags.
+
 ## Chat (OpenAI-compatible)
 
 - `POST /v1/chat/completions`

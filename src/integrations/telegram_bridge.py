@@ -9,6 +9,9 @@ via :func:`src.domain.agent.chat_completion` in-process. Same identity semantics
 Postgres (``bridge_agent_sessions`` → ``chat_messages``), same pattern as Discord — unlike the
 web UI, which sends full ``messages[]`` from the client on each turn.
 
+**New bridges:** Copy the ``bridge_agent_conversation_ensure`` → ``messages_for_bridge_completion``
+→ ``chat_completion`` → ``conversation_append_message`` flow; see ``integrations/bridges/README.md``.
+
 **Groups:** With BotFather ``/setprivacy`` → *Disable*, the bot sees all messages (like Discord
 channels). Otherwise only commands and mentions are delivered to the bot.
 """
@@ -200,6 +203,7 @@ async def _run_polling_session(cfg: _BridgeCfg) -> None:
             user_id,
             cfg.model,
         )
+        # Rolling DB context for this Telegram chat; new gateways: same call with provider="your_id".
         conv_id = bridge_agent_conversation_ensure(
             user_id,
             tenant_id,

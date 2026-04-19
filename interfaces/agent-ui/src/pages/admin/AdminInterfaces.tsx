@@ -49,6 +49,7 @@ type OperatorPublic = {
   rag_tenant_shared_domains?: string;
   rag_tenant_shared_domains_effective?: string[];
   docs_root?: string;
+  expose_internal_errors?: boolean;
   detail?: unknown;
 };
 
@@ -133,6 +134,7 @@ export function AdminInterfaces() {
   const [ragTenantDomains, setRagTenantDomains] = useState("agentlayer_docs");
   const [ragTenantEffective, setRagTenantEffective] = useState<string[]>([]);
   const [docsRoot, setDocsRoot] = useState("");
+  const [exposeInternalErrors, setExposeInternalErrors] = useState(false);
   const [extLlmModelIds, setExtLlmModelIds] = useState<string[]>([]);
   const [extLlmModelsLoading, setExtLlmModelsLoading] = useState(false);
   const [extLlmModelsHint, setExtLlmModelsHint] = useState<string | null>(null);
@@ -249,6 +251,7 @@ export function AdminInterfaces() {
         Array.isArray(op.rag_tenant_shared_domains_effective) ? op.rag_tenant_shared_domains_effective : []
       );
       setDocsRoot((op.docs_root ?? "").trim());
+      setExposeInternalErrors(!!op.expose_internal_errors);
       setMemGraphEnabled(op.memory_graph_enabled !== false);
       setMemGraphMaxHops(
         op.memory_graph_max_hops != null && Number.isFinite(Number(op.memory_graph_max_hops))
@@ -484,6 +487,7 @@ export function AdminInterfaces() {
       patch.rag_embed_timeout_sec = ret;
       patch.rag_tenant_shared_domains = ragTenantDomains.trim();
       patch.docs_root = docsRoot.trim() ? docsRoot.trim() : null;
+      patch.expose_internal_errors = exposeInternalErrors;
       const mgHops = Number(memGraphMaxHops.trim());
       const mgScore = Number(memGraphMinScore.trim());
       const mgBullets = Number(memGraphMaxBullets.trim());
@@ -723,6 +727,15 @@ export function AdminInterfaces() {
               <span className="font-mono text-neutral-400">AGENT_RAG_*</span> mehr. Tool-Pakete weiter unter{" "}
               <span className="text-white/85">Admin → Tools</span>.
             </p>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={exposeInternalErrors}
+                onChange={(e) => setExposeInternalErrors(e.target.checked)}
+              />
+              Interne Fehlertexte in API-Antworten (5xx/502) — nur zum Debuggen; in Produktion aus lassen
+            </label>
             <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
               <input
                 type="checkbox"

@@ -2,19 +2,27 @@
 
 The Web UI and HTTP ``/v1/chat/completions`` already send full ``messages[]`` from the client;
 only bridges that used to pass a single user turn need this persistence.
+
+**Adding a new gateway:** implement a module under ``src/integrations/`` that calls
+``bridge_agent_conversation_ensure`` / ``messages_for_bridge_completion`` / ``conversation_append_message``
+(see ``telegram_bridge.py`` / ``discord_bridge.py``). You do **not** change
+``conversations_db`` or the agent-ui sidebar — ``provider`` strings are passed through as
+``conversation["source"]``. Step-by-step: ``src/integrations/bridges/README.md``.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Any, Literal
+from typing import Any
 
 from psycopg.types.json import Json
 
 from src.infrastructure.conversations_db import conversation_delete, conversation_get
 from src.infrastructure.db import db
 
-BridgeProvider = Literal["telegram", "discord"]
+# Stored in ``bridge_agent_sessions.provider`` (TEXT) and surfaced on conversations as ``source``.
+# Use stable lowercase ids (e.g. telegram, discord, slack); no extra allowlist in ``conversations_db``.
+BridgeProvider = str
 
 BRIDGE_TELEGRAM: BridgeProvider = "telegram"
 BRIDGE_DISCORD: BridgeProvider = "discord"
@@ -36,7 +44,12 @@ def bridge_agent_conversation_ensure(
     scope_thread_id: int | None,
     model: str,
 ) -> uuid.UUID:
-    """Return ``conversation_id`` for this peer, creating an empty conversation if needed."""
+    """Return ``conversation_id`` for this peer, creating an empty conversation if needed.
+
+    ``provider`` is stored as-is (normalized to lowercase in API ``source``) and groups chats
+    in the web UI. New gateways: see ``src/integrations/bridges/README.md`` — no central
+    allowlist beyond this insert.
+    """
     tk = _thread_key(scope_thread_id)
     with db.pool().connection() as conn:
         with conn.cursor() as cur:

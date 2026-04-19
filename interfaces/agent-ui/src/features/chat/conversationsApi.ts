@@ -1,6 +1,12 @@
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { apiFetch } from "../../lib/api";
-import type { AgentTimelineEntry, ChatMode, ChatThread, UiMessage } from "./chatThreadStorage";
+import type {
+  AgentTimelineEntry,
+  ChatMode,
+  ChatSource,
+  ChatThread,
+  UiMessage,
+} from "./chatThreadStorage";
 import { normalizeServerContent } from "./messageFormat";
 
 type ApiMessage = { role: "user" | "assistant" | "system"; content: unknown };
@@ -17,9 +23,16 @@ function serializeMessageContent(content: string): string | unknown[] {
   return content;
 }
 
+function normalizeSource(raw: unknown): ChatSource {
+  if (typeof raw !== "string") return "web";
+  const s = raw.trim().toLowerCase();
+  return s || "web";
+}
+
 /** List endpoint row (no message bodies). */
 export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
   const ws = item.workspace_id;
+  const src = normalizeSource(item.source);
   return {
     id: String(item.id ?? ""),
     title: typeof item.title === "string" ? item.title : "",
@@ -29,6 +42,9 @@ export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
     agentLog: [],
     updatedAt: Date.parse(String(item.updated_at ?? Date.now())) || Date.now(),
     workspaceId: typeof ws === "string" && ws ? ws : undefined,
+    shared: typeof item.shared === "boolean" ? item.shared : undefined,
+    source: src,
+    messageCount: typeof item.message_count === "number" ? item.message_count : undefined,
   };
 }
 
@@ -46,6 +62,7 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
     ? (raw.agent_log as AgentTimelineEntry[])
     : [];
   const ws = raw.workspace_id;
+  const src = normalizeSource(raw.source);
   return {
     id: String(raw.id ?? ""),
     title: typeof raw.title === "string" ? raw.title : "",
@@ -55,6 +72,9 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
     agentLog,
     updatedAt: Date.parse(String(raw.updated_at ?? Date.now())) || Date.now(),
     workspaceId: typeof ws === "string" && ws ? ws : undefined,
+    shared: typeof raw.shared === "boolean" ? raw.shared : undefined,
+    source: src,
+    messageCount: messages.length,
   };
 }
 

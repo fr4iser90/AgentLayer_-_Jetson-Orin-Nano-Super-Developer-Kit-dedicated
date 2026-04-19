@@ -919,6 +919,20 @@ def _redact_secrets_for_log(s: str) -> str:
     return s
 
 
+def _redact_provider_error_text_for_log(raw: str | None, *, max_len: int = 500) -> str:
+    """Truncate and redact LLM/HTTP provider error bodies before logging (not for clients)."""
+    if not raw:
+        return "(empty)"
+    s = raw.strip().replace("\r\n", "\n")
+    if len(s) > max_len:
+        s = s[:max_len] + "…"
+    s = _redact_secrets_for_log(s)
+    s = re.sub(r"(?i)\bsk-[a-z0-9]{10,}\b", "sk-***", s)
+    s = re.sub(r"(?i)\bxox[baprs]-[a-z0-9-]{8,}\b", "xox***", s)
+    s = re.sub(r"(?i)(api[_-]?key|client_secret)\s*[:=]\s*[^\s&,\"']+", r"\1=<redacted>", s)
+    return s
+
+
 def _log_ollama_round(
     *,
     round_i: int,
@@ -1352,18 +1366,22 @@ async def chat_completion(
                                 e.response.status_code,
                             )
                             continue
-                        err_body = (e.response.text or "")[:4000]
+                        err_body = _redact_provider_error_text_for_log(
+                            e.response.text, max_len=600
+                        )
                         logger.error(
                             "LLM chat/completions failed (%s): status=%s model=%s body=%s",
                             llm_backend,
                             e.response.status_code,
                             b_model,
-                            err_body or "(empty)",
+                            err_body,
                         )
                         raise
                 else:
                     if last_failover is not None:
-                        err_body = (last_failover.response.text or "")[:4000]
+                        err_body = _redact_provider_error_text_for_log(
+                            last_failover.response.text, max_len=600
+                        )
                         if (
                             llm_backend == "external"
                             and last_failover.response.status_code == 429
@@ -1385,7 +1403,7 @@ async def chat_completion(
                         logger.error(
                             "LLM external: all endpoints failed, last status=%s body=%s",
                             last_failover.response.status_code,
-                            err_body or "(empty)",
+                            err_body,
                         )
                         raise last_failover
                     raise RuntimeError("LLM: no chat/completions attempts")
@@ -1433,16 +1451,18 @@ async def chat_completion(
                         logger.warning(
                             "Ollama rejected tool_choice=required (status=%s); keeping first completion. body~=%s",
                             e.response.status_code,
-                            (e.response.text or "")[:400],
+                            _redact_provider_error_text_for_log(e.response.text, max_len=320),
                         )
                     else:
-                        err_body = (e.response.text or "")[:4000]
+                        err_body = _redact_provider_error_text_for_log(
+                            e.response.text, max_len=600
+                        )
                         logger.error(
                             "LLM chat/completions retry failed (%s): status=%s model=%s body=%s",
                             llm_backend,
                             e.response.status_code,
                             model,
-                            err_body or "(empty)",
+                            err_body,
                         )
                         raise
                 else:

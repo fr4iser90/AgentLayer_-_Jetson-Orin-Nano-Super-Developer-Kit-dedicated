@@ -53,6 +53,20 @@ def _shared_chat_can_write(user_id: uuid.UUID, tenant_id: int, workspace_id: uui
     return role is not None and role != "viewer"
 
 
+def _conversation_source_from_bridge(provider: Any) -> str:
+    """First-party chats have no ``bridge_agent_sessions`` row → ``web``.
+
+    Any non-empty ``provider`` from the bridge table is returned normalized (lowercase)
+    so new gateways (slack, matrix, …) need no Python enum updates.
+    """
+    if provider is None:
+        return "web"
+    if isinstance(provider, str):
+        s = provider.strip().lower()
+        return s if s else "web"
+    return "web"
+
+
 def _row_to_list_item(
     r: tuple[Any, ...],
 ) -> dict[str, Any]:
@@ -64,6 +78,7 @@ def _row_to_list_item(
     if wid is not None:
         ws_out = str(wid) if isinstance(wid, uuid.UUID) else str(uuid.UUID(str(wid)))
     shared = bool(r[7])
+    bridge_provider = r[8]
     return {
         "id": str(cid),
         "title": r[1] or "",
@@ -73,6 +88,7 @@ def _row_to_list_item(
         "message_count": int(r[5] or 0),
         "workspace_id": ws_out,
         "shared": shared,
+        "source": _conversation_source_from_bridge(bridge_provider),
     }
 
 
@@ -87,7 +103,9 @@ def conversations_list(
                     """
                     SELECT c.id, c.title, c.mode, c.model, c.updated_at,
                       (SELECT COUNT(*)::int FROM chat_messages m WHERE m.conversation_id = c.id),
-                      c.workspace_id, c.shared
+                      c.workspace_id, c.shared,
+                      (SELECT b.provider FROM bridge_agent_sessions b
+                       WHERE b.conversation_id = c.id LIMIT 1)
                     FROM chat_conversations c
                     WHERE c.workspace_id = %s
                       AND (
@@ -109,7 +127,9 @@ def conversations_list(
                     """
                     SELECT c.id, c.title, c.mode, c.model, c.updated_at,
                       (SELECT COUNT(*)::int FROM chat_messages m WHERE m.conversation_id = c.id),
-                      c.workspace_id, c.shared
+                      c.workspace_id, c.shared,
+                      (SELECT b.provider FROM bridge_agent_sessions b
+                       WHERE b.conversation_id = c.id LIMIT 1)
                     FROM chat_conversations c
                     WHERE c.tenant_id = %s
                       AND (
@@ -180,6 +200,15 @@ def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str
             elif row_user != user_id:
                 return None
             messages = _fetch_messages(cur, conversation_id)
+            cur.execute(
+                """
+                SELECT provider FROM bridge_agent_sessions
+                WHERE conversation_id = %s LIMIT 1
+                """,
+                (conversation_id,),
+            )
+            brow = cur.fetchone()
+            bridge_provider = brow[0] if brow else None
     agent_log = crow[4]
     if isinstance(agent_log, str):
         try:
@@ -203,6 +232,7 @@ def conversation_get(user_id: uuid.UUID, conversation_id: uuid.UUID) -> dict[str
         "created_at": crow[6].isoformat() if isinstance(crow[6], datetime) else str(crow[6]),
         "workspace_id": ws_out,
         "shared": shared,
+        "source": _conversation_source_from_bridge(bridge_provider),
     }
 
 
