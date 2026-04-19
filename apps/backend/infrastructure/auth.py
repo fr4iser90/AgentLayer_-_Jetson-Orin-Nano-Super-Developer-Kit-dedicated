@@ -34,7 +34,7 @@ class User(BaseModel):
     password_hash: str | None = Field(default=None, exclude=True)
     ide_agent_allowed: bool = Field(
         default=False,
-        description="Non-admins: IDE Agent when PIDEA on; admins always have access.",
+        description="Legacy DB column; ignored for access control. PIDEA / IDE Agent is admin-only.",
     )
 
     class Config:
@@ -157,8 +157,7 @@ def list_all_users() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT u.id, u.email, u.role, u.created_at, u.external_sub, u.display_name,
-                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id,
-                       u.ide_agent_allowed
+                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id
                 FROM users u
                 LEFT JOIN tenants t ON t.id = u.tenant_id
                 ORDER BY u.created_at ASC NULLS LAST, u.email ASC NULLS LAST, u.external_sub ASC
@@ -178,7 +177,6 @@ def list_all_users() -> list[dict[str, Any]]:
             tenant_name,
             discord_uid,
             telegram_uid,
-            ide_agent_allowed,
         ) = row
         tid = int(tenant_id) if tenant_id is not None else 1
         du = str(discord_uid).strip() if discord_uid is not None else ""
@@ -195,7 +193,6 @@ def list_all_users() -> list[dict[str, Any]]:
                 "tenant_name": (tenant_name or "") if tenant_name is not None else "",
                 "discord_user_id": du or None,
                 "telegram_user_id": tu or None,
-                "ide_agent_allowed": bool(ide_agent_allowed) if ide_agent_allowed is not None else False,
             }
         )
     return out
@@ -346,18 +343,16 @@ def create_user(email: str, password: str, role: str = "user", tenant_id: int = 
 
 
 def ide_agent_access_for_user(user: User) -> bool:
-    """True when PIDEA is globally on and (admin or ``users.ide_agent_allowed``)."""
+    """True when PIDEA is globally on and the user is **admin** (direct IDE / Playwright control)."""
     from apps.backend.infrastructure import operator_settings
 
     if not operator_settings.pidea_effective_enabled():
         return False
-    if user.role == "admin":
-        return True
-    return bool(user.ide_agent_allowed)
+    return (user.role or "").strip().lower() == "admin"
 
 
 def update_user_ide_agent_allowed(user_id: uuid.UUID, allowed: bool) -> bool:
-    """Set ``users.ide_agent_allowed``. Returns True if a row was updated."""
+    """Set ``users.ide_agent_allowed`` (legacy column; **not** used for PIDEA access — admin-only)."""
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

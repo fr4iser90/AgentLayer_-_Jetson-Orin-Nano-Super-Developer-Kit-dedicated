@@ -198,8 +198,8 @@ export function AdminIdeAgent() {
             </li>
             <li>
               Your IDE Agent access:{" "}
-              <span className="font-mono text-neutral-300">{status?.ide_agent_access ? "yes" : "no"}</span> (admins
-              always; others: Users → IDE Agent)
+              <span className="font-mono text-neutral-300">{status?.ide_agent_access ? "yes" : "no"}</span>{" "}
+              (<strong className="text-neutral-200">admins only</strong> — direct IDE / Playwright control)
             </li>
             <li>
               Playwright installed:{" "}

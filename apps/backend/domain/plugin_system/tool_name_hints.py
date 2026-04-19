@@ -15,6 +15,9 @@ _TOOL_NAME_ALIASES: dict[str, tuple[str, ...]] = {
     "openai_function": ("list_available_tools", "get_tool_help"),
     "get_tool_result": ("list_available_tools",),
     "call_tool": ("list_available_tools", "get_tool_help"),
+    "create_schedule": ("schedule_job_create",),
+    "add_schedule": ("schedule_job_create",),
+    "list_schedules": ("schedule_job_list",),
 }
 
 

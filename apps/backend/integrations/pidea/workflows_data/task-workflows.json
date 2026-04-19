@@ -1,0 +1,706 @@
+{
+  "workflows": {
+    "task-check-state-workflow": {
+      "name": "Single Task Check State Workflow",
+      "description": "Check single task implementation status: Send Check State Message → Optional Confirmation",
+      "steps": [
+        {
+          "name": "send-check-state-message",
+          "type": "ide_send_message_step",
+          "description": "Send task check state prompt to IDE with auto IDE detection",
+          "step": "ide_send_message_step",
+          "options": {
+            "useTaskPrompt": true,
+            "message": "${checkStatePrompt}",
+            "waitForResponse": true,
+            "timeout": 300000,
+            "sessionId": "task-check-state-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "taskMode": "task-check-state"
+          }
+        }
+      ]
+    },
+    "task-review-workflow": {
+      "name": "Single Task Review Workflow",
+      "description": "Review single task implementation status: Send Review Message → Optional Confirmation",
+      "steps": [
+        {
+          "name": "send-review-message",
+          "type": "ide_send_message_step",
+          "description": "Send task review prompt to IDE with auto IDE detection",
+          "step": "ide_send_message_step",
+          "options": {
+            "useTaskPrompt": true,
+            "message": "${reviewPrompt}",
+            "waitForResponse": true,
+            "timeout": 300000,
+            "sessionId": "task-review-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "workspacePath": "${options.projectPath}",
+            "autoDetectIDE": true,
+            "clickNewChat": true
+          },
+          "strict": true
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "Check task completion status (optional)",
+          "step": "confirmation_step",
+          "options": {
+            "confirmationPrompt": "All task files complete or done, ANSWER with Complete percentage please",
+            "timeout": 60000,
+            "maxAttempts": 1,
+            "sessionId": "task-review-completion-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "workspacePath": "${options.projectPath}"
+          },
+          "strict": false,
+          "condition": "previousStep.success && previousStep.result.success",
+          "enabled": false
+        }
+      ],
+      "metadata": {
+        "version": "1.0.0",
+        "created": "2025-01-07",
+        "description": "Workflow for reviewing single task implementation status"
+      }
+    },
+    "task-execution-workflow": {
+      "name": "Task Execution Workflow",
+      "description": "Execute task: Send Task Prompt → IDE → Validate Response → Complete Check",
+      "steps": [
+        {
+          "name": "create-git-branch",
+          "type": "git_create_branch",
+          "description": "Create git branch with source pidea-agent",
+          "step": "git_create_branch",
+          "options": {
+            "branchName": "task/{{task.title}}-{{timestamp}}",
+            "sourceBranch": "pidea-agent",
+            "createBranch": true,
+            "sessionId": "git-branch-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "workspacePath": "${options.projectPath}"
+          },
+          "strict": true,
+          "condition": "previousStep.success && previousStep.result.success"
+        },
+        {
+          "name": "send-task-prompt",
+          "type": "ide_send_message_step",
+          "description": "Send task prompt to IDE with auto IDE detection",
+          "step": "ide_send_message_step",
+          "options": {
+            "useTaskPrompt": true,
+            "message": "${taskPrompt}",
+            "waitForResponse": true,
+            "timeout": 300000,
+            "sessionId": "task-execution-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "workspacePath": "${options.projectPath}",
+            "autoDetectIDE": true,
+            "clickNewChat": true
+          },
+          "strict": true
+        },
+        {
+          "name": "validate-response",
+          "type": "CodeQualityAnalysisOrchestrator",
+          "description": "Validate IDE response",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["code-quality", "syntax", "completeness"],
+            "strict": false
+          },
+          "strict": false
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "Check task completion status",
+          "step": "confirmation_step",
+          "options": {
+            "confirmationPrompt": "All task files complete or done, ANSWER with Complete percentage please",
+            "timeout": 60000,
+            "maxAttempts": 1,
+            "sessionId": "task-execution-completion-${task.id}",
+            "requestedBy": "${userId}",
+            "userId": "${userId}",
+            "projectId": "${options.projectId}",
+            "workspacePath": "${options.projectPath}"
+          },
+          "strict": false,
+          "condition": "previousStep.success && previousStep.result.success",
+          "enabled": false
+        }
+      ],
+      "metadata": {
+        "version": "1.0.0",
+        "created": "2025-01-07",
+        "description": "Workflow for executing single task"
+      }
+    },
+    "standard-task-workflow": {
+      "name": "Standard Task Workflow",
+      "description": "Einheitlicher Flow für alle Tasks: Task + Prompt → IDE → Validieren → 3x Complete-Check → Test → npm run dev",
+      "steps": [
+        {
+          "name": "create-branch",
+          "type": "git_create_branch",
+          "description": "Create Git branch for task",
+          "step": "git_create_branch",
+          "options": {
+            "branchName": "task/${task.id}",
+            "checkout": true,
+            "fromBranch": "pidea-agent"
+          },
+          "strict": false
+        },
+        {
+          "name": "create-chat",
+          "type": "create_chat_step",
+          "description": "Create new chat session",
+          "step": "create_chat_step",
+          "options": {
+            "title": "Task Execution Session",
+            "userId": "me",
+            "metadata": {
+              "workflow": "standard-task-workflow",
+              "autoCreated": true
+            }
+          }
+        },
+        {
+          "name": "send-to-ide",
+          "type": "ide_send_message_step",
+          "description": "Send task to IDE with prompt",
+          "step": "ide_send_message_step",
+          "options": {
+            "useTaskPrompt": true,
+            "waitForResponse": true,
+            "timeout": "IDE.SEND_MESSAGE",
+            "projectId": "PIDEA",
+            "message": "Execute this task"
+          },
+          "strict": true
+        },
+        {
+          "name": "validate-response",
+          "type": "CodeQualityAnalysisOrchestrator",
+          "description": "Validate IDE response",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["code-quality", "syntax", "completeness"],
+            "strict": false
+          },
+          "strict": false
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "3x Complete-Check with AI confirmation",
+          "step": "confirmation_step",
+          "options": {
+            "maxAttempts": 3,
+            "timeout": "WORKFLOW.CONFIRMATION",
+            "autoContinueThreshold": 0.8,
+            "onlyIfResponseReceived": true
+          },
+          "strict": false,
+          "condition": "previousStep.success && previousStep.data.aiResponse"
+        },
+        {
+          "name": "test-run",
+          "type": "project_test_step",
+          "description": "Run project tests",
+          "step": "project_test_step",
+          "options": {
+            "commands": ["npm test", "npm run test"],
+            "continueOnFailure": true
+          },
+          "strict": false
+        },
+        {
+          "name": "dev-server",
+          "type": "run_dev_step",
+          "description": "Start development server",
+          "step": "run_dev_step",
+          "options": {
+            "commands": ["npm run dev", "npm start"],
+            "waitForReady": true,
+            "timeout": 30000
+          }
+        },
+        {
+          "name": "update-task-status",
+          "type": "task_status_update_step",
+          "description": "Update task status and organize files",
+          "step": "task_status_update_step",
+          "options": {
+            "autoMoveFiles": true,
+            "updateDatabase": true
+          },
+          "strict": false
+        },
+        {
+          "name": "organize-task-files",
+          "type": "organization",
+          "description": "Organize task files based on status",
+          "step": "organization",
+          "options": {
+            "createDirectories": true,
+            "moveFiles": true,
+            "updateReferences": true
+          },
+          "strict": false
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 300000
+      }
+    },
+    "refactor-workflow": {
+      "name": "Refactoring Workflow",
+      "description": "Specialized workflow for refactoring tasks",
+      "extends": "standard-task-workflow",
+      "steps": [
+        {
+          "name": "analysis",
+          "type": "analysis",
+          "description": "Analyze code before refactoring",
+          "step": "ProjectAnalysisStep",
+          "options": {
+            "analysisTypes": ["code-quality", "architecture", "dependencies"]
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 450000
+      }
+    },
+    "testing-workflow": {
+      "name": "Testing Workflow",
+      "description": "Specialized workflow for testing tasks",
+      "extends": "standard-task-workflow",
+      "steps": [
+        {
+          "name": "test-analysis",
+          "type": "analysis",
+          "description": "Analyze existing tests",
+          "step": "ProjectAnalysisStep",
+          "options": {
+            "analysisTypes": ["test-coverage", "test-quality", "test-structure"]
+          }
+        },
+        {
+          "name": "send-to-ide",
+          "type": "ide_send_message",
+          "description": "Send testing task to IDE",
+          "step": "IDESendMessageStep",
+          "options": {
+            "useTaskPrompt": true,
+            "waitForResponse": true,
+            "timeout": 60000
+          }
+        },
+        {
+          "name": "validate-response",
+          "type": "validation",
+          "description": "Validate test implementation",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["test-syntax", "test-coverage", "test-quality"],
+            "strict": true
+          }
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "3x Complete-Check for testing",
+          "step": "ConfirmationStep",
+          "options": {
+            "maxAttempts": 3,
+            "timeout": 10000,
+            "autoContinueThreshold": 0.8
+          }
+        },
+        {
+          "name": "test-run",
+          "type": "project_test_step",
+          "description": "Run the new tests",
+          "step": "ProjectTestStep",
+          "options": {
+            "commands": ["npm test", "npm run test"],
+            "continueOnFailure": false
+          }
+        },
+        {
+          "name": "coverage-check",
+          "type": "project_test_step",
+          "description": "Check test coverage",
+          "step": "ProjectTestStep",
+          "options": {
+            "commands": ["npm run test:coverage", "npm run coverage"],
+            "minCoverage": 80
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 300000
+      }
+    },
+    "feature-workflow": {
+      "name": "Feature Workflow",
+      "description": "Specialized workflow for feature development",
+      "extends": "standard-task-workflow",
+      "steps": [
+        {
+          "name": "planning",
+          "type": "analysis",
+          "description": "Plan feature implementation",
+          "step": "ProjectAnalysisStep",
+          "options": {
+            "analysisTypes": ["architecture", "dependencies", "requirements"]
+          }
+        },
+        {
+          "name": "send-to-ide",
+          "type": "ide_send_message",
+          "description": "Send feature task to IDE",
+          "step": "IDESendMessageStep",
+          "options": {
+            "useTaskPrompt": true,
+            "waitForResponse": true,
+            "timeout": 120000
+          }
+        },
+        {
+          "name": "validate-response",
+          "type": "validation",
+          "description": "Validate feature implementation",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["code-quality", "syntax", "architecture", "requirements"],
+            "strict": true
+          }
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "3x Complete-Check for feature",
+          "step": "ConfirmationStep",
+          "options": {
+            "maxAttempts": 3,
+            "timeout": 15000,
+            "autoContinueThreshold": 0.9
+          }
+        },
+        {
+          "name": "test-run",
+          "type": "project_test_step",
+          "description": "Run tests for new feature",
+          "step": "ProjectTestStep",
+          "options": {
+            "commands": ["npm test", "npm run test"],
+            "continueOnFailure": false
+          }
+        },
+        {
+          "name": "dev-server",
+          "type": "run_dev_step",
+          "description": "Start development server",
+          "step": "RunDevStep",
+          "options": {
+            "commands": ["npm run dev", "npm start"],
+            "waitForReady": true,
+            "timeout": 30000
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 600000
+      }
+    },
+    "bugfix-workflow": {
+      "name": "Bug Fix Workflow",
+      "description": "Specialized workflow for bug fixes",
+      "extends": "standard-task-workflow",
+      "steps": [
+        {
+          "name": "investigation",
+          "type": "analysis",
+          "description": "Investigate the bug",
+          "step": "ProjectAnalysisStep",
+          "options": {
+            "analysisTypes": ["error-analysis", "code-tracing", "log-analysis"]
+          }
+        },
+        {
+          "name": "send-to-ide",
+          "type": "ide_send_message",
+          "description": "Send bug fix task to IDE",
+          "step": "IDESendMessageStep",
+          "options": {
+            "useTaskPrompt": true,
+            "waitForResponse": true,
+            "timeout": 90000
+          }
+        },
+        {
+          "name": "validate-response",
+          "type": "validation",
+          "description": "Validate bug fix",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["test-syntax", "test-coverage", "test-quality"],
+            "strict": true
+          }
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "3x Complete-Check for bug fix",
+          "step": "ConfirmationStep",
+          "options": {
+            "maxAttempts": 3,
+            "timeout": 30000,
+            "autoContinueThreshold": 0.9
+          }
+        },
+        {
+          "name": "test-run",
+          "type": "project_test_step",
+          "description": "Run tests to verify fix",
+          "step": "ProjectTestStep",
+          "options": {
+            "commands": ["npm test", "npm run test"],
+            "continueOnFailure": false
+          }
+        },
+        {
+          "name": "regression-test",
+          "type": "project_test_step",
+          "description": "Run regression tests",
+          "step": "ProjectTestStep",
+          "options": {
+            "commands": ["npm run test:regression", "npm run test:integration"],
+            "continueOnFailure": false
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 300000
+      }
+    },
+    "analysis-workflow": {
+      "name": "Analysis Workflow",
+      "description": "Specialized workflow for analysis tasks",
+      "extends": "standard-task-workflow",
+      "steps": [
+        {
+          "name": "data-collection",
+          "type": "analysis",
+          "description": "Collect analysis data",
+          "step": "ProjectAnalysisStep",
+          "options": {
+            "analysisTypes": ["code-quality", "architecture", "dependencies", "security", "performance"]
+          }
+        },
+        {
+          "name": "send-to-ide",
+          "type": "ide_send_message",
+          "description": "Send analysis task to IDE",
+          "step": "IDESendMessageStep",
+          "options": {
+            "useTaskPrompt": true,
+            "waitForResponse": true,
+            "timeout": 60000
+          }
+        },
+        {
+          "name": "validate-response",
+          "type": "validation",
+          "description": "Validate analysis results",
+          "step": "CodeQualityAnalysisOrchestrator",
+          "options": {
+            "checks": ["analysis-completeness", "data-quality", "insights"],
+            "strict": false
+          }
+        },
+        {
+          "name": "completion-check",
+          "type": "confirmation_step",
+          "description": "3x Complete-Check for analysis",
+          "step": "ConfirmationStep",
+          "options": {
+            "maxAttempts": 3,
+            "timeout": 30000,
+            "autoContinueThreshold": 0.8
+          }
+        },
+        {
+          "name": "report-generation",
+          "type": "reporting",
+          "description": "Generate analysis report",
+          "step": "ReportGenerationStep",
+          "options": {
+            "formats": ["markdown", "json", "html"]
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": false,
+        "timeout": 180000
+      }
+    },
+    "chat-management-workflow": {
+      "name": "Chat Management Workflow",
+      "description": "Workflow for managing chat sessions",
+      "steps": [
+        {
+          "name": "create-chat",
+          "type": "ide",
+          "description": "Create new chat session",
+          "step": "CreateChatStep",
+          "options": {
+            "title": "New Analysis Session"
+          }
+        },
+        {
+          "name": "list-chats",
+          "type": "ide",
+          "description": "List available chat sessions",
+          "step": "ListChatsStep",
+          "options": {
+            "limit": 10,
+            "includeArchived": false
+          }
+        },
+        {
+          "name": "switch-chat",
+          "type": "ide",
+          "description": "Switch to specific chat session",
+          "step": "SwitchChatStep",
+          "options": {
+            "sessionId": "{{list_chats.sessions[0].id}}"
+          }
+        },
+        {
+          "name": "get-history",
+          "type": "ide",
+          "description": "Get chat history",
+          "step": "GetChatHistoryStep",
+          "options": {
+            "limit": 50
+          }
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": false,
+        "timeout": 120000
+      }
+    },
+    "layer-violation-workflow": {
+      "name": "Layer Violation Analysis Workflow",
+      "description": "Analyze and fix layer boundary violations",
+      "steps": [
+        {
+          "name": "analyze-violations",
+          "type": "analysis",
+          "description": "Analyze layer boundary violations",
+          "step": "LayerViolationAnalysisStep",
+          "options": {
+            "includeViolations": true,
+            "includeFixes": true,
+            "includeFixPlans": true,
+            "generateTasks": true,
+            "createDocs": true
+          },
+          "strict": true
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": false,
+        "timeout": 120000
+      }
+    },
+    "layer-violation-fix-workflow": {
+      "name": "Layer Violation Fix Workflow",
+      "description": "Fix layer boundary violations with task generation",
+      "steps": [
+        {
+          "name": "analyze-violations",
+          "type": "analysis",
+          "description": "Analyze layer boundary violations",
+          "step": "LayerViolationAnalysisStep",
+          "options": {
+            "includeViolations": true,
+            "includeFixes": true,
+            "includeFixPlans": true,
+            "generateTasks": true,
+            "createDocs": true
+          },
+          "strict": true
+        },
+        {
+          "name": "create-tasks",
+          "type": "task",
+          "description": "Create tasks from violations",
+          "step": "CreateTaskStep",
+          "options": {
+            "useViolationTasks": true,
+            "priority": "high"
+          },
+          "strict": false,
+          "condition": "previousStep.success && previousStep.data.tasks.length > 0"
+        }
+      ],
+      "options": {
+        "autoConfirm": true,
+        "createBranch": true,
+        "timeout": 180000
+      }
+    }
+  },
+  "taskTypeMapping": {
+    "feature": "feature-workflow",
+    "bug": "bugfix-workflow",
+    "refactor": "refactor-workflow",
+    "testing": "testing-workflow",
+    "test": "testing-workflow",
+    "analysis": "analysis-workflow",
+    "layer-violation": "layer-violation-workflow",
+    "layer-violation-fix": "layer-violation-fix-workflow",
+    "documentation": "standard-task-workflow",
+    "optimization": "standard-task-workflow",
+    "security": "standard-task-workflow",
+    "deployment": "standard-task-workflow",
+    "manual": "standard-task-workflow",
+    "default": "standard-task-workflow"
+  }
+}

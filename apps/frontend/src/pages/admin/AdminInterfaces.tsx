@@ -52,6 +52,21 @@ type OperatorPublic = {
   expose_internal_errors?: boolean;
   /** httpx/httpcore: WARNING = quiet long-poll; INFO = per-request */
   http_client_log_level?: string;
+  scheduler_enabled?: boolean;
+  scheduler_interval_minutes?: number;
+  scheduler_user_id?: string;
+  scheduler_model?: string | null;
+  scheduler_max_tool_rounds?: number | null;
+  scheduler_notify_only_if_not_ok?: boolean;
+  scheduler_max_outbound_per_day?: number;
+  scheduler_allowed_tool_packages?: string;
+  scheduler_llm_backend?: string;
+  scheduler_tools_mode?: string;
+  scheduler_pidea_enabled?: boolean;
+  scheduler_instructions?: string;
+  scheduler_jobs_worker_enabled?: boolean;
+  scheduler_jobs_ide_pidea_enabled?: boolean;
+  scheduler_jobs_ide_pidea_timeout_sec?: number;
   detail?: unknown;
 };
 
@@ -138,6 +153,22 @@ export function AdminInterfaces() {
   const [docsRoot, setDocsRoot] = useState("");
   const [exposeInternalErrors, setExposeInternalErrors] = useState(false);
   const [httpClientLogLevel, setHttpClientLogLevel] = useState("WARNING");
+  const [schedulerEnabled, setSchedulerEnabled] = useState(false);
+  const [schedulerIntervalMin, setSchedulerIntervalMin] = useState("60");
+  const [schedulerUserId, setSchedulerUserId] = useState("");
+  const [schedulerModel, setSchedulerModel] = useState("");
+  const [schedulerMaxRounds, setSchedulerMaxRounds] = useState("");
+  const [schedulerNotifyOnlyIfNotOk, setSchedulerNotifyOnlyIfNotOk] = useState(true);
+  const [schedulerMaxOutbound, setSchedulerMaxOutbound] = useState("10");
+  const [schedulerPackages, setSchedulerPackages] = useState("");
+  const [schedulerLlmBackend, setSchedulerLlmBackend] = useState("inherit");
+  const [schedulerToolsMode, setSchedulerToolsMode] = useState("none");
+  const [schedulerPidea, setSchedulerPidea] = useState(false);
+  const [schedulerInstructions, setSchedulerInstructions] = useState("");
+  const [schedulerJobsWorkerEnabled, setSchedulerJobsWorkerEnabled] = useState(true);
+  const [schedulerJobsIdePideaEnabled, setSchedulerJobsIdePideaEnabled] = useState(true);
+  const [schedulerJobsIdePideaTimeout, setSchedulerJobsIdePideaTimeout] = useState("300");
+  const [adminUsers, setAdminUsers] = useState<Array<{ id: string; email?: string | null; display_name?: string | null }>>([]);
   const [extLlmModelIds, setExtLlmModelIds] = useState<string[]>([]);
   const [extLlmModelsLoading, setExtLlmModelsLoading] = useState(false);
   const [extLlmModelsHint, setExtLlmModelsHint] = useState<string | null>(null);
@@ -149,10 +180,11 @@ export function AdminInterfaces() {
     setLoading(true);
     setSaveMsg(null);
     try {
-      const [iRes, oRes, epRes] = await Promise.all([
+      const [iRes, oRes, epRes, uRes] = await Promise.all([
         apiFetch("/v1/admin/interfaces", auth),
         apiFetch("/v1/admin/operator-settings", auth),
         apiFetch("/v1/admin/external-llm/endpoints", auth),
+        apiFetch("/v1/admin/users", auth),
       ]);
       const iData = (await iRes.json()) as InterfaceHints | { detail?: unknown };
       if (!iRes.ok) {
@@ -260,6 +292,54 @@ export function AdminInterfaces() {
           ? op.http_client_log_level.trim().toUpperCase()
           : "WARNING"
       );
+      setSchedulerEnabled(!!op.scheduler_enabled);
+      setSchedulerIntervalMin(
+        op.scheduler_interval_minutes != null && Number.isFinite(op.scheduler_interval_minutes)
+          ? String(op.scheduler_interval_minutes)
+          : "60"
+      );
+      setSchedulerUserId(typeof op.scheduler_user_id === "string" ? op.scheduler_user_id.trim() : "");
+      setSchedulerModel((op.scheduler_model ?? "").trim());
+      setSchedulerMaxRounds(
+        op.scheduler_max_tool_rounds != null && Number.isFinite(op.scheduler_max_tool_rounds)
+          ? String(op.scheduler_max_tool_rounds)
+          : ""
+      );
+      setSchedulerNotifyOnlyIfNotOk(op.scheduler_notify_only_if_not_ok !== false);
+      setSchedulerMaxOutbound(
+        op.scheduler_max_outbound_per_day != null && Number.isFinite(op.scheduler_max_outbound_per_day)
+          ? String(op.scheduler_max_outbound_per_day)
+          : "10"
+      );
+      setSchedulerPackages((op.scheduler_allowed_tool_packages ?? "").trim());
+      setSchedulerLlmBackend(
+        op.scheduler_llm_backend === "ollama" || op.scheduler_llm_backend === "external"
+          ? op.scheduler_llm_backend
+          : "inherit"
+      );
+      setSchedulerToolsMode(
+        op.scheduler_tools_mode === "allowlist" || op.scheduler_tools_mode === "full"
+          ? op.scheduler_tools_mode
+          : "none"
+      );
+      setSchedulerPidea(!!op.scheduler_pidea_enabled);
+      setSchedulerInstructions((op.scheduler_instructions ?? "").trim());
+      setSchedulerJobsWorkerEnabled(op.scheduler_jobs_worker_enabled !== false);
+      setSchedulerJobsIdePideaEnabled(op.scheduler_jobs_ide_pidea_enabled !== false);
+      setSchedulerJobsIdePideaTimeout(
+        op.scheduler_jobs_ide_pidea_timeout_sec != null &&
+          Number.isFinite(Number(op.scheduler_jobs_ide_pidea_timeout_sec))
+          ? String(Math.round(Number(op.scheduler_jobs_ide_pidea_timeout_sec)))
+          : "300"
+      );
+
+      if (uRes.ok) {
+        const uData = (await uRes.json()) as { users?: Array<{ id: string; email?: string | null; display_name?: string | null }> };
+        setAdminUsers(Array.isArray(uData.users) ? uData.users : []);
+      } else {
+        setAdminUsers([]);
+      }
+
       setMemGraphEnabled(op.memory_graph_enabled !== false);
       setMemGraphMaxHops(
         op.memory_graph_max_hops != null && Number.isFinite(Number(op.memory_graph_max_hops))
@@ -497,6 +577,37 @@ export function AdminInterfaces() {
       patch.docs_root = docsRoot.trim() ? docsRoot.trim() : null;
       patch.expose_internal_errors = exposeInternalErrors;
       patch.http_client_log_level = httpClientLogLevel.trim() || "WARNING";
+      patch.scheduler_enabled = schedulerEnabled;
+      const hInt = Number(schedulerIntervalMin.trim());
+      patch.scheduler_interval_minutes =
+        Number.isFinite(hInt) && hInt >= 5 && hInt <= 1440 ? Math.floor(hInt) : 60;
+      patch.scheduler_user_id = schedulerUserId.trim() ? schedulerUserId.trim() : null;
+      patch.scheduler_model = schedulerModel.trim() ? schedulerModel.trim() : null;
+      const hMr = Number(schedulerMaxRounds.trim());
+      patch.scheduler_max_tool_rounds =
+        schedulerMaxRounds.trim() && Number.isFinite(hMr) && hMr >= 1 && hMr <= 64
+          ? Math.floor(hMr)
+          : null;
+      patch.scheduler_notify_only_if_not_ok = schedulerNotifyOnlyIfNotOk;
+      const hOut = Number(schedulerMaxOutbound.trim());
+      patch.scheduler_max_outbound_per_day =
+        Number.isFinite(hOut) && hOut >= 0 && hOut <= 100000 ? Math.floor(hOut) : 10;
+      patch.scheduler_allowed_tool_packages = schedulerPackages.trim() || null;
+      patch.scheduler_llm_backend = schedulerLlmBackend;
+      patch.scheduler_tools_mode = schedulerToolsMode;
+      patch.scheduler_pidea_enabled = schedulerPidea;
+      patch.scheduler_instructions = schedulerInstructions.trim() || null;
+      const sjTimeout = Number(schedulerJobsIdePideaTimeout.trim());
+      if (!Number.isFinite(sjTimeout) || sjTimeout < 30 || sjTimeout > 900) {
+        setSaveMsg({
+          ok: false,
+          text: "Persistierte Jobs: Timeout (Sekunden) muss zwischen 30 und 900 liegen.",
+        });
+        return;
+      }
+      patch.scheduler_jobs_worker_enabled = schedulerJobsWorkerEnabled;
+      patch.scheduler_jobs_ide_pidea_enabled = schedulerJobsIdePideaEnabled;
+      patch.scheduler_jobs_ide_pidea_timeout_sec = sjTimeout;
       const mgHops = Number(memGraphMaxHops.trim());
       const mgScore = Number(memGraphMinScore.trim());
       const mgBullets = Number(memGraphMaxBullets.trim());
@@ -1534,6 +1645,194 @@ export function AdminInterfaces() {
               <option value="DEBUG">DEBUG</option>
               <option value="ERROR">ERROR</option>
             </select>
+          </section>
+
+          <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
+            <h2 className="text-sm font-medium text-white">Scheduler (Agent)</h2>
+            <p className="mt-2 text-xs text-surface-muted">
+              Periodischer Hintergrund-Check per <span className="font-mono text-neutral-400">chat_completion</span> als
+              gewählter User. Bei Bedarf Telegram an dieselbe verknüpfte User-ID — Tageslimit gegen Spam.{" "}
+              <span className="font-mono text-neutral-400">scheduler_pidea_enabled</span> ist MVP noch ohne Wirkung.
+            </p>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={schedulerEnabled}
+                onChange={(e) => setSchedulerEnabled(e.target.checked)}
+              />
+              Scheduler aktivieren
+            </label>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-interval">
+              Intervall (Minuten, 5–1440)
+            </label>
+            <input
+              id="hb-interval"
+              type="number"
+              min={5}
+              max={1440}
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerIntervalMin}
+              onChange={(e) => setSchedulerIntervalMin(e.target.value)}
+            />
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-user">
+              User (Tenant/Kontext für Tools)
+            </label>
+            <select
+              id="hb-user"
+              className="mt-1 w-full max-w-xl rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerUserId}
+              onChange={(e) => setSchedulerUserId(e.target.value)}
+            >
+              <option value="">— wählen —</option>
+              {adminUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {(u.email || u.display_name || u.id).trim() || u.id}
+                </option>
+              ))}
+            </select>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-model">
+              Modell (leer = Default)
+            </label>
+            <input
+              id="hb-model"
+              className="mt-1 w-full max-w-md rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerModel}
+              onChange={(e) => setSchedulerModel(e.target.value)}
+              placeholder="z. B. nemotron-3-nano:4b"
+            />
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-rounds">
+              Max. Tool-Runden (leer = Server-Default)
+            </label>
+            <input
+              id="hb-rounds"
+              type="number"
+              min={1}
+              max={64}
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerMaxRounds}
+              onChange={(e) => setSchedulerMaxRounds(e.target.value)}
+              placeholder="z. B. 4"
+            />
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={schedulerNotifyOnlyIfNotOk}
+                onChange={(e) => setSchedulerNotifyOnlyIfNotOk(e.target.checked)}
+              />
+              Nur benachrichtigen wenn nicht <span className="font-mono">SCHEDULER_OK</span> / JSON{" "}
+              <span className="font-mono">notify:false</span>
+            </label>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-out">
+              Max. ausgehende Meldungen pro Tag (Telegram)
+            </label>
+            <input
+              id="hb-out"
+              type="number"
+              min={0}
+              max={100000}
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerMaxOutbound}
+              onChange={(e) => setSchedulerMaxOutbound(e.target.value)}
+            />
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-pkg">
+              Tool-Packages (Allowlist, kommagetrennt) — nur bei Modus „allowlist“
+            </label>
+            <input
+              id="hb-pkg"
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerPackages}
+              onChange={(e) => setSchedulerPackages(e.target.value)}
+              placeholder="z. B. clock, openweather"
+            />
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-llm">
+              LLM-Backend
+            </label>
+            <select
+              id="hb-llm"
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerLlmBackend}
+              onChange={(e) => setSchedulerLlmBackend(e.target.value)}
+            >
+              <option value="inherit">inherit (Smart-Routing wie Chat)</option>
+              <option value="ollama">ollama</option>
+              <option value="external">external</option>
+            </select>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-tools">
+              Tools-Modus
+            </label>
+            <select
+              id="hb-tools"
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerToolsMode}
+              onChange={(e) => setSchedulerToolsMode(e.target.value)}
+            >
+              <option value="none">none — nur Text, keine Tools</option>
+              <option value="allowlist">allowlist — nur Packages oben</option>
+              <option value="full">full — alle erlaubten Tools (Policy)</option>
+            </select>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={schedulerPidea}
+                onChange={(e) => setSchedulerPidea(e.target.checked)}
+              />
+              PIDEA/IDE (noch nicht implementiert)
+            </label>
+            <label className="mt-4 block text-xs text-surface-muted" htmlFor="hb-instr">
+              Anweisungen (Prompt)
+            </label>
+            <textarea
+              id="hb-instr"
+              rows={4}
+              className="mt-1 w-full rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={schedulerInstructions}
+              onChange={(e) => setSchedulerInstructions(e.target.value)}
+              placeholder="Was soll der Scheduler prüfen?"
+            />
+            <p className="mt-6 text-xs font-medium uppercase tracking-wide text-surface-muted">
+              Persistierte Jobs (<span className="font-mono">scheduler_jobs</span>)
+            </p>
+            <p className="mt-1 text-xs text-surface-muted">
+              Hintergrund-Thread für gespeicherte Jobs (Server-LLM und optional IDE/PIDEA). Einstellungen
+              liegen in der Datenbank (hier), nicht in Umgebungsvariablen.
+            </p>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={schedulerJobsWorkerEnabled}
+                onChange={(e) => setSchedulerJobsWorkerEnabled(e.target.checked)}
+              />
+              Worker aktiv (Hintergrund-Thread)
+            </label>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={schedulerJobsIdePideaEnabled}
+                onChange={(e) => setSchedulerJobsIdePideaEnabled(e.target.checked)}
+                disabled={!schedulerJobsWorkerEnabled}
+              />
+              IDE-Agent-Jobs über PIDEA ausführen (nur Admin,{" "}
+              <span className="font-mono">execution_user_id</span>)
+            </label>
+            <label className="mt-3 block text-xs text-surface-muted" htmlFor="sj-pidea-timeout">
+              PIDEA-Antwort-Timeout (Sekunden, 30–900)
+            </label>
+            <input
+              id="sj-pidea-timeout"
+              type="number"
+              min={30}
+              max={900}
+              step={1}
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white disabled:opacity-50"
+              value={schedulerJobsIdePideaTimeout}
+              onChange={(e) => setSchedulerJobsIdePideaTimeout(e.target.value)}
+              disabled={!schedulerJobsWorkerEnabled || !schedulerJobsIdePideaEnabled}
+            />
           </section>
 
           <div className="mt-6 flex flex-wrap gap-2">

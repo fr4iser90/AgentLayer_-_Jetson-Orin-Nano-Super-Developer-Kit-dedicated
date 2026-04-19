@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,21 @@ def _invalidate() -> None:
 def invalidate_operator_settings_cache() -> None:
     """Call after external LLM endpoint sync (and similar) so cached operator row refreshes."""
     _invalidate()
+
+
+def normalize_scheduler_llm_backend(raw: Any) -> str:
+    s = (str(raw or "inherit")).strip().lower()
+    return s if s in ("inherit", "ollama", "external") else "inherit"
+
+
+def normalize_scheduler_tools_mode(raw: Any) -> str:
+    s = (str(raw or "none")).strip().lower()
+    return s if s in ("none", "allowlist", "full") else "none"
+
+
+def fetch_operator_settings_row() -> dict[str, Any]:
+    """Fresh ``operator_settings`` row (bypasses short TTL cache) for background workers."""
+    return _fetch_row()
 
 
 def _fetch_row() -> dict[str, Any]:
@@ -83,6 +99,21 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_selector_version": None,
         "expose_internal_errors": False,
         "http_client_log_level": "WARNING",
+        "scheduler_enabled": False,
+        "scheduler_interval_minutes": 60,
+        "scheduler_user_id": None,
+        "scheduler_model": None,
+        "scheduler_max_tool_rounds": None,
+        "scheduler_notify_only_if_not_ok": True,
+        "scheduler_max_outbound_per_day": 10,
+        "scheduler_allowed_tool_packages": None,
+        "scheduler_llm_backend": "inherit",
+        "scheduler_tools_mode": "none",
+        "scheduler_pidea_enabled": False,
+        "scheduler_instructions": None,
+        "scheduler_jobs_worker_enabled": True,
+        "scheduler_jobs_ide_pidea_enabled": True,
+        "scheduler_jobs_ide_pidea_timeout_sec": 300.0,
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -107,7 +138,14 @@ def _fetch_row() -> dict[str, Any]:
                        rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
                        rag_tenant_shared_domains, docs_root,
                        pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version,
-                       expose_internal_errors, http_client_log_level
+                       expose_internal_errors, http_client_log_level,
+                       scheduler_enabled, scheduler_interval_minutes, scheduler_user_id,
+                       scheduler_model, scheduler_max_tool_rounds, scheduler_notify_only_if_not_ok,
+                       scheduler_max_outbound_per_day, scheduler_allowed_tool_packages,
+                       scheduler_llm_backend, scheduler_tools_mode, scheduler_pidea_enabled,
+                       scheduler_instructions,
+                       scheduler_jobs_worker_enabled, scheduler_jobs_ide_pidea_enabled,
+                       scheduler_jobs_ide_pidea_timeout_sec
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -169,6 +207,23 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_selector_version": row[45],
         "expose_internal_errors": bool(row[46]) if row[46] is not None else False,
         "http_client_log_level": _normalize_http_client_log_level_str(row[47]) if len(row) > 47 else "WARNING",
+        "scheduler_enabled": bool(row[48]) if len(row) > 48 and row[48] is not None else False,
+        "scheduler_interval_minutes": int(row[49]) if len(row) > 49 and row[49] is not None else 60,
+        "scheduler_user_id": row[50] if len(row) > 50 else None,
+        "scheduler_model": row[51] if len(row) > 51 else None,
+        "scheduler_max_tool_rounds": int(row[52]) if len(row) > 52 and row[52] is not None else None,
+        "scheduler_notify_only_if_not_ok": bool(row[53]) if len(row) > 53 and row[53] is not None else True,
+        "scheduler_max_outbound_per_day": int(row[54]) if len(row) > 54 and row[54] is not None else 10,
+        "scheduler_allowed_tool_packages": row[55] if len(row) > 55 else None,
+        "scheduler_llm_backend": normalize_scheduler_llm_backend(row[56] if len(row) > 56 else None),
+        "scheduler_tools_mode": normalize_scheduler_tools_mode(row[57] if len(row) > 57 else None),
+        "scheduler_pidea_enabled": bool(row[58]) if len(row) > 58 and row[58] is not None else False,
+        "scheduler_instructions": row[59] if len(row) > 59 else None,
+        "scheduler_jobs_worker_enabled": bool(row[60]) if len(row) > 60 and row[60] is not None else True,
+        "scheduler_jobs_ide_pidea_enabled": bool(row[61]) if len(row) > 61 and row[61] is not None else True,
+        "scheduler_jobs_ide_pidea_timeout_sec": float(row[62])
+        if len(row) > 62 and row[62] is not None
+        else 300.0,
     }
 
 
@@ -644,6 +699,25 @@ def public_dict() -> dict[str, Any]:
         "pidea_selector_version": (str(r.get("pidea_selector_version") or "").strip()),
         "expose_internal_errors": bool(r.get("expose_internal_errors", False)),
         "http_client_log_level": _normalize_http_client_log_level_str(r.get("http_client_log_level")),
+        "scheduler_enabled": bool(r.get("scheduler_enabled", False)),
+        "scheduler_interval_minutes": _bound_int(r.get("scheduler_interval_minutes"), 60, 5, 24 * 60),
+        "scheduler_user_id": str(r.get("scheduler_user_id")).strip()
+        if r.get("scheduler_user_id") is not None
+        else "",
+        "scheduler_model": (str(r.get("scheduler_model") or "").strip() or None),
+        "scheduler_max_tool_rounds": r.get("scheduler_max_tool_rounds"),
+        "scheduler_notify_only_if_not_ok": bool(r.get("scheduler_notify_only_if_not_ok", True)),
+        "scheduler_max_outbound_per_day": _bound_int(r.get("scheduler_max_outbound_per_day"), 10, 0, 10_000),
+        "scheduler_allowed_tool_packages": (str(r.get("scheduler_allowed_tool_packages") or "").strip()),
+        "scheduler_llm_backend": normalize_scheduler_llm_backend(r.get("scheduler_llm_backend")),
+        "scheduler_tools_mode": normalize_scheduler_tools_mode(r.get("scheduler_tools_mode")),
+        "scheduler_pidea_enabled": bool(r.get("scheduler_pidea_enabled", False)),
+        "scheduler_instructions": (str(r.get("scheduler_instructions") or "").strip()),
+        "scheduler_jobs_worker_enabled": bool(r.get("scheduler_jobs_worker_enabled", True)),
+        "scheduler_jobs_ide_pidea_enabled": bool(r.get("scheduler_jobs_ide_pidea_enabled", True)),
+        "scheduler_jobs_ide_pidea_timeout_sec": _bound_float(
+            r.get("scheduler_jobs_ide_pidea_timeout_sec"), 300.0, 30.0, 900.0
+        ),
     }
 
 
@@ -702,6 +776,30 @@ class OperatorSettingsPatch(BaseModel):
     pidea_selector_version: str | None = Field(default=None, max_length=64)
     expose_internal_errors: bool | None = None
     http_client_log_level: str | None = Field(default=None, max_length=16)
+    scheduler_enabled: bool | None = None
+    scheduler_interval_minutes: int | None = Field(default=None, ge=5, le=24 * 60)
+    scheduler_user_id: str | None = Field(default=None, max_length=64)
+    scheduler_model: str | None = Field(default=None, max_length=256)
+    scheduler_max_tool_rounds: int | None = Field(default=None, ge=1, le=64)
+    scheduler_notify_only_if_not_ok: bool | None = None
+    scheduler_max_outbound_per_day: int | None = Field(default=None, ge=0, le=100_000)
+    scheduler_allowed_tool_packages: str | None = Field(default=None, max_length=4000)
+    scheduler_llm_backend: str | None = Field(default=None, max_length=16)
+    scheduler_tools_mode: str | None = Field(default=None, max_length=16)
+    scheduler_pidea_enabled: bool | None = None
+    scheduler_instructions: str | None = Field(default=None, max_length=32000)
+    scheduler_jobs_worker_enabled: bool | None = None
+    scheduler_jobs_ide_pidea_enabled: bool | None = None
+    scheduler_jobs_ide_pidea_timeout_sec: float | None = Field(default=None, ge=30.0, le=900.0)
+
+
+def scheduler_jobs_worker_settings() -> tuple[bool, bool, float]:
+    """Persisted ``scheduler_jobs`` worker: enabled, IDE/PIDEA branch, reply timeout (30–900 s)."""
+    r = fetch_operator_settings_row()
+    w = bool(r.get("scheduler_jobs_worker_enabled", True))
+    ide = bool(r.get("scheduler_jobs_ide_pidea_enabled", True))
+    t = _bound_float(r.get("scheduler_jobs_ide_pidea_timeout_sec"), 300.0, 30.0, 900.0)
+    return w, ide, t
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -929,6 +1027,57 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
             r["http_client_log_level"] = "WARNING"
         else:
             r["http_client_log_level"] = _normalize_http_client_log_level_str(v)
+    if "scheduler_enabled" in patch:
+        r["scheduler_enabled"] = bool(patch["scheduler_enabled"])
+    if "scheduler_interval_minutes" in patch:
+        v = patch["scheduler_interval_minutes"]
+        r["scheduler_interval_minutes"] = _bound_int(v, 60, 5, 24 * 60) if v is not None else 60
+    if "scheduler_user_id" in patch:
+        v = patch["scheduler_user_id"]
+        if v is None or (isinstance(v, str) and not v.strip()):
+            r["scheduler_user_id"] = None
+        else:
+            try:
+                r["scheduler_user_id"] = uuid.UUID(str(v).strip())
+            except (ValueError, TypeError):
+                r["scheduler_user_id"] = None
+    if "scheduler_model" in patch:
+        v = patch["scheduler_model"]
+        r["scheduler_model"] = None if v is None else (str(v).strip() or None)
+    if "scheduler_max_tool_rounds" in patch:
+        v = patch["scheduler_max_tool_rounds"]
+        if v is None:
+            r["scheduler_max_tool_rounds"] = None
+        else:
+            r["scheduler_max_tool_rounds"] = _bound_int(v, 4, 1, 64)
+    if "scheduler_notify_only_if_not_ok" in patch:
+        r["scheduler_notify_only_if_not_ok"] = bool(patch["scheduler_notify_only_if_not_ok"])
+    if "scheduler_max_outbound_per_day" in patch:
+        v = patch["scheduler_max_outbound_per_day"]
+        r["scheduler_max_outbound_per_day"] = _bound_int(v, 10, 0, 100_000) if v is not None else 10
+    if "scheduler_allowed_tool_packages" in patch:
+        v = patch["scheduler_allowed_tool_packages"]
+        r["scheduler_allowed_tool_packages"] = None if v is None else str(v).strip()
+    if "scheduler_llm_backend" in patch:
+        v = patch["scheduler_llm_backend"]
+        r["scheduler_llm_backend"] = normalize_scheduler_llm_backend(v)
+    if "scheduler_tools_mode" in patch:
+        v = patch["scheduler_tools_mode"]
+        r["scheduler_tools_mode"] = normalize_scheduler_tools_mode(v)
+    if "scheduler_pidea_enabled" in patch:
+        r["scheduler_pidea_enabled"] = bool(patch["scheduler_pidea_enabled"])
+    if "scheduler_instructions" in patch:
+        v = patch["scheduler_instructions"]
+        r["scheduler_instructions"] = None if v is None else (str(v).strip() or None)
+    if "scheduler_jobs_worker_enabled" in patch:
+        r["scheduler_jobs_worker_enabled"] = bool(patch["scheduler_jobs_worker_enabled"])
+    if "scheduler_jobs_ide_pidea_enabled" in patch:
+        r["scheduler_jobs_ide_pidea_enabled"] = bool(patch["scheduler_jobs_ide_pidea_enabled"])
+    if "scheduler_jobs_ide_pidea_timeout_sec" in patch:
+        v = patch["scheduler_jobs_ide_pidea_timeout_sec"]
+        r["scheduler_jobs_ide_pidea_timeout_sec"] = (
+            _bound_float(v, 300.0, 30.0, 900.0) if v is not None else 300.0
+        )
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -984,6 +1133,21 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   pidea_selector_version = %s,
                   expose_internal_errors = %s,
                   http_client_log_level = %s,
+                  scheduler_enabled = %s,
+                  scheduler_interval_minutes = %s,
+                  scheduler_user_id = %s,
+                  scheduler_model = %s,
+                  scheduler_max_tool_rounds = %s,
+                  scheduler_notify_only_if_not_ok = %s,
+                  scheduler_max_outbound_per_day = %s,
+                  scheduler_allowed_tool_packages = %s,
+                  scheduler_llm_backend = %s,
+                  scheduler_tools_mode = %s,
+                  scheduler_pidea_enabled = %s,
+                  scheduler_instructions = %s,
+                  scheduler_jobs_worker_enabled = %s,
+                  scheduler_jobs_ide_pidea_enabled = %s,
+                  scheduler_jobs_ide_pidea_timeout_sec = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -1040,6 +1204,21 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("pidea_selector_version"),
                     bool(r.get("expose_internal_errors", False)),
                     _normalize_http_client_log_level_str(r.get("http_client_log_level")),
+                    bool(r.get("scheduler_enabled", False)),
+                    _bound_int(r.get("scheduler_interval_minutes"), 60, 5, 24 * 60),
+                    r.get("scheduler_user_id"),
+                    r.get("scheduler_model"),
+                    r.get("scheduler_max_tool_rounds"),
+                    bool(r.get("scheduler_notify_only_if_not_ok", True)),
+                    _bound_int(r.get("scheduler_max_outbound_per_day"), 10, 0, 100_000),
+                    r.get("scheduler_allowed_tool_packages"),
+                    normalize_scheduler_llm_backend(r.get("scheduler_llm_backend")),
+                    normalize_scheduler_tools_mode(r.get("scheduler_tools_mode")),
+                    bool(r.get("scheduler_pidea_enabled", False)),
+                    r.get("scheduler_instructions"),
+                    bool(r.get("scheduler_jobs_worker_enabled", True)),
+                    bool(r.get("scheduler_jobs_ide_pidea_enabled", True)),
+                    _bound_float(r.get("scheduler_jobs_ide_pidea_timeout_sec"), 300.0, 30.0, 900.0),
                 ),
             )
         conn.commit()

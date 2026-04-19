@@ -15,7 +15,12 @@ Layout::
     ├── automation/         # Runtime-CLI & IDE-Steuerung (Playwright)
     ├── domkit/             # DOM-Diagnostik, Selektor-Validierung / Repair
     ├── selectors/          # aktive JSONs (cursor|vscode|windsurf/<version>.json)
-    └── reference/          # Legacy-Referenz, kein Runtime
+    ├── content-library/    # portierte Prompt-Bibliothek (Upstream-PIDEA; kein separates PIDEA-Projekt im Repo nötig)
+    ├── workflows_data/     # PIDEA task-workflows.json (+ task-create, analysis) — 1:1 aus PIDEA/backend/framework/workflows/
+    ├── content_library_prompts.py  # liest content-library/prompts/ (Scheduler-Phasen)
+    ├── pidea_workflow_json.py / pidea_workflow_executor.py  # JSON-Workflows wie WorkflowLoaderService
+    ├── workspace_path_cdp.py # Workspace-Pfad aus IDE (page.evaluate, wie PIDEA CDPConnectionManager)
+    ├── workflow/           # Git + Shell (Python-Port, kein Node)
 
 Die App registriert nur ``app.include_router(pidea_router)`` in ``main.py`` — PIDEA-HTTP bleibt hier.
 

@@ -209,6 +209,9 @@ _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
         "agent_plain_completion",
         "agent_capability_hints",
         "agent_capability_confirm",
+        "agent_max_tool_rounds",
+        "agent_llm_backend",
+        "agent_tool_name_allowlist",
     }
 )
 
@@ -936,6 +939,7 @@ def _redact_provider_error_text_for_log(raw: str | None, *, max_len: int = 500) 
 def _log_ollama_round(
     *,
     round_i: int,
+    max_rounds_cap: int,
     model: Any,
     messages: list[dict[str, Any]],
     tools_for_round: list[Any],
@@ -959,7 +963,7 @@ def _log_ollama_round(
             "llm round %d/%d llm_model_id=%s reply=TOOLS calls=%s content_json_fallback=%s "
             "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d tool_names=%s%s",
             round_i + 1,
-            config.MAX_TOOL_ROUNDS,
+            max_rounds_cap,
             model,
             call_names,
             syn,
@@ -988,7 +992,7 @@ def _log_ollama_round(
             "llm round %d/%d llm_model_id=%s reply=EMPTY_NO_TOOLS content_json_fallback=%s "
             "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d%s",
             round_i + 1,
-            config.MAX_TOOL_ROUNDS,
+            max_rounds_cap,
             model,
             syn,
             ctx_msgs,
@@ -1001,7 +1005,7 @@ def _log_ollama_round(
         "llm round %d/%d llm_model_id=%s reply=TEXT_NO_TOOLS content_json_fallback=%s "
         "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d preview=%r%s",
         round_i + 1,
-        config.MAX_TOOL_ROUNDS,
+        max_rounds_cap,
         model,
         syn,
         ctx_msgs,
@@ -1044,7 +1048,17 @@ async def chat_completion(
         parse_user_capability_confirm(body.pop("agent_capability_confirm", None))
     )
     workspace_ctx = body.pop("agent_workspace_context", None)
+    _raw_max_rounds = body.pop("agent_max_tool_rounds", None)
+    _raw_llm_be = body.pop("agent_llm_backend", None)
+    _raw_tool_allow = body.pop("agent_tool_name_allowlist", None)
     try:
+
+        max_tool_rounds_eff = config.MAX_TOOL_ROUNDS
+        if _raw_max_rounds is not None:
+            try:
+                max_tool_rounds_eff = max(1, min(int(_raw_max_rounds), config.MAX_TOOL_ROUNDS))
+            except (TypeError, ValueError):
+                pass
 
         messages = _inject_system_prompt(list(body.get("messages") or []))
         messages = _inject_workspace_context(messages, workspace_ctx)
@@ -1063,11 +1077,19 @@ async def chat_completion(
         )
         smart_route_reason = ""
         backend_override: Literal["ollama", "external"] | None = None
-        if not plain_completion and smart_llm_routing_enabled():
+        if isinstance(_raw_llm_be, str):
+            lo = _raw_llm_be.strip().lower()
+            if lo == "ollama":
+                backend_override = "ollama"
+            elif lo == "external":
+                backend_override = "external"
+        if backend_override is None and not plain_completion and smart_llm_routing_enabled():
             # Smart routing: 0–1 extra local router call (Ollama), then one main completion — never two externals.
             bo, smart_route_reason = await asyncio.to_thread(decide_smart_backend, messages)
             backend_override = bo
             logger.info("smart LLM route: %s -> backend=%s", smart_route_reason, bo)
+        elif backend_override is not None:
+            logger.info("chat_completion: agent_llm_backend override -> %s", backend_override)
         attempts, llm_backend = llm_chat_transport(
             model,
             profile_key,
@@ -1145,6 +1167,17 @@ async def chat_completion(
                 for t in merged_tools
                 if (n := _tool_spec_name(t)) is None or n not in disabled_names
             ]
+
+        if isinstance(_raw_tool_allow, list) and _raw_tool_allow:
+            allow_set = {str(x).strip() for x in _raw_tool_allow if str(x).strip()}
+            if allow_set:
+                merged_tools = [
+                    t
+                    for t in merged_tools
+                    if (n := _tool_spec_name(t)) is None
+                    or n in allow_set
+                    or n in TOOL_INTROSPECTION
+                ]
 
         wl = _workspace_tool_allowlist_from_request_context(workspace_ctx)
         if wl:
@@ -1250,7 +1283,7 @@ async def chat_completion(
                         "type": "agent.step_wait",
                         "after_round": completed_round,
                         "next_round": completed_round + 1,
-                        "max_rounds": config.MAX_TOOL_ROUNDS,
+                        "max_rounds": max_tool_rounds_eff,
                         "detail": (
                             "Send a frame {\"type\":\"continue_step\"} to start the next LLM round. "
                             "You may send {\"type\":\"add_tools\",\"names\":[\"...\"]} before that."
@@ -1300,7 +1333,7 @@ async def chat_completion(
                 }
             )
 
-        for round_i in range(config.MAX_TOOL_ROUNDS):
+        for round_i in range(max_tool_rounds_eff):
             await drain_control_queue()
             if cancel_event is not None and cancel_event.is_set():
                 if event_emit:
@@ -1321,7 +1354,7 @@ async def chat_completion(
                     {
                         "type": "agent.llm_round_start",
                         "round": round_i + 1,
-                        "max_rounds": config.MAX_TOOL_ROUNDS,
+                        "max_rounds": max_tool_rounds_eff,
                         "forwarded_tool_names": [
                             n for t in tools_for_round if (n := _tool_spec_name(t)) is not None
                         ],
@@ -1491,6 +1524,7 @@ async def chat_completion(
 
             _log_ollama_round(
                 round_i=round_i,
+                max_rounds_cap=max_tool_rounds_eff,
                 model=model,
                 messages=messages,
                 tools_for_round=tools_for_round,
@@ -1576,13 +1610,13 @@ async def chat_completion(
             if (
                 pause_between_rounds
                 and control_queue is not None
-                and round_i + 1 < config.MAX_TOOL_ROUNDS
+                and round_i + 1 < max_tool_rounds_eff
             ):
                 await wait_for_continue_step_after_round(round_i + 1)
 
         logger.warning(
             "max tool rounds (%s) exceeded ctx_msgs=%d ctx_text_chars~=%d",
-            config.MAX_TOOL_ROUNDS,
+            max_tool_rounds_eff,
             len(messages),
             _approx_text_chars_in_messages(messages),
         )
@@ -1591,7 +1625,7 @@ async def chat_completion(
                 {
                     "type": "agent.done",
                     "kind": "max_tool_rounds",
-                    "round": config.MAX_TOOL_ROUNDS,
+                    "round": max_tool_rounds_eff,
                 }
             )
         return data

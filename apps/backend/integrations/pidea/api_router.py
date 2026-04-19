@@ -32,7 +32,7 @@ router.include_router(ide_agents_admin_router)
 
 @router.get("/v1/experimental/status")
 async def experimental_status(request: Request):
-    """PIDEA / IDE Agent: global flag, per-user access (admin oder ``ide_agent_allowed``), Playwright."""
+    """PIDEA / IDE Agent: global flag, **admin-only** IDE access, Playwright."""
     user = await get_current_user(request)
 
     from apps.backend.infrastructure import operator_settings
@@ -69,10 +69,8 @@ async def _run_ide_agent_with_mapping(run) -> Any:
 
 @router.get("/v1/ide-agent/snapshot")
 async def ide_agent_snapshot(request: Request):
-    """Liest den aktuellen IDE-Composer-Stand (User-/AI-Zeilen) ohne zu senden."""
-    user = await get_current_user(request)
-    if not ide_agent_access_for_user(user):
-        raise HTTPException(status_code=403, detail="IDE Agent access denied")
+    """Liest den aktuellen IDE-Composer-Stand (User-/AI-Zeilen) ohne zu senden. Admin only."""
+    await require_admin(request)
     if not playwright_import_ok():
         raise HTTPException(status_code=503, detail="Playwright is not installed on the server")
 
@@ -94,10 +92,8 @@ class IdeAgentMessageBody(BaseModel):
 
 @router.post("/v1/ide-agent/message")
 async def ide_agent_message(request: Request, body: IdeAgentMessageBody):
-    """Steuert das IDE-KI-Panel: braucht ``ide_agent_access`` und Playwright auf dem API-Host."""
-    user = await get_current_user(request)
-    if not ide_agent_access_for_user(user):
-        raise HTTPException(status_code=403, detail="IDE Agent access denied")
+    """Steuert das IDE-KI-Panel: **admin only**; Playwright auf dem API-Host."""
+    await require_admin(request)
     if not playwright_import_ok():
         raise HTTPException(status_code=503, detail="Playwright is not installed on the server")
     text = body.message.strip()

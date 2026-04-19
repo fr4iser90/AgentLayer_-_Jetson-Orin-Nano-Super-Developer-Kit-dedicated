@@ -4,7 +4,7 @@ import { apiFetch } from "../lib/api";
 
 export type IdeAgentStatusPayload = {
   loading: boolean;
-  /** True when PIDEA is on globally and this user may use IDE Agent (admin or ``ide_agent_allowed``). */
+  /** True when PIDEA is on globally and this user is **admin** (IDE Agent / Playwright is admin-only). */
   enabled: boolean;
   playwrightInstalled: boolean | null;
   /** Operator toggle only (for settings copy). */

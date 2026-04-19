@@ -35,7 +35,6 @@ from apps.backend.infrastructure.auth import (
     get_user_by_id,
     create_user,
     update_user_tenant,
-    update_user_ide_agent_allowed,
     validate_refresh_token,
     revoke_refresh_token,
 )
@@ -81,6 +80,7 @@ from apps.backend.infrastructure.log_redaction import (
 )
 from apps.backend.infrastructure.public_error import http_500_detail
 from apps.backend.integrations.pidea.api_router import router as pidea_router
+from apps.backend.api.scheduler_jobs_api import router as scheduler_jobs_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -118,6 +118,11 @@ def _bearer_user_role_from_request(request: Request) -> str | None:
 
 
 from apps.backend.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
+from apps.backend.infrastructure.scheduler import start_scheduler_worker, stop_scheduler_worker
+from apps.backend.infrastructure.scheduler_jobs_runner import (
+    start_scheduler_jobs_worker,
+    stop_scheduler_jobs_worker,
+)
 from apps.backend.integrations import discord_bridge, telegram_bridge
 
 # Optional out-of-band gateways (Telegram, Discord, …). New bridges: start/stop here like below;
@@ -147,6 +152,14 @@ async def lifespan(_app: FastAPI):
         logger.exception("RAG docs startup ingest failed (Ollama unreachable?)")
     start_cron_scheduler()
     try:
+        start_scheduler_worker()
+    except Exception:
+        logger.exception("Scheduler worker failed to start (optional)")
+    try:
+        start_scheduler_jobs_worker()
+    except Exception:
+        logger.exception("Scheduler jobs server worker failed to start (optional)")
+    try:
         discord_bridge.start_background()
     except Exception:
         logger.exception("Discord bridge failed to start (optional)")
@@ -164,6 +177,14 @@ async def lifespan(_app: FastAPI):
     except Exception:
         pass
     stop_cron_scheduler()
+    try:
+        stop_scheduler_worker()
+    except Exception:
+        pass
+    try:
+        stop_scheduler_jobs_worker()
+    except Exception:
+        pass
     db.close_pool()
 
 
@@ -178,6 +199,7 @@ app.include_router(rag_router)
 app.include_router(chat_ws_router)
 app.include_router(studio_router)
 app.include_router(pidea_router)
+app.include_router(scheduler_jobs_router)
 
 
 # Auth Endpoints
@@ -473,7 +495,6 @@ class AdminPatchUserBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: int | None = Field(default=None, ge=1)
-    ide_agent_allowed: bool | None = None
 
 
 @app.get("/v1/admin/tenants")
@@ -500,27 +521,21 @@ async def admin_list_users(request: Request):
 
 @app.patch("/v1/admin/users/{user_id}")
 async def admin_patch_user(request: Request, user_id: uuid.UUID, body: AdminPatchUserBody):
-    """Update ``tenant_id`` and/or ``ide_agent_allowed``. Admin only."""
+    """Update ``tenant_id``. Admin only."""
     await require_admin(request)
-    if body.tenant_id is None and body.ide_agent_allowed is None:
+    if body.tenant_id is None:
         raise HTTPException(status_code=400, detail="no fields to patch")
     u = get_user_by_id(user_id)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
-    if body.tenant_id is not None:
-        if not db.tenant_exists(body.tenant_id):
-            raise HTTPException(status_code=400, detail="unknown tenant_id")
-        if not update_user_tenant(user_id, body.tenant_id):
-            raise HTTPException(status_code=404, detail="user not found")
-    if body.ide_agent_allowed is not None:
-        if not update_user_ide_agent_allowed(user_id, body.ide_agent_allowed):
-            raise HTTPException(status_code=404, detail="user not found")
-    u2 = get_user_by_id(user_id)
+    if not db.tenant_exists(body.tenant_id):
+        raise HTTPException(status_code=400, detail="unknown tenant_id")
+    if not update_user_tenant(user_id, body.tenant_id):
+        raise HTTPException(status_code=404, detail="user not found")
     return {
         "ok": True,
         "id": str(user_id),
         "tenant_id": db.user_tenant_id(user_id),
-        "ide_agent_allowed": bool(u2.ide_agent_allowed) if u2 else False,
     }
 
 

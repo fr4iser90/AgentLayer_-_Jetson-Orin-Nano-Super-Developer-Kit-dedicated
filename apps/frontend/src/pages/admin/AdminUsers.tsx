@@ -14,7 +14,6 @@ type UserRow = {
   display_name?: string | null;
   tenant_id?: number;
   tenant_name?: string | null;
-  ide_agent_allowed?: boolean;
   discord_user_id?: string | null;
   telegram_user_id?: string | null;
 };
@@ -107,27 +106,6 @@ export function AdminUsers() {
       await loadUsers();
     } catch (e) {
       setListErr(e instanceof Error ? e.message : "Could not update tenant");
-    } finally {
-      setSavingUserId(null);
-    }
-  }
-
-  async function patchUserIdeAgent(userId: string, allowed: boolean) {
-    setSavingUserId(userId);
-    setListErr(null);
-    try {
-      const res = await apiFetch(`/v1/admin/users/${userId}`, auth, {
-        method: "PATCH",
-        body: JSON.stringify({ ide_agent_allowed: allowed }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
-      if (!res.ok) {
-        setListErr(typeof data.detail === "string" ? data.detail : "Could not update IDE Agent access");
-        return;
-      }
-      await loadUsers();
-    } catch (e) {
-      setListErr(e instanceof Error ? e.message : "Could not update IDE Agent access");
     } finally {
       setSavingUserId(null);
     }
@@ -235,7 +213,7 @@ export function AdminUsers() {
         <p className="mt-1 text-xs text-surface-muted">
           <code className="text-neutral-500">GET /v1/admin/users</code> ·{" "}
           <code className="text-neutral-500">PATCH /v1/admin/users/{"{id}"}</code> (
-          <span className="font-mono">tenant_id</span> and/or <span className="font-mono">ide_agent_allowed</span>)
+          <span className="font-mono">tenant_id</span>)
         </p>
         <div className="mt-3 overflow-x-auto rounded-xl border border-surface-border">
           <table className="w-full min-w-[36rem] text-left text-sm">
@@ -244,7 +222,6 @@ export function AdminUsers() {
                 <th className="px-4 py-3 font-medium">Email / identity</th>
                 <th className="px-4 py-3 font-medium">Tenant</th>
                 <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium">IDE Agent</th>
                 <th className="px-4 py-3 font-medium">Discord id</th>
                 <th className="px-4 py-3 font-medium">Telegram id</th>
                 <th className="px-4 py-3 font-medium">Created</th>
@@ -253,19 +230,19 @@ export function AdminUsers() {
             <tbody>
               {listLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={6} className="px-4 py-6 text-center text-surface-muted">
                     Loading…
                   </td>
                 </tr>
               ) : listErr ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-red-400">
+                  <td colSpan={6} className="px-4 py-6 text-center text-red-400">
                     {listErr}
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={6} className="px-4 py-6 text-center text-surface-muted">
                     No users found.
                   </td>
                 </tr>
@@ -273,7 +250,6 @@ export function AdminUsers() {
                 rows.map((r) => {
                   const tid = r.tenant_id ?? 1;
                   const saving = savingUserId === r.id;
-                  const isAdmin = r.role?.toLowerCase() === "admin";
                   return (
                     <tr key={r.id} className="border-b border-surface-border/80 hover:bg-white/[0.03]">
                       <td className="px-4 py-3 text-white">
@@ -308,36 +284,13 @@ export function AdminUsers() {
                       <td className="px-4 py-3">
                         <span
                           className={
-                            isAdmin
+                            r.role?.toLowerCase() === "admin"
                               ? "rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-300"
                               : "rounded bg-sky-500/20 px-2 py-0.5 text-xs text-sky-300"
                           }
                         >
                           {r.role}
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-neutral-300">
-                        {isAdmin ? (
-                          <span className="text-surface-muted">always (admin)</span>
-                        ) : (
-                          <label className="inline-flex cursor-pointer items-center gap-2">
-                            <input
-                              type="checkbox"
-                              className="rounded border-surface-border"
-                              checked={Boolean(r.ide_agent_allowed)}
-                              disabled={saving}
-                              onChange={(e) => {
-                                const next = e.target.checked;
-                                if (next === Boolean(r.ide_agent_allowed)) return;
-                                void patchUserIdeAgent(r.id, next);
-                              }}
-                            />
-                            <span className="text-surface-muted">allowed</span>
-                            {saving ? (
-                              <span className="text-[10px] text-surface-muted">Saving…</span>
-                            ) : null}
-                          </label>
-                        )}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-neutral-400">
                         {r.discord_user_id?.trim() ? r.discord_user_id.trim() : "—"}

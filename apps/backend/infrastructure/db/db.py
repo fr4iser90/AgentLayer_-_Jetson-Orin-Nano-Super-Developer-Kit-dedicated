@@ -359,6 +359,50 @@ def user_role(user_id: uuid.UUID | None) -> str:
     return r if r in ("user", "admin") else "user"
 
 
+def scheduler_outbound_count_today_utc(user_id: uuid.UUID) -> int:
+    """Rows in ``scheduler_outbound_daily`` for today's UTC date."""
+    day = datetime.now(UTC).date()
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT outbound_count FROM scheduler_outbound_daily WHERE user_id = %s AND day_utc = %s",
+                (user_id, day),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row or row[0] is None:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def scheduler_outbound_increment_utc(user_id: uuid.UUID) -> int:
+    """Upsert +1 for today UTC; returns new count."""
+    day = datetime.now(UTC).date()
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO scheduler_outbound_daily (user_id, day_utc, outbound_count)
+                VALUES (%s, %s, 1)
+                ON CONFLICT (user_id, day_utc) DO UPDATE SET
+                  outbound_count = scheduler_outbound_daily.outbound_count + 1
+                RETURNING outbound_count
+                """,
+                (user_id, day),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    if not row:
+        return 1
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 1
+
+
 def _require_user_uuid() -> tuple[int, uuid.UUID]:
     tenant_id, user_id = get_identity()
     if user_id is None:
