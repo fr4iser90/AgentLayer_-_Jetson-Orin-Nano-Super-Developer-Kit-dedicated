@@ -28,10 +28,15 @@ _FIND_CANDIDATES_JS = """
   const hints = [];
   if (key === "aiMessages" || key === "assistant") {
     hints.push(
+      '[data-message-role="ai"] .markdown-root',
+      '[data-message-role="ai"] .rendered-markdown',
       '[data-message-role="ai"][data-message-kind="assistant"] .markdown-root',
       '.composer-rendered-message[data-message-kind="assistant"] .markdown-root',
+      '.composer-rendered-message[data-message-kind="assistant"] .rendered-markdown',
       '[data-message-kind="assistant"] .markdown-root',
-      'span.anysphere-markdown-container-root',
+      '[data-message-kind="assistant"] .rendered-markdown',
+      '[data-message-role="ai"] [class*="MarkdownRender"]',
+      '[data-message-kind="assistant"] [class*="MarkdownRender"]',
     );
   }
   if (key === "userMessages" || key === "user") {
@@ -126,9 +131,13 @@ _EXTENDED_FIND_JS = """
     });
   }
   if (k.includes("markdown") || k.includes("message") || k === "aimessages" || k === "assistant") {
-    push('[data-message-role="ai"][data-message-kind="assistant"] .markdown-root', "ext-ai-md");
+    push('[data-message-role="ai"] .markdown-root', "ext-ai-md");
+    push('[data-message-role="ai"] .rendered-markdown', "ext-ai-rm");
+    push('[data-message-role="ai"][data-message-kind="assistant"] .markdown-root', "ext-ai-md2");
     push('.composer-rendered-message[data-message-kind="assistant"] .markdown-root', "ext-ai-comp");
+    push('.composer-rendered-message[data-message-kind="assistant"] .rendered-markdown', "ext-ai-comp-rm");
     push('[data-message-kind="assistant"] .markdown-root', "ext-ai-kind");
+    push('[data-message-kind="assistant"] .rendered-markdown', "ext-ai-kind-rm");
   }
   if (k.includes("user") || k.includes("human")) {
     push('[data-message-role="human"] .aislash-editor-input-readonly', "ext-human");

@@ -78,6 +78,152 @@ type SelfHealPayload = {
   message?: string;
 };
 
+const CHAT_KEY_LABELS: Record<string, string> = {
+  aiMessages: "AI messages",
+  userMessages: "Your messages",
+  input: "Chat input",
+};
+
+function labelChatKey(key: string): string {
+  return CHAT_KEY_LABELS[key] ?? key;
+}
+
+/** One sentence for banners; avoids “nothing happened” on dry-run. */
+function selfHealSummaryLine(data: SelfHealPayload, didPersist: boolean): string {
+  if (data.message === "nothing_to_heal") {
+    return "Dry run: all selectors match this page — nothing to fix (no file changed).";
+  }
+  if (didPersist && data.new_version) {
+    return `Profile saved as ${data.new_version}.`;
+  }
+  if (didPersist) {
+    return "Profile saved.";
+  }
+  const n = data.changed_keys?.length ?? 0;
+  const fails = data.failed_keys?.length ?? 0;
+  if (data.dry_run && n > 0 && data.critical_keys_ok) {
+    return `Dry run: ${n} selector${n === 1 ? "" : "s"} would be updated — click “Self-heal & persist” to save (no file written yet).`;
+  }
+  if (data.dry_run && fails > 0 && n === 0) {
+    return "Dry run: could not auto-fix every broken selector — see details below.";
+  }
+  if (!data.critical_keys_ok) {
+    return "Critical chat areas still need attention — see below.";
+  }
+  return "Self-heal finished.";
+}
+
+function selfHealNextStep(data: SelfHealPayload): string | null {
+  if (data.message === "nothing_to_heal") {
+    return "No action needed. Run again after an IDE update if selectors break.";
+  }
+  if (data.persisted) {
+    return "Optional: open the Validator tab and run “Validate all” to confirm.";
+  }
+  if (data.dry_run && data.critical_keys_ok && (data.changed_keys?.length ?? 0) > 0) {
+    return "To save, click “Self-heal & persist”. The server writes a new versioned file; older profiles are kept.";
+  }
+  if (!data.critical_keys_ok) {
+    return "Open the chat panel in the IDE, focus this window, then retry — or use “Load candidates” below.";
+  }
+  return null;
+}
+
+function SelfHealSummaryCard({ data, developerMode }: { data: SelfHealPayload; developerMode?: boolean }) {
+  const changed = data.changed_keys ?? [];
+  const failed = data.failed_keys ?? [];
+  const dry = data.dry_run === true;
+  const nothing = data.message === "nothing_to_heal";
+  const border =
+    data.critical_keys_ok && (nothing || data.persisted || changed.length > 0)
+      ? "border-emerald-500/35 bg-emerald-950/20"
+      : "border-amber-500/40 bg-amber-950/25";
+
+  return (
+    <div className={`mt-4 rounded-xl border p-4 ${border}`}>
+      <p className="text-sm font-semibold text-white">{selfHealSummaryLine(data, data.persisted === true)}</p>
+      {dry ? (
+        <p className="mt-2 text-xs text-neutral-400">
+          <span className="font-medium text-neutral-300">Dry run</span> only simulates fixes against the live page. It does{" "}
+          <span className="text-neutral-200">not</span> write or replace profile files — that is expected.
+        </p>
+      ) : null}
+      {!nothing ? (
+        <div className="mt-3 space-y-2 text-xs text-neutral-300">
+          <p>
+            <span className="text-surface-muted">Profile checked: </span>
+            <span className="font-mono text-neutral-200">{data.base_version ?? "—"}</span>
+          </p>
+          <p>
+            <span className="text-surface-muted">Chat essentials: </span>
+            {data.critical_keys_ok ? (
+              <span className="text-emerald-300/95">All OK (AI messages, your messages, input)</span>
+            ) : (
+              <span className="text-amber-200">
+                Needs attention
+                {data.critical_failures?.length
+                  ? `: ${data.critical_failures.map(labelChatKey).join(", ")}`
+                  : ""}
+              </span>
+            )}
+          </p>
+          {changed.length > 0 ? (
+            <div>
+              <span className="text-surface-muted">
+                {dry ? "Would update" : "Updated"} ({changed.length}):{" "}
+              </span>
+              <span>{changed.map(labelChatKey).join(", ")}</span>
+            </div>
+          ) : null}
+          {developerMode && data.updated_selectors && Object.keys(data.updated_selectors).length > 0 ? (
+            <div className="mt-2 rounded-lg border border-white/10 bg-black/30 p-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">Chosen CSS (developer)</p>
+              <ul className="mt-1 space-y-1.5 font-mono text-[10px] text-neutral-400">
+                {Object.entries(data.updated_selectors).map(([k, css]) => (
+                  <li key={k}>
+                    <span className="text-neutral-500">{k}: </span>
+                    <span className="break-all text-neutral-300">{css}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {failed.length > 0 ? (
+            <div>
+              <span className="text-surface-muted">Could not auto-fix: </span>
+              <ul className="mt-1 list-inside list-disc text-amber-100/90">
+                {failed.map((f) => (
+                  <li key={f.key}>
+                    {labelChatKey(f.key)}
+                    {f.reason ? ` — ${f.reason}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {data.persisted && data.new_version ? (
+            <p className="text-emerald-200/90">
+              Saved as version <span className="font-mono">{data.new_version}</span>
+              {data.path ? (
+                <>
+                  {" "}
+                  <span className="text-surface-muted">({data.path})</span>
+                </>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {selfHealNextStep(data) ? (
+        <p className="mt-3 border-t border-white/10 pt-3 text-xs text-neutral-300">
+          <span className="font-medium text-neutral-200">Next: </span>
+          {selfHealNextStep(data)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function basePath(ide: string) {
   return `/v1/admin/ide-agents/${encodeURIComponent(ide)}`;
 }
@@ -100,6 +246,20 @@ const DANGEROUS = new Set([
   "press_key",
 ]);
 
+const DOM_ANALYZER_UX_MODE_KEY = "agentLayer.domAnalyzer.uxMode";
+
+type DomAnalyzerUxMode = "operator" | "developer";
+
+function readStoredUxMode(): DomAnalyzerUxMode {
+  try {
+    const v = localStorage.getItem(DOM_ANALYZER_UX_MODE_KEY);
+    if (v === "developer" || v === "operator") return v;
+  } catch {
+    /* ignore */
+  }
+  return "operator";
+}
+
 export function DomAnalyzerPage() {
   const { ide: ideParam } = useParams<{ ide: string }>();
   const navigate = useNavigate();
@@ -112,6 +272,22 @@ export function DomAnalyzerPage() {
   const [repairData, setRepairData] = useState<RepairData | null>(null);
   const [repairRaw, setRepairRaw] = useState<string>("");
   const [selfHealRaw, setSelfHealRaw] = useState<string>("");
+  const [lastSelfHeal, setLastSelfHeal] = useState<SelfHealPayload | null>(null);
+  const [uxMode, setUxMode] = useState<DomAnalyzerUxMode>(() => readStoredUxMode());
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState(() => readStoredUxMode() === "developer");
+
+  useEffect(() => {
+    setTechnicalDetailsOpen(uxMode === "developer");
+  }, [uxMode]);
+
+  const setUxModePersist = useCallback((m: DomAnalyzerUxMode) => {
+    setUxMode(m);
+    try {
+      localStorage.setItem(DOM_ANALYZER_UX_MODE_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [pendingOverrides, setPendingOverrides] = useState<Record<string, string>>({});
   const [newProfileVersion, setNewProfileVersion] = useState("");
   const [explore, setExplore] = useState<ExploreItem[]>([]);
@@ -169,6 +345,7 @@ export function DomAnalyzerPage() {
     setRepairData(null);
     setRepairRaw("");
     setSelfHealRaw("");
+    setLastSelfHeal(null);
     setPendingOverrides({});
     setNewProfileVersion("");
     setActionResult("");
@@ -233,13 +410,10 @@ export function DomAnalyzerPage() {
       });
       const data = (await r.json().catch(() => ({}))) as SelfHealPayload & { detail?: unknown };
       if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "self-heal failed");
+      setLastSelfHeal(data);
       setSelfHealRaw(JSON.stringify(data, null, 2));
       if (data.new_version) setVersion(data.new_version);
-      toast(
-        persist
-          ? `Self-heal saved${data.new_version ? `: ${data.new_version}` : ""}`
-          : "Self-heal dry run complete",
-      );
+      toast(selfHealSummaryLine(data, data.persisted === true));
     });
 
   const loadExplore = () =>
@@ -416,6 +590,32 @@ export function DomAnalyzerPage() {
           <Link to="/admin/ide-agent" className="text-xs text-sky-400 hover:underline">
             Operator settings
           </Link>
+          <span className="text-xs text-surface-muted">View</span>
+          <div className="flex flex-wrap gap-1 rounded-md border border-white/10 bg-black/20 p-0.5">
+            {(
+              [
+                ["operator", "Operator"],
+                ["developer", "Developer"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                title={
+                  id === "operator"
+                    ? "Summary-first UI; technical JSON stays tucked away"
+                    : "Raw JSON, full selectors, counts — for debugging"
+                }
+                aria-pressed={uxMode === id}
+                onClick={() => setUxModePersist(id)}
+                className={`rounded px-2 py-1 text-xs font-medium ${
+                  uxMode === id ? "bg-sky-600 text-white" : "text-surface-muted hover:bg-white/10"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <span className="text-xs text-surface-muted">
             API <code className="text-neutral-400">/v1/admin/ide-agents/{`{ide}`}/…</code>
           </span>
@@ -486,7 +686,12 @@ export function DomAnalyzerPage() {
         {tab === "val" && (
           <section className="rounded-xl border border-surface-border bg-surface-raised/40 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-white">Selector validator</h2>
+              <div>
+                <h2 className="text-sm font-semibold text-white">Selector validator</h2>
+                {uxMode === "operator" ? (
+                  <p className="mt-0.5 text-[11px] text-surface-muted">Long selectors are truncated; switch to Developer for full strings.</p>
+                ) : null}
+              </div>
               <button
                 type="button"
                 disabled={loading}
@@ -515,7 +720,9 @@ export function DomAnalyzerPage() {
                     <tr key={row.key} className="border-b border-white/5">
                       <td className="py-2 pr-2 align-top font-mono text-neutral-300">{row.key}</td>
                       <td
-                        className="max-w-[220px] py-2 pr-2 align-top font-mono text-[10px] text-neutral-500"
+                        className={`py-2 pr-2 align-top font-mono text-[10px] text-neutral-500 ${
+                          uxMode === "developer" ? "max-w-[min(520px,85vw)] break-all" : "max-w-[160px] truncate"
+                        }`}
                         title={row.selector}
                       >
                         {row.selector}
@@ -548,15 +755,23 @@ export function DomAnalyzerPage() {
 
         {tab === "repair" && (
           <section className="rounded-xl border border-surface-border bg-surface-raised/40 p-4">
-            <h2 className="text-sm font-semibold text-white">Repair center</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-semibold text-white">Repair center</h2>
+              {uxMode === "developer" ? (
+                <span className="rounded border border-violet-500/30 bg-violet-950/40 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-200">
+                  Developer view
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs text-surface-muted">
               Ranked replacement candidates. “Preview” copies the CSS; “Use selector” stages an override for “Save profile”.
               Saving generates a new version file and backs up the base JSON (server-side).
             </p>
             <p className="mt-2 text-xs text-surface-muted">
-              <span className="font-medium text-neutral-200">Automatic self-heal</span> finds, validates, and picks
-              replacements for broken selectors (no approval step). Dry run returns JSON only; persist writes{" "}
-              <code className="font-mono text-neutral-400">{`{base}-heal-{UTC}`}</code> when critical keys validate.
+              <span className="font-medium text-neutral-200">Automatic self-heal</span> finds and validates replacements
+              for broken selectors. <span className="text-neutral-300">Dry run</span> shows what would change (no file
+              write). <span className="text-neutral-300">Persist</span> saves a new version{" "}
+              <code className="font-mono text-neutral-500">{`{base}-heal-{UTC}`}</code> when chat essentials pass checks.
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
@@ -576,6 +791,7 @@ export function DomAnalyzerPage() {
                 Self-heal &amp; persist
               </button>
             </div>
+            {lastSelfHeal ? <SelfHealSummaryCard data={lastSelfHeal} developerMode={uxMode === "developer"} /> : null}
             <button
               type="button"
               disabled={loading}
@@ -669,13 +885,35 @@ export function DomAnalyzerPage() {
               </div>
             </div>
 
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs text-surface-muted">Repair JSON</summary>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-black/50 p-3 text-xs text-neutral-400">{repairRaw || "{}"}</pre>
-            </details>
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs text-surface-muted">Self-heal JSON</summary>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-black/50 p-3 text-xs text-neutral-400">{selfHealRaw || "{}"}</pre>
+            <details
+              className="mt-4 rounded-lg border border-white/10 bg-black/25 p-2"
+              open={technicalDetailsOpen}
+              onToggle={(e) => setTechnicalDetailsOpen(e.currentTarget.open)}
+            >
+              <summary className="cursor-pointer px-1 py-1 text-xs font-medium text-surface-muted">
+                Technical details (JSON, raw responses)
+              </summary>
+              <p className="mt-2 px-1 text-[11px] leading-relaxed text-neutral-500">
+                {uxMode === "developer"
+                  ? "Developer mode: this section opens by default. Use for debugging and support tickets."
+                  : "Operator mode: keep this closed unless support asks for a paste. Switch to Developer to focus on raw data."}
+              </p>
+              {selfHealRaw ? (
+                <div className="mt-2 px-1">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-600">Self-heal</p>
+                  <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/50 p-3 text-[10px] text-neutral-500">
+                    {selfHealRaw}
+                  </pre>
+                </div>
+              ) : null}
+              {repairRaw && repairRaw !== "{}" ? (
+                <div className="mt-3 px-1">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-600">Repair candidates</p>
+                  <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/50 p-3 text-[10px] text-neutral-500">
+                    {repairRaw}
+                  </pre>
+                </div>
+              ) : null}
             </details>
           </section>
         )}
