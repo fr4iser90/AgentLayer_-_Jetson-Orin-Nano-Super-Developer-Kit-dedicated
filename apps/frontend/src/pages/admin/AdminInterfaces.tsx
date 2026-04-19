@@ -50,6 +50,8 @@ type OperatorPublic = {
   rag_tenant_shared_domains_effective?: string[];
   docs_root?: string;
   expose_internal_errors?: boolean;
+  /** httpx/httpcore: WARNING = quiet long-poll; INFO = per-request */
+  http_client_log_level?: string;
   detail?: unknown;
 };
 
@@ -135,6 +137,7 @@ export function AdminInterfaces() {
   const [ragTenantEffective, setRagTenantEffective] = useState<string[]>([]);
   const [docsRoot, setDocsRoot] = useState("");
   const [exposeInternalErrors, setExposeInternalErrors] = useState(false);
+  const [httpClientLogLevel, setHttpClientLogLevel] = useState("WARNING");
   const [extLlmModelIds, setExtLlmModelIds] = useState<string[]>([]);
   const [extLlmModelsLoading, setExtLlmModelsLoading] = useState(false);
   const [extLlmModelsHint, setExtLlmModelsHint] = useState<string | null>(null);
@@ -252,6 +255,11 @@ export function AdminInterfaces() {
       );
       setDocsRoot((op.docs_root ?? "").trim());
       setExposeInternalErrors(!!op.expose_internal_errors);
+      setHttpClientLogLevel(
+        typeof op.http_client_log_level === "string" && op.http_client_log_level.trim()
+          ? op.http_client_log_level.trim().toUpperCase()
+          : "WARNING"
+      );
       setMemGraphEnabled(op.memory_graph_enabled !== false);
       setMemGraphMaxHops(
         op.memory_graph_max_hops != null && Number.isFinite(Number(op.memory_graph_max_hops))
@@ -488,6 +496,7 @@ export function AdminInterfaces() {
       patch.rag_tenant_shared_domains = ragTenantDomains.trim();
       patch.docs_root = docsRoot.trim() ? docsRoot.trim() : null;
       patch.expose_internal_errors = exposeInternalErrors;
+      patch.http_client_log_level = httpClientLogLevel.trim() || "WARNING";
       const mgHops = Number(memGraphMaxHops.trim());
       const mgScore = Number(memGraphMinScore.trim());
       const mgBullets = Number(memGraphMaxBullets.trim());
@@ -1509,6 +1518,22 @@ export function AdminInterfaces() {
             >
               Clear Telegram token
             </button>
+            <label className="mt-6 block text-xs text-surface-muted" htmlFor="http-client-log-level">
+              HTTP-Client-Logging (<span className="font-mono">httpx</span> / Long-Poll) — in{" "}
+              <span className="font-mono text-neutral-400">operator_settings</span>, nicht in{" "}
+              <span className="font-mono text-neutral-400">.env</span>
+            </label>
+            <select
+              id="http-client-log-level"
+              className="mt-1 w-full max-w-xs rounded-md border border-surface-border bg-black/20 px-3 py-2 font-mono text-sm text-white"
+              value={httpClientLogLevel}
+              onChange={(e) => setHttpClientLogLevel(e.target.value)}
+            >
+              <option value="WARNING">WARNING — Standard (ruhig, keine Zeile pro getUpdates)</option>
+              <option value="INFO">INFO — jede HTTP-Anfrage loggen (Debug)</option>
+              <option value="DEBUG">DEBUG</option>
+              <option value="ERROR">ERROR</option>
+            </select>
           </section>
 
           <div className="mt-6 flex flex-wrap gap-2">

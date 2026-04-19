@@ -31,6 +31,22 @@ class RedactSensitiveLogFilter(logging.Filter):
         return True
 
 
+def apply_http_client_log_levels() -> None:
+    """Set ``httpx`` / ``httpcore`` from ``operator_settings`` (Admin → Interfaces).
+
+    If the DB row is not readable yet, uses ``WARNING``. Uvicorn may reset library loggers
+    after import — call from FastAPI ``lifespan`` startup and after PATCH operator-settings.
+    """
+    try:
+        from apps.backend.infrastructure import operator_settings
+
+        level = operator_settings.effective_http_client_log_level_int()
+    except Exception:
+        level = logging.WARNING
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(level)
+
+
 def install_log_redaction_filters() -> None:
     """Attach before/after ``basicConfig``; also filter library loggers that may not use root only."""
     filt = RedactSensitiveLogFilter()
@@ -40,3 +56,5 @@ def install_log_redaction_filters() -> None:
         h.addFilter(filt)
     for name in ("httpx", "httpcore", "telegram", "telegram.ext"):
         logging.getLogger(name).addFilter(filt)
+
+    apply_http_client_log_levels()

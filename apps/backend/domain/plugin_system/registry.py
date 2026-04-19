@@ -189,6 +189,7 @@ class ToolRegistry:
             acc_tools: list[dict[str, Any]] = []
             acc_meta: list[dict[str, Any]] = []
             router = _RouterAccum()
+            scan_stats: dict[str, int] = {"cron_skipped": 0}
 
             allow = config.tools_allowed_sha256()
             extra_raw = (config.TOOLS_EXTRA_DIR or "").strip()
@@ -251,7 +252,16 @@ class ToolRegistry:
                         meta=acc_meta,
                         file_sha256=digest,
                         router=router,
+                        scan_stats=scan_stats,
                     )
+
+            logger.info(
+                "tool registry: %d packages, %d tool names, %d cron-only modules skipped "
+                "(per-package lines: DEBUG)",
+                len(acc_meta),
+                len(acc_h),
+                scan_stats.get("cron_skipped", 0),
+            )
 
             self._handlers = acc_h
             self._chat_tool_specs = acc_tools
@@ -289,6 +299,7 @@ class ToolRegistry:
         *,
         file_sha256: str | None = None,
         router: _RouterAccum | None = None,
+        scan_stats: dict[str, int] | None = None,
     ) -> None:
         mod_tools = getattr(mod, "TOOLS", None)
         mod_handlers = getattr(mod, "HANDLERS", None)
@@ -337,7 +348,9 @@ class ToolRegistry:
 
         if not tool_names:
             # HANDLERS present but no TOOLS → cron-only module; scheduled_job_registry may pick it up
-            logger.info(
+            if scan_stats is not None:
+                scan_stats["cron_skipped"] = scan_stats.get("cron_skipped", 0) + 1
+            logger.debug(
                 "skipping cron-only module %s v%s (%d HANDLERS keys, no TOOLS) — not in tool registry",
                 pid,
                 ver,
@@ -429,7 +442,7 @@ class ToolRegistry:
         _apply_admin_ui_metadata(mod, entry)
         apply_tool_ui_metadata(mod, entry)
         meta.append(entry)
-        logger.info(
+        logger.debug(
             "loaded tool %s v%s (%d tools) [%s]", pid, ver, len(tool_names), source
         )
 

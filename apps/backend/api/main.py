@@ -75,7 +75,10 @@ from apps.backend.infrastructure.memory_api import router as memory_router
 from apps.backend.infrastructure.user_secrets_api import router as user_secrets_router
 from apps.backend.api.conversations_api import router as conversations_router
 from apps.backend.workspace.router import router as workspace_router
-from apps.backend.infrastructure.log_redaction import install_log_redaction_filters
+from apps.backend.infrastructure.log_redaction import (
+    apply_http_client_log_levels,
+    install_log_redaction_filters,
+)
 from apps.backend.infrastructure.public_error import http_500_detail
 from apps.backend.integrations.pidea.api_router import router as pidea_router
 
@@ -123,6 +126,8 @@ from apps.backend.integrations import discord_bridge, telegram_bridge
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # After uvicorn's logging dictConfig, httpx/httpcore levels must be re-applied (see log_redaction).
+    apply_http_client_log_levels()
     db.init_pool()
     try:
         setup_admin_claim_if_needed()

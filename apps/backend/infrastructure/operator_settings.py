@@ -82,6 +82,7 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_selector_ide": None,
         "pidea_selector_version": None,
         "expose_internal_errors": False,
+        "http_client_log_level": "WARNING",
     }
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -106,7 +107,7 @@ def _fetch_row() -> dict[str, Any]:
                        rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
                        rag_tenant_shared_domains, docs_root,
                        pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version,
-                       expose_internal_errors
+                       expose_internal_errors, http_client_log_level
                 FROM operator_settings WHERE id = 1
                 """
             )
@@ -167,6 +168,7 @@ def _fetch_row() -> dict[str, Any]:
         "pidea_selector_ide": row[44],
         "pidea_selector_version": row[45],
         "expose_internal_errors": bool(row[46]) if row[46] is not None else False,
+        "http_client_log_level": _normalize_http_client_log_level_str(row[47]) if len(row) > 47 else "WARNING",
     }
 
 
@@ -230,6 +232,26 @@ def _bound_float(v: Any, default: float, lo: float, hi: float) -> float:
     except (TypeError, ValueError):
         return default
     return max(lo, min(hi, x))
+
+
+_HTTP_CLIENT_LOG_LEVELS = frozenset({"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"})
+
+
+def _normalize_http_client_log_level_str(raw: Any) -> str:
+    s = (str(raw or "WARNING")).strip().upper()
+    return s if s in _HTTP_CLIENT_LOG_LEVELS else "WARNING"
+
+
+def effective_http_client_log_level_int() -> int:
+    """``httpx`` / ``httpcore`` level from DB ``http_client_log_level``; on error, ``WARNING``."""
+    import logging
+
+    try:
+        r = _cached_row()
+        s = _normalize_http_client_log_level_str(r.get("http_client_log_level"))
+    except Exception:
+        return logging.WARNING
+    return getattr(logging, s, logging.WARNING)
 
 
 def smart_routing_params() -> dict[str, Any]:
@@ -621,6 +643,7 @@ def public_dict() -> dict[str, Any]:
         "pidea_selector_ide": (str(r.get("pidea_selector_ide") or "").strip()),
         "pidea_selector_version": (str(r.get("pidea_selector_version") or "").strip()),
         "expose_internal_errors": bool(r.get("expose_internal_errors", False)),
+        "http_client_log_level": _normalize_http_client_log_level_str(r.get("http_client_log_level")),
     }
 
 
@@ -678,6 +701,7 @@ class OperatorSettingsPatch(BaseModel):
     pidea_selector_ide: str | None = Field(default=None, max_length=32)
     pidea_selector_version: str | None = Field(default=None, max_length=64)
     expose_internal_errors: bool | None = None
+    http_client_log_level: str | None = Field(default=None, max_length=16)
 
 
 def interface_hints_public() -> dict[str, Any]:
@@ -899,6 +923,12 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
         r["pidea_selector_version"] = None if v is None else (str(v).strip()[:64] or None)
     if "expose_internal_errors" in patch:
         r["expose_internal_errors"] = bool(patch["expose_internal_errors"])
+    if "http_client_log_level" in patch:
+        v = patch["http_client_log_level"]
+        if v is None:
+            r["http_client_log_level"] = "WARNING"
+        else:
+            r["http_client_log_level"] = _normalize_http_client_log_level_str(v)
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -953,6 +983,7 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   pidea_selector_ide = %s,
                   pidea_selector_version = %s,
                   expose_internal_errors = %s,
+                  http_client_log_level = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -1008,10 +1039,17 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("pidea_selector_ide"),
                     r.get("pidea_selector_version"),
                     bool(r.get("expose_internal_errors", False)),
+                    _normalize_http_client_log_level_str(r.get("http_client_log_level")),
                 ),
             )
         conn.commit()
     _invalidate()
+    try:
+        from apps.backend.infrastructure.log_redaction import apply_http_client_log_levels
+
+        apply_http_client_log_levels()
+    except Exception:
+        logger.debug("apply_http_client_log_levels after operator_settings patch failed", exc_info=True)
 
 
 def apply_update(body: OperatorSettingsPayload) -> None:
