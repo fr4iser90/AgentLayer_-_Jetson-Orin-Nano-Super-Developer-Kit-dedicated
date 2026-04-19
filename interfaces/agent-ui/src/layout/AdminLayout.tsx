@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 
+/** Single canonical admin sidebar — do not nest extra IDE submenus here. */
 const item =
   "block rounded-lg border border-transparent px-3 py-2 text-sm transition-colors";
 const itemActive = "border-white/10 bg-white/10 text-white";
@@ -12,14 +13,14 @@ export function AdminLayout() {
         <p className="mb-1 px-2 text-[10px] font-medium uppercase tracking-wide text-surface-muted">
           Operator admin
         </p>
-        <NavLink
-          to="/admin"
-          end
-          className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
-        >
-          Overview
-        </NavLink>
-        <nav className="mt-2 flex flex-col gap-0.5" aria-label="Admin sections">
+        <nav className="flex flex-col gap-0.5" aria-label="Admin sections">
+          <NavLink
+            to="/admin"
+            end
+            className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
+          >
+            Overview
+          </NavLink>
           <NavLink
             to="/admin/interfaces"
             className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
@@ -30,7 +31,7 @@ export function AdminLayout() {
             to="/admin/ide-agent"
             className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
           >
-            IDE Agent
+            IDE Agents
           </NavLink>
           <NavLink
             to="/admin/tools"

@@ -15,4 +15,4 @@ interfaces/agent-ui/dist/
 
 # Traefik
 compose.traefik.yaml
-project_data/
+imported-other-project

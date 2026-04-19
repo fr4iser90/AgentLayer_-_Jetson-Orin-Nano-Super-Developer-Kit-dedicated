@@ -173,7 +173,20 @@ export function AdminIdeAgent() {
       {loading ? (
         <p className="mt-6 text-sm text-surface-muted">Loading…</p>
       ) : (
-        <section className="mt-8 rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
+        <>
+          <div className="mt-6 rounded-lg border border-sky-500/25 bg-sky-950/25 px-4 py-3">
+            <Link
+              to={`/admin/ide-agents/${encodeURIComponent((pideaIde || "cursor").trim().toLowerCase())}/dom-analyzer`}
+              className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline"
+            >
+              Open DOM Analyzer (debug)
+            </Link>
+            <p className="mt-1 text-xs text-surface-muted">
+              Targets the selector IDE / version in the form below (same as operator defaults after save).
+            </p>
+          </div>
+
+          <section className="mt-8 rounded-xl border border-amber-500/20 bg-amber-500/5 p-5">
           <h2 className="text-sm font-medium text-amber-100/95">Cursor (CDP) · operator</h2>
           <ul className="mt-3 list-inside list-disc space-y-1 text-xs text-surface-muted">
             <li>
@@ -219,6 +232,17 @@ export function AdminIdeAgent() {
                 onChange={(e) => setPideaCdp(e.target.value)}
                 placeholder="http://127.0.0.1:9222"
               />
+              <p className="mt-2 text-xs leading-relaxed text-surface-muted">
+                API in <strong className="font-medium text-neutral-400">Docker</strong>: do not use{" "}
+                <span className="font-mono text-neutral-500">127.0.0.1</span> — that is the container. Prefer your
+                host <strong className="font-medium text-neutral-400">LAN IP</strong>, e.g.{" "}
+                <span className="font-mono text-neutral-500">http://192.168.x.x:9222</span>, if{" "}
+                <span className="font-mono text-neutral-500">host.docker.internal</span> gives ECONNREFUSED (Cursor often
+                listens on <span className="font-mono text-neutral-500">127.0.0.1</span> only). Alternative: Linux{" "}
+                <span className="font-mono text-neutral-500">network_mode: host</span> for the API +{" "}
+                <span className="font-mono text-neutral-500">http://127.0.0.1:9222</span>. Start Cursor with{" "}
+                <span className="font-mono text-neutral-500">--remote-debugging-port=9222</span>.
+              </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -273,6 +297,7 @@ export function AdminIdeAgent() {
             </button>
           </div>
         </section>
+        </>
       )}
 
       {msg ? (

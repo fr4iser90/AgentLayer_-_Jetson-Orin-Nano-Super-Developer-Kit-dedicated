@@ -260,6 +260,7 @@ CREATE_TOOL_CODEGEN_MAX_ATTEMPTS = max(
 
 # --- PIDEA (DOM / Cursor·VSCode·Windsurf via Playwright + CDP) ---
 # Cursor mit --remote-debugging-port; Playwright nutzt die HTTP-CDP-URL (nicht ws:// direkt).
+# Operator-Override: Admin → IDE Agent (DB). Env nur wenn du bewusst setzt — nicht in compose „mitverdrahten“.
 PIDEA_CDP_HTTP_URL = (os.environ.get("PIDEA_CDP_HTTP_URL") or "http://127.0.0.1:9222").strip().rstrip("/")
 PIDEA_SELECTOR_IDE = (os.environ.get("PIDEA_SELECTOR_IDE") or "cursor").strip().lower()
 PIDEA_SELECTOR_VERSION = (os.environ.get("PIDEA_SELECTOR_VERSION") or "1.7.17").strip()

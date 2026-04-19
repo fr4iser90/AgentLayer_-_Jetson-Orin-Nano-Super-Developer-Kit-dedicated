@@ -31,13 +31,17 @@ class PideaChat:
     ) -> None:
         self._page = page
         self._bundle = bundle
+        self._default_timeout_ms = default_timeout_ms
         self._page.set_default_timeout(default_timeout_ms)
 
     def wait_input_ready(self, timeout_ms: int | None = None) -> None:
         sel = chat_selector(self._bundle, "isInputReady")
         loc = self._page.locator(sel).first
         try:
-            loc.wait_for(state="visible", timeout=timeout_ms or self._page.timeout)
+            loc.wait_for(
+                state="visible",
+                timeout=timeout_ms if timeout_ms is not None else self._default_timeout_ms,
+            )
         except Exception as e:
             raise PideaTimeoutError(f"input not ready: {e}") from e
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { apiFetch } from "../lib/api";
 
@@ -12,8 +12,8 @@ export type IdeAgentStatusPayload = {
 };
 
 /**
- * Loads ``GET /v1/experimental/status`` once per session change.
- * Nav ``IDE Agent`` uses ``enabled`` (= ``ide_agent_access`` from API).
+ * Loads ``GET /v1/experimental/status`` on session change, on ``ide-agent-settings-changed``,
+ * and when the tab becomes visible again (so status updates after Admin actions in another tab).
  */
 export function useIdeAgentAvailable(): IdeAgentStatusPayload {
   const auth = useAuth();
@@ -21,6 +21,9 @@ export function useIdeAgentAvailable(): IdeAgentStatusPayload {
   const [enabled, setEnabled] = useState(false);
   const [playwrightInstalled, setPlaywrightInstalled] = useState<boolean | null>(null);
   const [globallyEnabled, setGloballyEnabled] = useState<boolean | null>(null);
+
+  const authRef = useRef(auth);
+  authRef.current = auth;
 
   useEffect(() => {
     if (!auth.accessToken || !auth.user) {
@@ -32,12 +35,14 @@ export function useIdeAgentAvailable(): IdeAgentStatusPayload {
     }
     let cancelled = false;
 
-    const run = () => {
-      cancelled = false;
-      setLoading(true);
+    const run = (showLoading = true) => {
+      if (cancelled) return;
       void (async () => {
+        const a = authRef.current;
+        if (!a.accessToken || !a.user) return;
+        if (showLoading) setLoading(true);
         try {
-          const r = await apiFetch("/v1/experimental/status", auth);
+          const r = await apiFetch("/v1/experimental/status", a);
           const d = (await r.json()) as {
             pidea_globally_enabled?: boolean;
             ide_agent_access?: boolean;
@@ -62,13 +67,22 @@ export function useIdeAgentAvailable(): IdeAgentStatusPayload {
 
     run();
 
-    const onRefresh = () => {
-      run();
-    };
+    const onRefresh = () => run(true);
     window.addEventListener("ide-agent-settings-changed", onRefresh);
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => run(false), 400);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       cancelled = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("ide-agent-settings-changed", onRefresh);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [auth.accessToken, auth.user?.id]);
 

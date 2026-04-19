@@ -18,6 +18,13 @@ import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
 import { AdminIdeAgent } from "./pages/admin/AdminIdeAgent";
+import {
+  IdeAgentIdeControlCenterPage,
+  IdeAgentIdeOverviewPage,
+  IdeAgentIdeSettingsPage,
+} from "./pages/admin/ide-agents/IdeAgentIdePages";
+import { IdeAgentToolsGate } from "./pages/admin/ide-agents/IdeAgentToolsGate";
+import { DomAnalyzerPage } from "./pages/admin/ide-agents/DomAnalyzerPage";
 import { StudioPage } from "./pages/StudioPage";
 import { IdeAgentPage } from "./pages/IdeAgentPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -55,6 +62,31 @@ export function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="scheduled-jobs" element={<AdminScheduledJobs />} />
                 <Route path="ide-agent" element={<AdminIdeAgent />} />
+                <Route
+                  path="ide-agents/:ide/control-center"
+                  element={
+                    <IdeAgentToolsGate>
+                      <IdeAgentIdeControlCenterPage />
+                    </IdeAgentToolsGate>
+                  }
+                />
+                <Route
+                  path="ide-agents/:ide/settings"
+                  element={
+                    <IdeAgentToolsGate>
+                      <IdeAgentIdeSettingsPage />
+                    </IdeAgentToolsGate>
+                  }
+                />
+                <Route
+                  path="ide-agents/:ide/dom-analyzer"
+                  element={
+                    <IdeAgentToolsGate>
+                      <DomAnalyzerPage />
+                    </IdeAgentToolsGate>
+                  }
+                />
+                <Route path="ide-agents/:ide" element={<IdeAgentIdeOverviewPage />} />
                 <Route path="workflows" element={<Navigate to="../scheduled-jobs" replace />} />
               </Route>
             </Route>

@@ -6,8 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
-import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -38,7 +36,6 @@ from src.infrastructure.auth import (
     create_user,
     update_user_tenant,
     update_user_ide_agent_allowed,
-    ide_agent_access_for_user,
     validate_refresh_token,
     revoke_refresh_token,
 )
@@ -79,6 +76,7 @@ from src.infrastructure.user_secrets_api import router as user_secrets_router
 from src.api.conversations_api import router as conversations_router
 from src.workspace.router import router as workspace_router
 from src.infrastructure.log_redaction import install_log_redaction_filters
+from src.integrations.pidea.api_router import router as pidea_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -117,6 +115,7 @@ def _bearer_user_role_from_request(request: Request) -> str | None:
 
 from src.infrastructure.cron import start_cron_scheduler, stop_cron_scheduler
 from src.integrations import discord_bridge, telegram_bridge
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -169,6 +168,7 @@ app.include_router(tools_router)
 app.include_router(rag_router)
 app.include_router(chat_ws_router)
 app.include_router(studio_router)
+app.include_router(pidea_router)
 
 
 # Auth Endpoints
@@ -305,73 +305,6 @@ async def patch_operator_settings(request: Request, body: OperatorSettingsPatch)
     await require_admin(request)
     apply_operator_settings_patch(body)
     return operator_settings_public()
-
-
-def _pidea_playwright_import_ok() -> bool:
-    try:
-        import playwright  # noqa: F401
-
-        return True
-    except ImportError:
-        return False
-
-
-def _install_playwright_on_server_sync() -> tuple[bool, str]:
-    """Run ``pip install playwright`` then ``playwright install chromium`` (same Python as the API).
-
-    We intentionally omit ``--with-deps``: that runs ``apt-get`` and often fails in Docker (overlay/apt cache
-    rename errors, read-only layers). Browser binaries still download; if Chromium then fails at runtime with
-    missing ``.so``, install OS packages in the image or run ``playwright install-deps`` as root on the host.
-    """
-    chunks: list[str] = []
-    pip_cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "playwright>=1.49.0,<2"]
-    try:
-        p1 = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=600)
-    except subprocess.TimeoutExpired:
-        return False, "pip install playwright: timed out (10 min)"
-    chunks.append(p1.stdout or "")
-    chunks.append(p1.stderr or "")
-    if p1.returncode != 0:
-        return False, "\n".join(chunks)[-12000:]
-    # No --with-deps: avoids apt inside containers (see docstring).
-    pw_cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
-    try:
-        p2 = subprocess.run(pw_cmd, capture_output=True, text=True, timeout=1200)
-    except subprocess.TimeoutExpired:
-        return False, ("\n".join(chunks) + "\nplaywright install chromium: timed out (20 min)")[-12000:]
-    chunks.append(p2.stdout or "")
-    chunks.append(p2.stderr or "")
-    if p2.returncode != 0:
-        return False, "\n".join(chunks)[-12000:]
-    return True, "\n".join(chunks)[-12000:]
-
-
-@app.get("/v1/experimental/status")
-async def experimental_status(request: Request):
-    """PIDEA / IDE Agent: global flag, per-user access (admin or ``ide_agent_allowed``), Playwright."""
-    user = await get_current_user(request)
-
-    from src.infrastructure import operator_settings
-
-    global_on = operator_settings.pidea_effective_enabled()
-    return {
-        "pidea_globally_enabled": global_on,
-        "pidea_effective_enabled": global_on,
-        "ide_agent_access": ide_agent_access_for_user(user),
-        "pidea_playwright_installed": _pidea_playwright_import_ok(),
-    }
-
-
-@app.post("/v1/admin/experimental/install-playwright")
-async def admin_install_playwright(request: Request):
-    """Admin-only: install Playwright + Chromium in the running API environment (subprocess)."""
-    await require_admin(request)
-    ok, log_text = await asyncio.to_thread(_install_playwright_on_server_sync)
-    return {
-        "ok": ok,
-        "detail": log_text,
-        "pidea_playwright_installed": _pidea_playwright_import_ok(),
-    }
 
 
 class ExternalLlmModelsBody(BaseModel):
@@ -621,7 +554,9 @@ if _agent_index.is_file():
     @app.get("/app/settings/tools")
     @app.get("/app/settings/agent")
     @app.get("/app/studio")
+    @app.get("/app/ide-agent")
     @app.get("/app/admin")
+    @app.get("/app/admin/ide-agent")
     @app.get("/app/admin/interfaces")
     @app.get("/app/admin/tools")
     @app.get("/app/admin/users")
@@ -629,6 +564,15 @@ if _agent_index.is_file():
     @app.get("/app/admin/workflows")
     async def agent_ui_spa_shell():
         """Serve SPA index for client-side routes (must register before mount /app)."""
+        return FileResponse(_agent_index)
+
+    @app.get("/app/admin/ide-agents/{ide}")
+    @app.get("/app/admin/ide-agents/{ide}/control-center")
+    @app.get("/app/admin/ide-agents/{ide}/settings")
+    @app.get("/app/admin/ide-agents/{ide}/dom-analyzer")
+    async def agent_ui_spa_shell_ide_agents(ide: str):
+        """IDE Agents admin subtree (client-side routes: overview, control center, settings, DOM analyzer)."""
+        _ = ide
         return FileResponse(_agent_index)
 
     app.mount(

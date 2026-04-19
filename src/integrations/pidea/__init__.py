@@ -4,13 +4,20 @@ Layout::
 
     pidea/
     ├── __init__.py
+    ├── api_router.py       # FastAPI-Routen (/v1/experimental/status, /v1/ide-agent/message, …)
+    ├── playwright_env.py   # Playwright-Importcheck + pip/install (nur für PIDEA-API)
+    ├── ide_agent_message.py# Sync-Runner für Composer-Nachrichten
     ├── connection.py       # CDP-Session (connect_over_cdp)
     ├── chat.py             # DOM: Chat
     ├── selectors_loader.py # JSON laden, chatSelectors
     ├── types.py            # ConnectionConfig, ChatMessage, SelectorBundle
     ├── errors.py           # PideaError, …
+    ├── automation/         # Runtime-CLI & IDE-Steuerung (Playwright)
+    ├── domkit/             # DOM-Diagnostik, Selektor-Validierung / Repair
     ├── selectors/          # aktive JSONs (cursor|vscode|windsurf/<version>.json)
-    └── reference/        # JS-Referenz aus PIDEA (Portierung), kein Runtime
+    └── reference/          # Legacy-Referenz, kein Runtime
+
+Die App registriert nur ``app.include_router(pidea_router)`` in ``main.py`` — PIDEA-HTTP bleibt hier.
 
 Laufzeit: Cursor mit ``--remote-debugging-port``; User-Daten typisch ``~/.pidea/…`` (``pidea-shell.nix``).
 """
