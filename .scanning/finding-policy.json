@@ -66,6 +66,12 @@
                 "reason": "False positive: Python config file; line ~262 is a comment about CDP (mentions ws:// in prose). No browser WebSocket API in this file."
             },
             {
+                "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
+                "path_regex": ".*/\\.scanning/finding-policy\\.json$",
+                "message_regex": "WebSocket|wss|ws|insecure",
+                "reason": "Meta-false-positive: Semgrep scans this JSON policy file; strings such as WebSocket/wss appear in documented reasons (e.g. config.py FP), not in executable JS. Exclude scanning this path or accept via policy."
+            },
+            {
                 "rule_id": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
                 "path_regex": ".*/src/integrations/pidea/domkit/version_detector\\.py$",
                 "message_regex": "urllib|file",
@@ -233,7 +239,7 @@
                 "rule_id": "py/clear-text-logging-sensitive-data",
                 "path_regex": ".*/src/domain/agent\\.py$",
                 "message_regex": "password|sensitive|clear.text|logging",
-                "reason": "AGENT_LOG_LLM_ROUNDS logs model id and redacted assistant preview via _redact_secrets_for_log; HTTP error bodies are truncated provider JSON. CodeQL often flags 'password' substring in error text or heuristic on variable names."
+                "reason": "Logs LLM model id (renamed in format strings to llm_model_id=), redacted assistant preview via _redact_secrets_for_log, and redacted/truncated provider error bodies via _redact_provider_error_text_for_log. CodeQL py/clear-text-logging-sensitive-data often misclassifies model identifiers or JSON error fragments as password material."
             },
             {
                 "rule_id": "py/full-ssrf",
@@ -257,19 +263,19 @@
                 "rule_id": "py/stack-trace-exposure",
                 "path_regex": ".*/src/api/main\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
-                "reason": "Tool run endpoints return HTTPException(detail=str(e)) without traceback; logger.exception is server-side only. Hardening: generic 500 in production."
+                "reason": "CodeQL dataflow: exception flows to HTTPException detail via http_500_detail(e), which returns generic text unless operator_settings.expose_internal_errors is true. logger.exception is server-only; no traceback string in JSON responses."
             },
             {
                 "rule_id": "py/stack-trace-exposure",
                 "path_regex": ".*/src/api/rag_api\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
-                "reason": "Admin RAG routes map exceptions to HTTPException with safe message strings; no traceback in client response for declared paths."
+                "reason": "Admin-only RAG: client 500 uses http_500_detail; 502 messages use generic strings unless expose_internal_errors. ValueError/FileNotFoundError handlers use str(e) for validation/path errors (admin). logger.exception does not emit tracebacks to clients."
             },
             {
                 "rule_id": "py/stack-trace-exposure",
                 "path_regex": ".*/src/domain/plugin_system/tools_api\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
-                "reason": "Admin endpoints return generic details; logger.exception does not send Python tracebacks to clients."
+                "reason": "Admin routes: reload-tools and tool-policies use http_500_detail for 500s. create-tool JSON decode failure returns constant detail string; logger.exception is server-side only."
             }
         ]
     },

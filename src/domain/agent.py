@@ -956,7 +956,7 @@ def _log_ollama_round(
     if tool_calls:
         call_names = [(tc.get("function") or {}).get("name") or "?" for tc in tool_calls]
         logger.info(
-            "llm round %d/%d model=%s reply=TOOLS calls=%s content_json_fallback=%s "
+            "llm round %d/%d llm_model_id=%s reply=TOOLS calls=%s content_json_fallback=%s "
             "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d tool_names=%s%s",
             round_i + 1,
             config.MAX_TOOL_ROUNDS,
@@ -985,7 +985,7 @@ def _log_ollama_round(
     if not any_text:
         logfn = logger.warning if rt_names else logger.info
         logfn(
-            "llm round %d/%d model=%s reply=EMPTY_NO_TOOLS content_json_fallback=%s "
+            "llm round %d/%d llm_model_id=%s reply=EMPTY_NO_TOOLS content_json_fallback=%s "
             "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d%s",
             round_i + 1,
             config.MAX_TOOL_ROUNDS,
@@ -998,7 +998,7 @@ def _log_ollama_round(
         )
         return
     logger.info(
-        "llm round %d/%d model=%s reply=TEXT_NO_TOOLS content_json_fallback=%s "
+        "llm round %d/%d llm_model_id=%s reply=TEXT_NO_TOOLS content_json_fallback=%s "
         "ctx_msgs=%d ctx_text_chars~=%d ollama_tool_defs=%d preview=%r%s",
         round_i + 1,
         config.MAX_TOOL_ROUNDS,
@@ -1179,7 +1179,7 @@ async def chat_completion(
         if tools_for_request:
             names = [n for t in tools_for_request if (n := _tool_spec_name(t))]
             logger.info(
-                "forwarding %d tools in chat request (model=%s, category=%s): %s",
+                "forwarding %d tools in chat request (llm_model_id=%s, category=%s): %s",
                 len(names),
                 model,
                 routed_category or "full",
@@ -1370,7 +1370,7 @@ async def chat_completion(
                             e.response.text, max_len=600
                         )
                         logger.error(
-                            "LLM chat/completions failed (%s): status=%s model=%s body=%s",
+                            "LLM chat/completions failed (%s): status=%s llm_model_id=%s body=%s",
                             llm_backend,
                             e.response.status_code,
                             b_model,
@@ -1396,7 +1396,7 @@ async def chat_completion(
                             model = local_model
                             logger.warning(
                                 "LLM external: all endpoints returned 429 (quota/rate limit); "
-                                "falling back to Ollama for this request (model=%s). Next rounds use Ollama.",
+                                "falling back to Ollama for this request (llm_model_id=%s). Next rounds use Ollama.",
                                 local_model,
                             )
                             continue
@@ -1458,7 +1458,7 @@ async def chat_completion(
                             e.response.text, max_len=600
                         )
                         logger.error(
-                            "LLM chat/completions retry failed (%s): status=%s model=%s body=%s",
+                            "LLM chat/completions retry failed (%s): status=%s llm_model_id=%s body=%s",
                             llm_backend,
                             e.response.status_code,
                             model,
@@ -1473,7 +1473,7 @@ async def chat_completion(
                         )
                         if tc2:
                             logger.info(
-                                "agent: tool_choice=required retry produced tool_calls (model=%s)",
+                                "agent: tool_choice=required retry produced tool_calls (llm_model_id=%s)",
                                 model,
                             )
                             data, tools_omitted = data_r, tools_omitted_r
@@ -1485,7 +1485,7 @@ async def chat_completion(
                             )
                     else:
                         logger.warning(
-                            "agent: tool_choice=required retry omitted tools (model=%s); keeping first completion",
+                            "agent: tool_choice=required retry omitted tools (llm_model_id=%s); keeping first completion",
                             model,
                         )
 
