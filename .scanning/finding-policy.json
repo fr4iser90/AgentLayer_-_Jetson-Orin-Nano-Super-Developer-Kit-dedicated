@@ -19,31 +19,31 @@
             },
             {
                 "rule_id": "python.fastapi.security.wildcard-cors.wildcard-cors",
-                "path_regex": ".*/src/api/main\\.py$",
+                "path_regex": ".*/apps/backend/api/main\\.py$",
                 "message_regex": "CORS policy allows any origin|wildcard '\\*'",
                 "reason": "Default AGENT_CORS_ORIGINS=* is for local/dev; production sets explicit origins via env. Documented in .env.example and lifespan warning."
             },
             {
                 "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
-                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py|src/infrastructure/db/db\\.py)$",
+                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/workspace/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
                 "message_regex": "Avoiding SQL string concatenation|raw query",
                 "reason": "Dynamic SQL builds fixed clause shapes (OR/SET fragments); user-derived values use %s placeholders. Memory-graph keyword branch repeats (label ILIKE %s OR summary ILIKE %s) per token—tokens never interpolated as SQL keywords."
             },
             {
                 "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
-                "path_regex": ".*/src/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
                 "message_regex": "Avoiding SQL string concatenation|raw query|SQL string|concatenat",
                 "reason": "Alembic migration downgrade: `op.execute(f\"ALTER TABLE … DROP COLUMN … {col}\")` where `col` is iterated from a fixed tuple in this file only—no runtime user input."
             },
             {
                 "rule_id": "python.lang.security.audit.formatted-sql-query.formatted-sql-query",
-                "path_regex": ".*/src/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/db/migrations/versions/schema_018_user_memory_graph_meta\\.py$",
                 "message_regex": "formatted SQL|parameterized",
                 "reason": "Alembic migration: column names come from a fixed tuple in the migration file, not from HTTP input."
             },
             {
                 "rule_id": "scanner.plugins.semgrep.rules.prompt-injection-detect",
-                "path_regex": ".*/workflows/.*\\.py$",
+                "path_regex": ".*/plugins/workflows/.*\\.py$",
                 "message_regex": "prompt injection|user input in prompt",
                 "reason": "Workflow modules build LLM prompts for the product; user-derived content is inherent to an agent server and bounded by auth and tool policies."
             },
@@ -55,13 +55,13 @@
             },
             {
                 "rule_id": "javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop",
-                "path_regex": ".*/interfaces/agent-ui/src/features/workspace/workspaceDataPaths\\.ts$",
+                "path_regex": ".*/apps/frontend/apps/backend/features/workspace/workspaceDataPaths\\.ts$",
                 "message_regex": "prototype|pollution",
                 "reason": "Paths are workspace dataPath strings; __proto__/constructor/prototype segments are now rejected. Residual scanner noise may remain on older branches."
             },
             {
                 "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
-                "path_regex": ".*/src/core/config\\.py$",
+                "path_regex": ".*/apps/backend/core/config\\.py$",
                 "message_regex": "WebSocket|wss|ws",
                 "reason": "False positive: Python config file; line ~262 is a comment about CDP (mentions ws:// in prose). No browser WebSocket API in this file."
             },
@@ -73,13 +73,13 @@
             },
             {
                 "rule_id": "python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected",
-                "path_regex": ".*/src/integrations/pidea/domkit/version_detector\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/domkit/version_detector\\.py$",
                 "message_regex": "urllib|file",
                 "reason": "Same trust model as Bandit B310: HTTP(S) CDP /json/version only; base URL normalized to http/https."
             },
             {
                 "rule_id": "python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args",
-                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/playwright_env\\.py$",
                 "message_regex": "subprocess|run",
                 "reason": "Static argv for pip and playwright install; env paths from operator (PIDEA_PLAYWRIGHT_PIP_TARGET), not request body. Matches Bandit B603 policy."
             }
@@ -95,67 +95,67 @@
             },
             {
                 "rule_id": "B101",
-                "path_regex": ".*/(interfaces/discord/bot\\.py|src/integrations/discord_bridge\\.py|tools/agent/core/tool_factory/[^/]+\\.py)$",
+                "path_regex": ".*/(plugins/interfaces/discord/bot\\.py|apps/backend/integrations/discord_bridge\\.py|plugins/tools/agent/core/tool_factory/[^/]+\\.py)$",
                 "message_regex": "Use of assert detected",
                 "reason": "Internal invariants or operator-only tool paths; not a production security boundary under python -O."
             },
             {
                 "rule_id": "B110",
-                "path_regex": ".*/(src/api/(chat_websocket|main)\\.py|src/domain/plugin_system/tool_policy\\.py|tools/agent/external/web_search/web_search\\.py|tools/agent/productivity/calendar/calendar_ics\\.py|tools/agent/productivity/gmail/gmail\\.py)$",
+                "path_regex": ".*/(apps/backend/api/(chat_websocket|main)\\.py|apps/backend/domain/plugin_system/tool_policy\\.py|plugins/tools/agent/external/web_search/web_search\\.py|plugins/tools/agent/productivity/calendar/calendar_ics\\.py|plugins/tools/agent/productivity/gmail/gmail\\.py)$",
                 "message_regex": "Try, Except, Pass detected",
                 "reason": "Optional shutdown (incl. lifespan / bridge stop), best-effort parsing, or non-fatal cleanup; failures are logged where relevant or impact is benign."
             },
             {
                 "rule_id": "B112",
-                "path_regex": ".*/src/domain/plugin_system/scheduled_job_registry\\.py$",
+                "path_regex": ".*/apps/backend/domain/plugin_system/scheduled_job_registry\\.py$",
                 "message_regex": "Try, Except, Continue detected",
                 "reason": "Scheduled job discovery skips broken modules intentionally."
             },
             {
                 "rule_id": "B112",
-                "path_regex": ".*/tools/agent/productivity/gmail/gmail\\.py$",
+                "path_regex": ".*/plugins/tools/agent/productivity/gmail/gmail\\.py$",
                 "message_regex": "Try, Except, Continue detected",
                 "reason": "Message iteration skips malformed parts; bounded IMAP parsing."
             },
             {
                 "rule_id": "B105",
-                "path_regex": ".*/src/api/main\\.py$",
+                "path_regex": ".*/apps/backend/api/main\\.py$",
                 "message_regex": "bearer|Bearer",
                 "reason": "OAuth token_type string 'bearer' in JSON responses, not a password."
             },
             {
                 "rule_id": "B105",
-                "path_regex": ".*/src/infrastructure/operator_settings\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/operator_settings\\.py$",
                 "message_regex": "None|password",
                 "reason": "Heuristic false positive on JSON null / display text 'None', not a credential."
             },
             {
                 "rule_id": "B105",
-                "path_regex": ".*/src/infrastructure/secret_otp_bundle\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/secret_otp_bundle\\.py$",
                 "message_regex": "DEIN_|du@gmail|github_pat|calendar\\.ics|SECRET|private-XXXX|generativelanguage",
                 "reason": "User-facing curl examples and placeholder JSON for OTP registration (DEINE_MAIL, private-XXXX, etc.), not real secrets."
             },
             {
                 "rule_id": "B105",
-                "path_regex": ".*/tools/agent/external/github/github\\.py$",
+                "path_regex": ".*/plugins/tools/agent/external/github/github\\.py$",
                 "message_regex": "github_pat",
                 "reason": "User secret service_key name for stored PAT, not an embedded credential."
             },
             {
                 "rule_id": "B105",
-                "path_regex": ".*/tools/agent/productivity/gmail/gmail\\.py$",
+                "path_regex": ".*/plugins/tools/agent/productivity/gmail/gmail\\.py$",
                 "message_regex": "gmail",
                 "reason": "Service key / tool domain identifier, not a password string."
             },
             {
                 "rule_id": "B311",
-                "path_regex": ".*/src/domain/studio_jobs\\.py$",
+                "path_regex": ".*/apps/backend/domain/studio_jobs\\.py$",
                 "message_regex": "pseudo-random|random\\.randint",
                 "reason": "random.randint used for ComfyUI KSampler seed variation, not cryptography."
             },
             {
                 "rule_id": "B608",
-                "path_regex": ".*/(src/infrastructure/conversations_db\\.py|src/workspace/db\\.py|src/infrastructure/db/db\\.py)$",
+                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/workspace/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
                 "message_regex": "SQL injection|string-based query",
                 "reason": "f-string only joins fixed SQL fragments; values use %s placeholders. Memory graph keyword OR clause repeats parameterized ILIKE patterns per token."
             },
@@ -167,43 +167,43 @@
             },
             {
                 "rule_id": "B310",
-                "path_regex": ".*/src/integrations/pidea/domkit/version_detector\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/domkit/version_detector\\.py$",
                 "message_regex": "url open|Audit url open|urllib",
                 "reason": "CDP HTTP(S) only: _normalize_cdp_base forces http:// or https:// before urljoin + urlopen to local IDE debugging endpoint (operator-controlled PIDEA_CDP_HTTP_URL), not user-controlled file://."
             },
             {
                 "rule_id": "B112",
-                "path_regex": ".*/src/integrations/pidea/(automation/chat_reader|chat)\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/(automation/chat_reader|chat)\\.py$",
                 "message_regex": "Try, Except, Continue",
                 "reason": "PIDEA chat readers: skip bad frames/lines in bounded loops; continue is intentional."
             },
             {
                 "rule_id": "B112",
-                "path_regex": ".*/src/integrations/pidea/domkit/selector_validator\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/domkit/selector_validator\\.py$",
                 "message_regex": "Try, Except, Continue",
                 "reason": "Validator skips invalid selector rows; bounded iteration."
             },
             {
                 "rule_id": "B110",
-                "path_regex": ".*/src/integrations/pidea/connection\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/connection\\.py$",
                 "message_regex": "Try, Except, Pass",
                 "reason": "Playwright teardown: best-effort close/stop; errors during shutdown are non-fatal."
             },
             {
                 "rule_id": "B110",
-                "path_regex": ".*/src/integrations/pidea/ide_agents_admin_service\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/ide_agents_admin_service\\.py$",
                 "message_regex": "Try, Except, Pass",
                 "reason": "Optional page.url read when CDP page may be closing; failure is non-fatal for status payload."
             },
             {
                 "rule_id": "B404",
-                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/playwright_env\\.py$",
                 "message_regex": "subprocess",
                 "reason": "Server-side pip/playwright install uses fixed argv (sys.executable -m pip/playwright); no user-controlled shell strings."
             },
             {
                 "rule_id": "B603",
-                "path_regex": ".*/src/integrations/pidea/playwright_env\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/playwright_env\\.py$",
                 "message_regex": "subprocess",
                 "reason": "Same as B404: subprocess.run with static command list and env derived from operator config paths (PIDEA_PLAYWRIGHT_PIP_TARGET), not remote user input."
             }
@@ -213,67 +213,67 @@
         "accepted_findings": [
             {
                 "rule_id": "py/path-injection",
-                "path_regex": ".*/tools/agent/core/tool_factory/(create_tool|_tool_factory_common)\\.py$",
+                "path_regex": ".*/plugins/tools/agent/core/tool_factory/(create_tool|_tool_factory_common)\\.py$",
                 "message_regex": "user-provided|path depends",
                 "reason": "Paths resolved under configured tool roots (AGENT_TOOLS_EXTRA_DIR / image tools); authenticated admin/tool-governed surface, not arbitrary anonymous FS write."
             },
             {
                 "rule_id": "py/path-injection",
-                "path_regex": ".*/src/api/rag_api\\.py$",
+                "path_regex": ".*/apps/backend/api/rag_api\\.py$",
                 "message_regex": "user-provided|path depends",
                 "reason": "Admin-only POST /v1/admin/rag/ingest-docs; docs_root is admin-controlled; resolved with Path.expanduser().resolve() for server-side ingest."
             },
             {
                 "rule_id": "py/path-injection",
-                "path_regex": ".*/src/integrations/pidea/ide_agents_admin_service\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/ide_agents_admin_service\\.py$",
                 "message_regex": "user-provided|path depends",
                 "reason": "Selector JSON paths are under repo selectors/<ide>/<version>.json; resolve_version validates file exists; ide/version normalized. Admin/operator surface."
             },
             {
                 "rule_id": "py/path-injection",
-                "path_regex": ".*/src/integrations/pidea/selectors_loader\\.py$",
+                "path_regex": ".*/apps/backend/integrations/pidea/selectors_loader\\.py$",
                 "message_regex": "user-provided|path depends",
                 "reason": "Loads selector bundles from fixed selectors/ tree; paths derived from validated ide/version, not arbitrary FS reads from chat users."
             },
             {
                 "rule_id": "py/clear-text-logging-sensitive-data",
-                "path_regex": ".*/src/domain/agent\\.py$",
+                "path_regex": ".*/apps/backend/domain/agent\\.py$",
                 "message_regex": "password|sensitive|clear.text|logging",
                 "reason": "Logs LLM model id (renamed in format strings to llm_model_id=), redacted assistant preview via _redact_secrets_for_log, and redacted/truncated provider error bodies via _redact_provider_error_text_for_log. CodeQL py/clear-text-logging-sensitive-data often misclassifies model identifiers or JSON error fragments as password material."
             },
             {
                 "rule_id": "py/full-ssrf",
-                "path_regex": ".*/src/infrastructure/ollama_gate\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/ollama_gate\\.py$",
                 "message_regex": "user-provided|URL",
                 "reason": "POST URL is supplied by server config (Ollama base URL, operator external LLM endpoints), not arbitrary per-request user URLs in the default deployment model."
             },
             {
                 "rule_id": "py/incomplete-url-substring-sanitization",
-                "path_regex": ".*/tools/agent/productivity/calendar/calendar_ics\\.py$",
+                "path_regex": ".*/plugins/tools/agent/productivity/calendar/calendar_ics\\.py$",
                 "message_regex": "calendar\\.google\\.com|substring",
                 "reason": "Allowlist-style host checks for ICS fetch policy; documented residual heuristic limitation."
             },
             {
                 "rule_id": "py/incomplete-url-substring-sanitization",
-                "path_regex": ".*/src/infrastructure/operator_settings\\.py$",
+                "path_regex": ".*/apps/backend/infrastructure/operator_settings\\.py$",
                 "message_regex": "generativelanguage\\.googleapis\\.com|substring",
                 "reason": "External LLM base URL normalization uses allowlisted host substrings; known trade-off for Google OpenAI-compatible endpoints."
             },
             {
                 "rule_id": "py/stack-trace-exposure",
-                "path_regex": ".*/src/api/main\\.py$",
+                "path_regex": ".*/apps/backend/api/main\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
                 "reason": "CodeQL dataflow: exception flows to HTTPException detail via http_500_detail(e), which returns generic text unless operator_settings.expose_internal_errors is true. logger.exception is server-only; no traceback string in JSON responses."
             },
             {
                 "rule_id": "py/stack-trace-exposure",
-                "path_regex": ".*/src/api/rag_api\\.py$",
+                "path_regex": ".*/apps/backend/api/rag_api\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
                 "reason": "Admin-only RAG: client 500 uses http_500_detail; 502 messages use generic strings unless expose_internal_errors. ValueError/FileNotFoundError handlers use str(e) for validation/path errors (admin). logger.exception does not emit tracebacks to clients."
             },
             {
                 "rule_id": "py/stack-trace-exposure",
-                "path_regex": ".*/src/domain/plugin_system/tools_api\\.py$",
+                "path_regex": ".*/apps/backend/domain/plugin_system/tools_api\\.py$",
                 "message_regex": "Stack trace|may be exposed|flows to",
                 "reason": "Admin routes: reload-tools and tool-policies use http_500_detail for 500s. create-tool JSON decode failure returns constant detail string; logger.exception is server-side only."
             }
@@ -283,13 +283,13 @@
         "accepted_findings": [
             {
                 "rule_id": "generic-api-key",
-                "file_regex": ".*/src/domain/studio_catalog\\.py$",
+                "file_regex": ".*/apps/backend/domain/studio_catalog\\.py$",
                 "description_regex": ".*",
                 "reason": "JSON preset field run_key / comfy_txt2img_default matches generic secret heuristic; not an API key."
             },
             {
                 "rule_id": "generic-api-key",
-                "file_regex": ".*/src/domain/studio_jobs\\.py$",
+                "file_regex": ".*/apps/backend/domain/studio_jobs\\.py$",
                 "description_regex": ".*",
                 "reason": "Same studio preset JSON / run_key false positive as studio_catalog.py."
             }

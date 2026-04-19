@@ -1,0 +1,30 @@
+{
+  "app": {
+    "title": "Agent Layer"
+  },
+  "nav": {
+    "loading": "…",
+    "home": "Start",
+    "chat": "Chat",
+    "ideAgent": "IDE-Agent",
+    "studio": "Bildgenerierung",
+    "workspace": "Arbeitsbereich",
+    "signIn": "Anmelden"
+  },
+  "footer": {
+    "github": "GitHub",
+    "docs": "Dokumentation",
+    "brand": "Agent Layer"
+  },
+  "userMenu": {
+    "account": "Konto",
+    "settings": "Einstellungen",
+    "admin": "Administration",
+    "signOut": "Abmelden"
+  },
+  "language": {
+    "label": "Sprache",
+    "en": "Englisch",
+    "de": "Deutsch"
+  }
+}

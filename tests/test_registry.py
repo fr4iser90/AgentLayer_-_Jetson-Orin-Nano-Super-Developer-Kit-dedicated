@@ -40,8 +40,8 @@ if _db_mod_name not in sys.modules:
     _db_stub.log_tool_invocation = lambda *a, **k: None
     sys.modules[_db_mod_name] = _db_stub
 
-from src.domain.plugin_system.capability_index import list_tools_without_capabilities
-from src.domain.plugin_system.registry import (
+from apps.backend.domain.plugin_system.capability_index import list_tools_without_capabilities
+from apps.backend.domain.plugin_system.registry import (
     ToolRegistry,
     _iter_tool_py_files,
     reload_registry,

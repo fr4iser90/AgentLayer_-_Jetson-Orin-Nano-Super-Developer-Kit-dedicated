@@ -1,5 +1,5 @@
 # Auto tool backups (AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups on host)
-tools/agent/agent_created/.tool_backups/
+plugins/tools/agent/agent_created/.tool_backups/
 # Cache
 __pycache__/
 
@@ -10,8 +10,8 @@ __pycache__/
 logs/
 
 # First-party Agent UI (Vite): deps + production build output
-interfaces/agent-ui/node_modules/
-interfaces/agent-ui/dist/
+apps/frontend/node_modules/
+apps/frontend/dist/
 
 # Traefik
 compose.traefik.yaml

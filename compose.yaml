@@ -49,13 +49,13 @@ services:
       PLAYWRIGHT_BROWSERS_PATH: /data/pidea/ms-playwright
     volumes:
       # create_tool / Default AGENT_TOOLS_EXTRA_DIR=/data/tools — ohne Mount existiert der Pfad nicht.
-      - ./tools/agent/agent_created:/data/tools:rw
+      - ./plugins/tools/agent/agent_created:/data/tools:rw
       - pidea_playwright_site:/data/pidea/playwright-site-packages
       - pidea_playwright_browsers:/data/pidea/ms-playwright
       - pidea_pip_cache:/root/.cache/pip
       # Backups (replace_tool/update_tool): Default /data/tool_backups liegt NICHT auf diesem Mount →
-      # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./tools/agent/agent_created/.tool_backups)
-    # Optional read-only:  - ./tools/agent/agent_created:/data/tools:ro
+      # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./plugins/tools/agent/agent_created/.tool_backups)
+    # Optional read-only:  - ./plugins/tools/agent/agent_created:/data/tools:ro
     # Optional: mount dirs for fs_* if you need host files in-container (paths are cwd/absolute; no AGENT_WORKSPACE_ROOT).
     extra_hosts:
       - "host.docker.internal:host-gateway"

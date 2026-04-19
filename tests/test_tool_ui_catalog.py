@@ -5,7 +5,7 @@ from __future__ import annotations
 import types
 import unittest
 
-from src.domain.plugin_system.tool_ui_catalog import apply_tool_ui_metadata
+from apps.backend.domain.plugin_system.tool_ui_catalog import apply_tool_ui_metadata
 
 
 class TestToolUiCatalog(unittest.TestCase):

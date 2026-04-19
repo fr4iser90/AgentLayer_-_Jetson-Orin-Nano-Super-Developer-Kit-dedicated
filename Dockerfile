@@ -1,10 +1,10 @@
 FROM node:20-bookworm-slim AS agent_ui_builder
 
-WORKDIR /build/interfaces/agent-ui
-COPY interfaces/agent-ui/package.json interfaces/agent-ui/package-lock.json* ./
+WORKDIR /build/apps/frontend
+COPY apps/frontend/package.json apps/frontend/package-lock.json* ./
 RUN npm ci
 
-COPY interfaces/agent-ui/ ./
+COPY apps/frontend/ ./
 RUN npm run build
 
 FROM python:3.11-slim-bookworm
@@ -19,14 +19,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY src ./src
+COPY apps ./apps
+COPY plugins ./plugins
 COPY docs ./docs
-COPY tools ./tools
-COPY interfaces ./interfaces
-COPY --from=agent_ui_builder /build/interfaces/agent-ui/dist ./interfaces/agent-ui/dist
-COPY workflows ./workflows
-COPY workspace ./workspace
-COPY image_generation ./image_generation
+COPY --from=agent_ui_builder /build/apps/frontend/dist ./apps/frontend/dist
 
 # copy entrypoint script for alembic stamp/upgrade
 COPY scripts/alembic_entrypoint.sh /usr/local/bin/alembic_entrypoint.sh
@@ -38,4 +34,4 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/alembic_entrypoint.sh"]
-CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "apps.backend.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]
