@@ -30,6 +30,7 @@ const DEFAULT_KIND_TO_HUB: Record<string, WorkspaceHubId> = {
   tasks: "home",
   ideas: "work",
   projects: "work",
+  feeds: "home",
   friends: "family",
   personal_dashboard: "home",
 };

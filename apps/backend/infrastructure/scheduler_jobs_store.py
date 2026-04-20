@@ -109,6 +109,7 @@ def list_jobs_for_user(
                        j.ide_workflow, j.last_run_at, j.created_at, j.updated_at
                 FROM scheduler_jobs j
                 WHERE j.tenant_id = %s
+                  AND j.deleted_at IS NULL
                 {ws_filter}
                 {role_filter}
                 ORDER BY j.created_at DESC
@@ -128,6 +129,7 @@ def list_jobs_for_tenant(
     include_global: bool,
     execution_target: str | None,
     enabled: bool | None,
+    include_archived: bool = False,
     limit: int = 200,
 ) -> list[dict[str, Any]]:
     """
@@ -141,6 +143,8 @@ def list_jobs_for_tenant(
     lim = max(1, min(500, limit))
     params: list[Any] = [tenant_id]
     where = "WHERE j.tenant_id = %s"
+    if not include_archived:
+        where += " AND j.deleted_at IS NULL"
 
     if workspace_id is not None:
         if include_global:
@@ -167,7 +171,7 @@ def list_jobs_for_tenant(
                 f"""
                 SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.workspace_id,
                        j.execution_target, j.title, j.instructions, j.interval_minutes, j.enabled,
-                       j.ide_workflow, j.last_run_at, j.created_at, j.updated_at
+                       j.ide_workflow, j.last_run_at, j.deleted_at, j.created_at, j.updated_at
                 FROM scheduler_jobs j
                 {where}
                 ORDER BY j.created_at DESC
@@ -187,7 +191,7 @@ def get_job(job_id: uuid.UUID, tenant_id: int) -> dict[str, Any] | None:
                 """
                 SELECT id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
                        execution_target, title, instructions, interval_minutes, enabled,
-                       ide_workflow, last_run_at, created_at, updated_at
+                       ide_workflow, last_run_at, deleted_at, created_at, updated_at
                 FROM scheduler_jobs
                 WHERE id = %s AND tenant_id = %s
                 """,
@@ -229,6 +233,123 @@ def set_enabled(
             row = cur.fetchone()
         conn.commit()
     return dict(row) if row else None
+
+
+def update_job(
+    *,
+    job_id: uuid.UUID,
+    tenant_id: int,
+    actor_user_id: uuid.UUID,
+    actor_is_admin: bool,
+    title: str | None,
+    instructions: str | None,
+    interval_minutes: int | None,
+    ide_workflow: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    job = get_job(job_id, tenant_id)
+    if not job:
+        return None
+    if not actor_is_admin:
+        if _uuid(job.get("created_by_user_id")) != actor_user_id:
+            return None
+    now = datetime.now(UTC)
+    # None means "leave unchanged"
+    new_title = job.get("title") if title is None else title
+    new_instr = job.get("instructions") if instructions is None else instructions
+    new_interval = job.get("interval_minutes") if interval_minutes is None else interval_minutes
+    new_wf = job.get("ide_workflow") if ide_workflow is None else ide_workflow
+    with db.pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                UPDATE scheduler_jobs
+                SET title = %s,
+                    instructions = %s,
+                    interval_minutes = %s,
+                    ide_workflow = %s,
+                    updated_at = %s
+                WHERE id = %s AND tenant_id = %s
+                RETURNING id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                          execution_target, title, instructions, interval_minutes, enabled,
+                          ide_workflow, last_run_at, deleted_at, created_at, updated_at
+                """,
+                (
+                    new_title,
+                    new_instr,
+                    int(new_interval),
+                    Json(new_wf if isinstance(new_wf, dict) else {}),
+                    now,
+                    job_id,
+                    tenant_id,
+                ),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    return dict(row) if row else None
+
+
+def archive_job(*, job_id: uuid.UUID, tenant_id: int, actor_user_id: uuid.UUID, actor_is_admin: bool) -> bool:
+    job = get_job(job_id, tenant_id)
+    if not job:
+        return False
+    if not actor_is_admin:
+        if _uuid(job.get("created_by_user_id")) != actor_user_id:
+            return False
+    now = datetime.now(UTC)
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE scheduler_jobs
+                SET deleted_at = %s, enabled = false, updated_at = %s
+                WHERE id = %s AND tenant_id = %s
+                """,
+                (now, now, job_id, tenant_id),
+            )
+            n = cur.rowcount
+        conn.commit()
+    return n > 0
+
+
+def unarchive_job(*, job_id: uuid.UUID, tenant_id: int, actor_user_id: uuid.UUID, actor_is_admin: bool) -> bool:
+    job = get_job(job_id, tenant_id)
+    if not job:
+        return False
+    if not actor_is_admin:
+        if _uuid(job.get("created_by_user_id")) != actor_user_id:
+            return False
+    now = datetime.now(UTC)
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE scheduler_jobs
+                SET deleted_at = NULL, updated_at = %s
+                WHERE id = %s AND tenant_id = %s
+                """,
+                (now, job_id, tenant_id),
+            )
+            n = cur.rowcount
+        conn.commit()
+    return n > 0
+
+
+def hard_delete_job(*, job_id: uuid.UUID, tenant_id: int, actor_user_id: uuid.UUID, actor_is_admin: bool) -> bool:
+    job = get_job(job_id, tenant_id)
+    if not job:
+        return False
+    if not actor_is_admin:
+        if _uuid(job.get("created_by_user_id")) != actor_user_id:
+            return False
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM scheduler_jobs WHERE id = %s AND tenant_id = %s",
+                (job_id, tenant_id),
+            )
+            n = cur.rowcount
+        conn.commit()
+    return n > 0
 
 
 def fetch_due_jobs_server_periodic(*, limit: int = 10) -> list[dict[str, Any]]:

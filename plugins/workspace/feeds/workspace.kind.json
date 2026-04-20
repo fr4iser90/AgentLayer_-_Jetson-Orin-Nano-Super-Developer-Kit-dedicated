@@ -1,0 +1,8 @@
+{
+  "kind": "feeds",
+  "label": "Feeds",
+  "description": "RSS feed list + summaries (workspace-first).",
+  "template": "feeds.template.json",
+  "schema_sql": "migrations/001_user_workspaces.sql"
+}
+

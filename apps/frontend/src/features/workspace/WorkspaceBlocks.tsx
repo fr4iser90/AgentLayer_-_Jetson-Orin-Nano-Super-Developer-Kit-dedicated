@@ -1355,6 +1355,7 @@ function BlockView(props: {
     const [jobs, setJobs] = useState<SchedulerJobRowLite[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const includeArchived = block.props.includeArchived === true;
 
     const refresh = async () => {
       setLoading(true);
@@ -1371,6 +1372,7 @@ function BlockView(props: {
           q.set("include_global", "true");
         }
         if (executionTarget !== "all") q.set("execution_target", executionTarget);
+        if (includeArchived) q.set("include_archived", "true");
         q.set("limit", "100");
         const res = await apiFetch(`/v1/admin/scheduler-jobs?${q.toString()}`, auth);
         const j = (await res.json().catch(() => null)) as any;

@@ -1,0 +1,59 @@
+{
+  "kind": "feeds",
+  "description": "Template for kind feeds — copied into DB on create.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "feeds-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 7 },
+        "props": {
+          "dataPath": "feeds",
+          "enableSearch": true,
+          "searchPlaceholder": "Search feeds…",
+          "enableRowDetail": true,
+          "columns": [
+            { "field": "enabled", "kind": "checkbox", "label": "" },
+            { "field": "title", "kind": "text", "label": "Name" },
+            { "field": "url", "kind": "text", "label": "URL" },
+            { "field": "tags", "kind": "text", "label": "Tags" }
+          ]
+        }
+      },
+      {
+        "id": "feeds-latest",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 7, "w": 12, "h": 6 },
+        "props": { "dataPath": "latest_summary", "placeholder": "Latest RSS summary…" }
+      },
+      {
+        "id": "feeds-history",
+        "type": "table",
+        "grid": { "x": 0, "y": 13, "w": 12, "h": 6 },
+        "props": {
+          "dataPath": "history",
+          "enableSearch": true,
+          "searchPlaceholder": "Search history…",
+          "columns": [
+            { "field": "ts", "kind": "text", "label": "When" },
+            { "field": "title", "kind": "text", "label": "Title" },
+            { "field": "summary", "kind": "text", "label": "Summary" }
+          ]
+        }
+      },
+      {
+        "id": "feeds-schedules",
+        "type": "schedules",
+        "grid": { "x": 0, "y": 19, "w": 12, "h": 5 },
+        "props": { "scope": "both", "executionTarget": "server_periodic" }
+      }
+    ]
+  },
+  "initial_data": {
+    "feeds": [],
+    "latest_summary": "",
+    "history": []
+  }
+}
+

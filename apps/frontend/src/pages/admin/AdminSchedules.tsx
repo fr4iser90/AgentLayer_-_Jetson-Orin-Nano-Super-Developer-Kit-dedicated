@@ -10,6 +10,7 @@ type SchedulerJobRow = {
   interval_minutes: number;
   enabled: boolean;
   last_run_at: string | null;
+  deleted_at?: string | null;
   created_at: string;
   ide_workflow?: unknown;
   instructions?: string;
@@ -32,6 +33,20 @@ export function AdminSchedules() {
   const [includeGlobal, setIncludeGlobal] = useState(true);
   const [target, setTarget] = useState<"all" | "ide_agent" | "server_periodic">("all");
   const [enabled, setEnabled] = useState<"all" | "true" | "false">("all");
+  const [includeArchived, setIncludeArchived] = useState(false);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createTarget, setCreateTarget] = useState<"ide_agent" | "server_periodic">("ide_agent");
+  const [createInterval, setCreateInterval] = useState(60);
+  const [createEnabled, setCreateEnabled] = useState(true);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createInstructions, setCreateInstructions] = useState("");
+  const [createWorkspaceId, setCreateWorkspaceId] = useState("");
+
+  const [editJob, setEditJob] = useState<SchedulerJobRow | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editInstructions, setEditInstructions] = useState("");
+  const [editInterval, setEditInterval] = useState<number>(60);
 
   const query = useMemo(() => {
     const q = new URLSearchParams();
@@ -43,9 +58,10 @@ export function AdminSchedules() {
     }
     if (target !== "all") q.set("execution_target", target);
     if (enabled !== "all") q.set("enabled", enabled);
+    if (includeArchived) q.set("include_archived", "true");
     q.set("limit", "200");
     return q;
-  }, [scope, workspaceId, includeGlobal, target, enabled]);
+  }, [scope, workspaceId, includeGlobal, target, enabled, includeArchived]);
 
   const refresh = async () => {
     setLoading(true);
@@ -82,6 +98,83 @@ export function AdminSchedules() {
       setErr(String(j?.detail ?? j?.error ?? res.status));
       return;
     }
+    await refresh();
+  };
+
+  const archiveJob = async (jobId: string, archived: boolean) => {
+    const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}/archived`, auth, {
+      method: "PATCH",
+      body: JSON.stringify({ archived }),
+    });
+    const j = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !j?.ok) {
+      setErr(String(j?.detail ?? j?.error ?? res.status));
+      return;
+    }
+    await refresh();
+  };
+
+  const hardDelete = async (jobId: string) => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm("Delete this schedule permanently? This cannot be undone.")) return;
+    const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}`, auth, { method: "DELETE" });
+    const j = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !j?.ok) {
+      setErr(String(j?.detail ?? j?.error ?? res.status));
+      return;
+    }
+    await refresh();
+  };
+
+  const openEdit = (j: SchedulerJobRow) => {
+    setEditJob(j);
+    setEditTitle(j.title ?? "");
+    setEditInstructions(j.instructions ?? "");
+    setEditInterval(j.interval_minutes ?? 60);
+  };
+
+  const saveEdit = async () => {
+    if (!editJob) return;
+    const res = await apiFetch(`/v1/admin/scheduler-jobs/${editJob.id}`, auth, {
+      method: "PATCH",
+      body: JSON.stringify({
+        title: editTitle,
+        instructions: editInstructions,
+        interval_minutes: editInterval,
+      }),
+    });
+    const j = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !j?.ok) {
+      setErr(String(j?.detail ?? j?.error ?? res.status));
+      return;
+    }
+    setEditJob(null);
+    await refresh();
+  };
+
+  const createJob = async () => {
+    setErr(null);
+    const res = await apiFetch(`/v1/admin/scheduler-jobs`, auth, {
+      method: "POST",
+      body: JSON.stringify({
+        execution_target: createTarget,
+        interval_minutes: createInterval,
+        enabled: createEnabled,
+        title: createTitle || null,
+        instructions: createInstructions,
+        workspace_id: createWorkspaceId || null,
+        ide_workflow: {},
+      }),
+    });
+    const j = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !j?.ok) {
+      setErr(String(j?.detail ?? j?.error ?? res.status));
+      return;
+    }
+    setCreateOpen(false);
+    setCreateTitle("");
+    setCreateInstructions("");
+    setCreateWorkspaceId("");
     await refresh();
   };
 
@@ -165,6 +258,24 @@ export function AdminSchedules() {
             Include global schedules
           </label>
         ) : null}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-xs text-surface-muted">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-surface-border"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+            />
+            Show archived
+          </label>
+          <button
+            type="button"
+            className="rounded-md bg-violet-600/80 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500"
+            onClick={() => setCreateOpen(true)}
+          >
+            Create schedule
+          </button>
+        </div>
       </div>
 
       {err ? (
@@ -207,6 +318,11 @@ export function AdminSchedules() {
                     <span className={`rounded-md border px-2 py-0.5 text-xs ${pill(j.enabled)}`}>
                       {j.enabled ? "enabled" : "disabled"}
                     </span>
+                    {j.deleted_at ? (
+                      <span className="ml-2 rounded-md border border-surface-border bg-white/5 px-2 py-0.5 text-xs text-surface-muted">
+                        archived
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-neutral-100">{j.execution_target}</td>
                   <td className="px-3 py-2 text-neutral-100">{j.title || "—"}</td>
@@ -217,13 +333,36 @@ export function AdminSchedules() {
                   <td className="px-3 py-2 text-surface-muted">{j.last_run_at || "—"}</td>
                   <td className="px-3 py-2 text-surface-muted">{j.created_at}</td>
                   <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
-                      onClick={() => void toggleEnabled(j.id, !j.enabled)}
-                    >
-                      {j.enabled ? "Disable" : "Enable"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
+                        onClick={() => void toggleEnabled(j.id, !j.enabled)}
+                      >
+                        {j.enabled ? "Disable" : "Enable"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
+                        onClick={() => openEdit(j)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
+                        onClick={() => void archiveJob(j.id, !j.deleted_at)}
+                      >
+                        {j.deleted_at ? "Unarchive" : "Archive"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-100 hover:bg-red-500/20"
+                        onClick={() => void hardDelete(j.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -231,6 +370,169 @@ export function AdminSchedules() {
           </tbody>
         </table>
       </div>
+
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-surface-border bg-surface-raised p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold text-white">Create schedule</div>
+                <div className="text-xs text-surface-muted">Writes a new row to scheduler_jobs.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-surface-border px-3 py-1.5 text-xs text-neutral-100 hover:bg-white/5"
+                onClick={() => setCreateOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-surface-muted">
+                Target
+                <select
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={createTarget}
+                  onChange={(e) => setCreateTarget(e.target.value as any)}
+                >
+                  <option value="ide_agent">ide_agent</option>
+                  <option value="server_periodic">server_periodic</option>
+                </select>
+              </label>
+              <label className="text-xs text-surface-muted">
+                Interval (minutes)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={createInterval}
+                  onChange={(e) => setCreateInterval(Number(e.target.value))}
+                  min={5}
+                  max={10080}
+                />
+              </label>
+              <label className="text-xs text-surface-muted md:col-span-2">
+                Title
+                <input
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={createTitle}
+                  onChange={(e) => setCreateTitle(e.target.value)}
+                  placeholder="optional"
+                />
+              </label>
+              <label className="text-xs text-surface-muted md:col-span-2">
+                Workspace id (optional UUID; blank = global)
+                <input
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={createWorkspaceId}
+                  onChange={(e) => setCreateWorkspaceId(e.target.value)}
+                  placeholder="optional"
+                />
+              </label>
+              <label className="text-xs text-surface-muted md:col-span-2">
+                <span>Instructions</span>
+                <textarea
+                  className="mt-1 min-h-[120px] w-full resize-y rounded-md border border-surface-border bg-black/30 px-2 py-2 text-sm text-neutral-100"
+                  value={createInstructions}
+                  onChange={(e) => setCreateInstructions(e.target.value)}
+                  placeholder="What should the agent do?"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-surface-muted">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-surface-border"
+                  checked={createEnabled}
+                  onChange={(e) => setCreateEnabled(e.target.checked)}
+                />
+                Enabled
+              </label>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-surface-border px-3 py-2 text-sm text-neutral-100 hover:bg-white/5"
+                onClick={() => setCreateOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-violet-600/80 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-60"
+                onClick={() => void createJob()}
+                disabled={!createInstructions.trim()}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-surface-border bg-surface-raised p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold text-white">Edit schedule</div>
+                <div className="text-xs text-surface-muted font-mono">id: {editJob.id}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-surface-border px-3 py-1.5 text-xs text-neutral-100 hover:bg-white/5"
+                onClick={() => setEditJob(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid gap-3">
+              <label className="text-xs text-surface-muted">
+                Title
+                <input
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                />
+              </label>
+              <label className="text-xs text-surface-muted">
+                Interval (minutes)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
+                  value={editInterval}
+                  onChange={(e) => setEditInterval(Number(e.target.value))}
+                  min={5}
+                  max={10080}
+                />
+              </label>
+              <label className="text-xs text-surface-muted">
+                Instructions
+                <textarea
+                  className="mt-1 min-h-[140px] w-full resize-y rounded-md border border-surface-border bg-black/30 px-2 py-2 text-sm text-neutral-100"
+                  value={editInstructions}
+                  onChange={(e) => setEditInstructions(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-surface-border px-3 py-2 text-sm text-neutral-100 hover:bg-white/5"
+                onClick={() => setEditJob(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-md bg-violet-600/80 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-60"
+                onClick={() => void saveEdit()}
+                disabled={!editInstructions.trim()}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
