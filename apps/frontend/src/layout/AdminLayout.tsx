@@ -51,6 +51,12 @@ export function AdminLayout() {
           >
             Scheduled jobs
           </NavLink>
+          <NavLink
+            to="/admin/schedules"
+            className={({ isActive }) => `${item} ${isActive ? itemActive : itemIdle}`}
+          >
+            Schedules
+          </NavLink>
         </nav>
         <NavLink
           to="/"

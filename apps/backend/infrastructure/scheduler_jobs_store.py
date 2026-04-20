@@ -121,6 +121,65 @@ def list_jobs_for_user(
     return [dict(r) for r in rows]
 
 
+def list_jobs_for_tenant(
+    *,
+    tenant_id: int,
+    workspace_id: uuid.UUID | None,
+    include_global: bool,
+    execution_target: str | None,
+    enabled: bool | None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """
+    Admin listing: tenant-wide jobs with optional workspace scoping.
+
+    - workspace_id=None: list global-only when include_global=True, else all jobs (legacy)
+    - workspace_id!=None:
+        - include_global=True: workspace-bound + global (workspace_id IS NULL)
+        - include_global=False: only workspace-bound
+    """
+    lim = max(1, min(500, limit))
+    params: list[Any] = [tenant_id]
+    where = "WHERE j.tenant_id = %s"
+
+    if workspace_id is not None:
+        if include_global:
+            where += " AND (j.workspace_id = %s OR j.workspace_id IS NULL)"
+        else:
+            where += " AND j.workspace_id = %s"
+        params.append(workspace_id)
+    else:
+        if include_global:
+            where += " AND j.workspace_id IS NULL"
+
+    if execution_target is not None and str(execution_target).strip():
+        where += " AND j.execution_target = %s"
+        params.append(str(execution_target).strip().lower())
+
+    if enabled is not None:
+        where += " AND j.enabled = %s"
+        params.append(bool(enabled))
+
+    params.append(lim)
+    with db.pool().connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.workspace_id,
+                       j.execution_target, j.title, j.instructions, j.interval_minutes, j.enabled,
+                       j.ide_workflow, j.last_run_at, j.created_at, j.updated_at
+                FROM scheduler_jobs j
+                {where}
+                ORDER BY j.created_at DESC
+                LIMIT %s
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    return [dict(r) for r in rows]
+
+
 def get_job(job_id: uuid.UUID, tenant_id: int) -> dict[str, Any] | None:
     with db.pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:

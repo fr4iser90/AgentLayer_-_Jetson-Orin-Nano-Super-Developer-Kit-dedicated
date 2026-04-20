@@ -69,6 +69,21 @@ Helper functions:
 
 For built-in kinds with dedicated tools (`pets`, `ideas`, `shopping_list`), `workspace_id` may be **omitted** when the user has exactly **one** workspace of that `kind`; the server picks it automatically. If there are several, the tool returns a short list of `id` + `title` so the model can ask or pass the UUID. Logic: `src/workspace/tool_workspace_resolve.py`.
 
+## Terminology: workspace vs project path
+
+In AgentLayer, a **workspace** is a UI dashboard/board stored in `user_workspaces` (identified by `workspace_id`).
+
+When scheduling IDE/Git jobs, use **`project_path`** for the local filesystem path to a repository/project folder. Do not call this a "workspace path" to avoid confusion with UI workspaces.
+
+## Block: schedules
+
+The `schedules` block shows persisted user-defined schedules from `scheduler_jobs` (admin only).
+
+Example block props:
+
+- `scope`: `"workspace"` | `"global"` | `"both"` (default `"workspace"`)
+- `executionTarget`: `"ide_agent"` | `"server_periodic"` | `"all"` (default `"all"`)
+
 ## Files / uploads
 
 Uploads produce a `wsfile:<uuid>` reference.

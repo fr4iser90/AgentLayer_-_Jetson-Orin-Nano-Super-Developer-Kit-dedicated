@@ -33,6 +33,10 @@ export function WorkspaceBlocks(props: {
   );
 }
 
+function normText(v: unknown): string {
+  return String(v ?? "").trim().toLowerCase();
+}
+
 /** Single block (used by list view and by the drag grid). */
 export function WorkspaceBlockTile(props: {
   block: UiBlock;
@@ -119,6 +123,34 @@ function GalleryImage(props: { url: string; alt: string }) {
     />
   );
 }
+
+function StatusPill(props: { status: string }) {
+  const s = (props.status || "").toLowerCase();
+  const cls =
+    s === "succeeded"
+      ? "bg-emerald-600/30 text-emerald-200 border-emerald-500/40"
+      : s === "failed"
+        ? "bg-red-600/30 text-red-200 border-red-500/40"
+        : s === "running"
+          ? "bg-sky-600/30 text-sky-200 border-sky-500/40"
+          : "bg-white/10 text-surface-muted border-surface-border";
+  return (
+    <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] ${cls}`}>
+      {props.status}
+    </span>
+  );
+}
+
+type SchedulerJobRowLite = {
+  id: string;
+  workspace_id: string | null;
+  execution_target: string;
+  title: string | null;
+  interval_minutes: number;
+  enabled: boolean;
+  last_run_at: string | null;
+  created_at: string;
+};
 
 function GalleryBlockBody(props: {
   dp: string;
@@ -927,6 +959,105 @@ function BlockView(props: {
       ? (rowsUnknown as Row[])
       : [];
     const cols = block.props.columns || [];
+    const enableRowDetail = block.props.enableRowDetail === true;
+    const enableRunNow = block.props.enableRunNow === true;
+    const searchEnabled = block.props.enableSearch === true;
+    const searchPlaceholder =
+      typeof block.props.searchPlaceholder === "string" && block.props.searchPlaceholder.trim()
+        ? block.props.searchPlaceholder.trim()
+        : "Search…";
+    const searchFieldsRaw = Array.isArray(block.props.searchFields)
+      ? (block.props.searchFields as unknown[])
+      : [];
+    const searchFields =
+      searchFieldsRaw.length > 0
+        ? searchFieldsRaw.filter((x) => typeof x === "string" && x.trim())?.map((x) => String(x))
+        : cols
+            .filter((c: any) => c?.field && c?.kind !== "checkbox")
+            .map((c: any) => String(c.field));
+
+    const [query, setQuery] = useState("");
+    const [detailRowId, setDetailRowId] = useState<string | null>(null);
+    const [runNowInstructions, setRunNowInstructions] = useState<string>("");
+    const [runNowBusy, setRunNowBusy] = useState(false);
+    const [runNowMsg, setRunNowMsg] = useState<string | null>(null);
+    const [recentRuns, setRecentRuns] = useState<any[] | null>(null);
+    const [recentRunsErr, setRecentRunsErr] = useState<string | null>(null);
+    const [recentRunsBusy, setRecentRunsBusy] = useState(false);
+
+    const filteredRows = useMemo(() => {
+      const q = normText(query);
+      if (!q) return rows;
+      return rows.filter((r) => {
+        for (const f of searchFields) {
+          const t = normText((r as any)?.[f]);
+          if (t && t.includes(q)) return true;
+        }
+        return false;
+      });
+    }, [rows, query, searchFields]);
+
+    const detailRow = useMemo(() => {
+      if (!detailRowId) return null;
+      const found = rows.find((r) => String((r as any)?.id ?? "") === detailRowId);
+      return found ?? null;
+    }, [rows, detailRowId]);
+
+    useEffect(() => {
+      if (!enableRunNow) return;
+      if (!detailRowId || !detailRow) return;
+      const title = String((detailRow as any)?.title ?? "").trim();
+      const remote = String((detailRow as any)?.remote_url ?? "").trim();
+      const path = String((detailRow as any)?.project_path ?? "").trim();
+      const lines = [
+        `Project: ${title || "Untitled"}`,
+        remote ? `Remote: ${remote}` : "",
+        path ? `Local path: ${path}` : "",
+        "",
+        "Task:",
+        "",
+      ].filter(Boolean);
+      setRunNowInstructions(lines.join("\n"));
+      setRunNowMsg(null);
+      setRecentRuns(null);
+      setRecentRunsErr(null);
+    }, [enableRunNow, detailRowId, detailRow]);
+
+    const refreshRecentRuns = async () => {
+      if (!enableRunNow) return;
+      if (!workspaceId) return;
+      const pid = String((detailRow as any)?.id ?? "").trim();
+      if (!pid) return;
+      setRecentRunsBusy(true);
+      setRecentRunsErr(null);
+      try {
+        const q = new URLSearchParams({
+          workspace_id: String(workspaceId),
+          project_row_id: pid,
+          limit: "10",
+        });
+        const res = await apiFetch(`/v1/project-runs?${q.toString()}`, auth);
+        const j = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !j?.ok) {
+          setRecentRunsErr(`Failed: ${String(j?.detail ?? j?.error ?? res.status)}`);
+          setRecentRuns(null);
+        } else {
+          setRecentRuns(Array.isArray(j.runs) ? j.runs : []);
+        }
+      } catch (e) {
+        setRecentRunsErr(`Failed: ${String(e)}`);
+        setRecentRuns(null);
+      } finally {
+        setRecentRunsBusy(false);
+      }
+    };
+
+    useEffect(() => {
+      if (!enableRunNow) return;
+      if (!detailRowId || !detailRow) return;
+      void refreshRecentRuns();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [enableRunNow, detailRowId]);
 
     const updateRow = (index: number, field: string, value: unknown) => {
       setData((d) => {
@@ -967,15 +1098,25 @@ function BlockView(props: {
           <span className="text-xs font-medium uppercase tracking-wide text-surface-muted">
             Tabelle ({dp})
           </span>
-          {!readOnly ? (
-            <button
-              type="button"
-              className="rounded-md bg-sky-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
-              onClick={addRow}
-            >
-              Zeile +
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {searchEnabled ? (
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-56 rounded-md border border-surface-border bg-black/30 px-3 py-1.5 text-xs text-neutral-100 outline-none focus:border-sky-500/50"
+              />
+            ) : null}
+            {!readOnly ? (
+              <button
+                type="button"
+                className="rounded-md bg-sky-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-500"
+                onClick={addRow}
+              >
+                Zeile +
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-left text-sm">
@@ -986,21 +1127,26 @@ function BlockView(props: {
                     {c.label || c.field}
                   </th>
                 ))}
+                {enableRowDetail ? <th className="w-12 px-2 py-2" /> : null}
                 {!readOnly ? <th className="w-10 px-2 py-2" /> : null}
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {filteredRows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={cols.length + (readOnly ? 0 : 1)}
+                    colSpan={cols.length + (enableRowDetail ? 1 : 0) + (readOnly ? 0 : 1)}
                     className="px-2 py-6 text-center text-surface-muted"
                   >
-                    {readOnly ? "Noch keine Einträge." : "Noch keine Zeilen — „Zeile +“."}
+                    {rows.length === 0
+                      ? readOnly
+                        ? "Noch keine Einträge."
+                        : "Noch keine Zeilen — „Zeile +“."
+                      : "Keine Treffer."}
                   </td>
                 </tr>
               ) : (
-                rows.map((row, ri) => (
+                filteredRows.map((row, ri) => (
                   <tr key={String(row.id ?? ri)} className="border-b border-white/5">
                     {cols.map((c) => (
                       <td key={c.field} className="px-2 py-1 align-middle">
@@ -1008,16 +1154,39 @@ function BlockView(props: {
                           col={c}
                           value={row[c.field]}
                           readOnly={readOnly}
-                          onChange={(v) => updateRow(ri, c.field, v)}
+                          onChange={(v) => {
+                            const rowId = String(row.id ?? "");
+                            if (!rowId) return updateRow(ri, c.field, v);
+                            const realIndex = rows.findIndex((x) => String((x as any)?.id ?? "") === rowId);
+                            updateRow(realIndex >= 0 ? realIndex : ri, c.field, v);
+                          }}
                         />
                       </td>
                     ))}
+                    {enableRowDetail ? (
+                      <td className="px-1">
+                        <button
+                          type="button"
+                          className="rounded px-2 py-1 text-xs text-sky-200 hover:bg-white/5"
+                          onClick={() => setDetailRowId(String(row.id ?? ""))}
+                          title="Details"
+                        >
+                          ↗
+                        </button>
+                      </td>
+                    ) : null}
                     {!readOnly ? (
                       <td className="px-1">
                         <button
                           type="button"
                           className="rounded p-1 text-xs text-red-400 hover:bg-white/5"
-                          onClick={() => removeRow(ri)}
+                          onClick={() => {
+                            const rowId = String(row.id ?? "");
+                            const realIndex = rowId
+                              ? rows.findIndex((x) => String((x as any)?.id ?? "") === rowId)
+                              : ri;
+                            removeRow(realIndex >= 0 ? realIndex : ri);
+                          }}
                           title="Zeile löschen"
                         >
                           ✕
@@ -1030,6 +1199,281 @@ function BlockView(props: {
             </tbody>
           </table>
         </div>
+        {enableRowDetail && detailRowId && detailRow ? (
+          <div className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 p-4">
+            <div className="h-full w-full max-w-lg overflow-auto rounded-xl border border-surface-border bg-surface-raised p-4 shadow-2xl">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-surface-muted">Project</div>
+                  <div className="text-lg font-semibold text-white">
+                    {String((detailRow as any).title ?? "").trim() || "Untitled"}
+                  </div>
+                  <div className="mt-1 text-xs text-surface-muted">id: {detailRowId}</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-surface-border px-3 py-1.5 text-xs text-neutral-100 hover:bg-white/5"
+                  onClick={() => setDetailRowId(null)}
+                >
+                  Close
+                </button>
+              </div>
+
+              {enableRunNow ? (
+                <div className="mb-4 rounded-xl border border-surface-border bg-black/20 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium uppercase tracking-wide text-surface-muted">
+                      Run now (one-shot)
+                    </div>
+                    <button
+                      type="button"
+                      disabled={runNowBusy || !runNowInstructions.trim()}
+                      className="rounded-md bg-violet-600/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={async () => {
+                        setRunNowBusy(true);
+                        setRunNowMsg(null);
+                        try {
+                          const res = await apiFetch(`/v1/project-runs`, auth, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              instructions: runNowInstructions,
+                              ide_workflow: {},
+                              workspace_id: workspaceId,
+                              project_row_id: String((detailRow as any)?.id ?? ""),
+                              project_title: String((detailRow as any)?.title ?? ""),
+                            }),
+                          });
+                          const j = (await res.json().catch(() => null)) as any;
+                          if (!res.ok || !j?.ok) {
+                            setRunNowMsg(
+                              `Failed: ${String(j?.detail ?? j?.error ?? res.status)}`
+                            );
+                          } else {
+                            setRunNowMsg(`Queued run: ${String(j.run?.id ?? "")}`);
+                            void refreshRecentRuns();
+                          }
+                        } catch (e) {
+                          setRunNowMsg(`Failed: ${String(e)}`);
+                        } finally {
+                          setRunNowBusy(false);
+                        }
+                      }}
+                    >
+                      {runNowBusy ? "Queueing…" : "Queue run"}
+                    </button>
+                  </div>
+                  <textarea
+                    value={runNowInstructions}
+                    onChange={(e) => setRunNowInstructions(e.target.value)}
+                    className="min-h-[110px] w-full resize-y rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-xs text-neutral-100 outline-none focus:border-violet-400/60"
+                    placeholder="Describe what to do…"
+                  />
+                  {runNowMsg ? (
+                    <div className="mt-2 text-xs text-surface-muted">{runNowMsg}</div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {enableRunNow ? (
+                <div className="mb-4 rounded-xl border border-surface-border bg-black/10 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium uppercase tracking-wide text-surface-muted">
+                      Recent runs
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-md border border-surface-border px-2 py-1 text-[11px] text-neutral-100 hover:bg-white/5 disabled:opacity-60"
+                      disabled={recentRunsBusy}
+                      onClick={() => void refreshRecentRuns()}
+                    >
+                      {recentRunsBusy ? "Loading…" : "Refresh"}
+                    </button>
+                  </div>
+                  {recentRunsErr ? (
+                    <div className="text-xs text-red-200/90">{recentRunsErr}</div>
+                  ) : recentRuns && recentRuns.length === 0 ? (
+                    <div className="text-xs text-surface-muted">No runs yet.</div>
+                  ) : recentRuns ? (
+                    <div className="space-y-2">
+                      {recentRuns.map((r) => (
+                        <div
+                          key={String(r.id)}
+                          className="rounded-lg border border-surface-border bg-black/20 p-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-xs text-neutral-100">
+                              {String(r.project_title ?? "") || "Run"}
+                            </div>
+                            <StatusPill status={String(r.status ?? "")} />
+                          </div>
+                          <div className="mt-1 text-[11px] text-surface-muted">
+                            {String(r.created_at ?? "")}
+                          </div>
+                          {r.error ? (
+                            <div className="mt-1 text-[11px] text-red-200/90">
+                              {String(r.error)}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-surface-muted">Loading…</div>
+                  )}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3">
+                {cols
+                  .filter((c: any) => c?.field && c.field !== "pinned")
+                  .map((c: any) => (
+                    <div key={String(c.field)}>
+                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-surface-muted">
+                        {c.label || c.field}
+                      </div>
+                      <div className="rounded-lg border border-surface-border bg-black/20 p-2 text-sm text-neutral-100">
+                        {String(((detailRow as any) ?? {})[c.field] ?? "").trim() || "—"}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  if (block.type === "schedules") {
+    const auth = useAuth();
+    const scopeRaw = String(block.props.scope ?? "workspace").trim().toLowerCase();
+    const scope = scopeRaw === "both" || scopeRaw === "global" || scopeRaw === "workspace" ? scopeRaw : "workspace";
+    const targetRaw = String(block.props.executionTarget ?? "all").trim().toLowerCase();
+    const executionTarget =
+      targetRaw === "ide_agent" || targetRaw === "server_periodic" ? targetRaw : "all";
+    const [jobs, setJobs] = useState<SchedulerJobRowLite[] | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+
+    const refresh = async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const q = new URLSearchParams();
+        if (scope === "global") {
+          q.set("include_global", "true");
+        } else if (scope === "workspace") {
+          if (workspaceId) q.set("workspace_id", String(workspaceId));
+          q.set("include_global", "false");
+        } else if (scope === "both") {
+          if (workspaceId) q.set("workspace_id", String(workspaceId));
+          q.set("include_global", "true");
+        }
+        if (executionTarget !== "all") q.set("execution_target", executionTarget);
+        q.set("limit", "100");
+        const res = await apiFetch(`/v1/admin/scheduler-jobs?${q.toString()}`, auth);
+        const j = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !j?.ok) {
+          setErr(String(j?.detail ?? j?.error ?? res.status));
+          setJobs(null);
+        } else {
+          setJobs(Array.isArray(j.jobs) ? (j.jobs as SchedulerJobRowLite[]) : []);
+        }
+      } catch (e) {
+        setErr(String(e));
+        setJobs(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      void refresh();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scope, executionTarget, workspaceId]);
+
+    const toggleEnabled = async (jobId: string, next: boolean) => {
+      const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}/enabled`, auth, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: next }),
+      });
+      const j = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !j?.ok) {
+        setErr(String(j?.detail ?? j?.error ?? res.status));
+        return;
+      }
+      await refresh();
+    };
+
+    return (
+      <section className="rounded-xl border border-surface-border bg-surface-raised/60 p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-surface-muted">
+            Schedules
+          </span>
+          <button
+            type="button"
+            className="rounded-md border border-surface-border px-2 py-1 text-[11px] text-neutral-100 hover:bg-white/5"
+            onClick={() => void refresh()}
+            disabled={loading}
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+        {err ? <div className="mb-3 text-xs text-red-200/90">{err}</div> : null}
+        {!jobs ? (
+          <div className="text-sm text-surface-muted">{loading ? "Loading…" : "No data yet."}</div>
+        ) : jobs.length === 0 ? (
+          <div className="text-sm text-surface-muted">No schedules.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-surface-border text-surface-muted">
+                  <th className="px-2 py-2 font-medium">Enabled</th>
+                  <th className="px-2 py-2 font-medium">Target</th>
+                  <th className="px-2 py-2 font-medium">Title</th>
+                  <th className="px-2 py-2 font-medium">Interval</th>
+                  <th className="px-2 py-2 font-medium">Scope</th>
+                  <th className="px-2 py-2 font-medium">Last run</th>
+                  <th className="px-2 py-2 font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id} className="border-b border-white/5">
+                    <td className="px-2 py-2">
+                      <span className={`rounded-md border px-2 py-0.5 text-xs ${pill(j.enabled)}`}>
+                        {j.enabled ? "enabled" : "disabled"}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2 font-mono text-xs text-neutral-100">
+                      {j.execution_target}
+                    </td>
+                    <td className="px-2 py-2 text-neutral-100">{j.title || "—"}</td>
+                    <td className="px-2 py-2 text-surface-muted">{j.interval_minutes} min</td>
+                    <td className="px-2 py-2 text-surface-muted">
+                      {j.workspace_id ? "workspace" : "global"}
+                    </td>
+                    <td className="px-2 py-2 text-surface-muted">{j.last_run_at || "—"}</td>
+                    <td className="px-2 py-2">
+                      {!readOnly ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
+                          onClick={() => void toggleEnabled(j.id, !j.enabled)}
+                        >
+                          {j.enabled ? "Disable" : "Enable"}
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     );
   }

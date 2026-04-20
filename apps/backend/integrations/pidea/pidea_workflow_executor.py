@@ -140,7 +140,7 @@ def _build_ide_message(
 
 
 def _repo_path(wf: dict[str, Any]) -> Path | None:
-    for key in ("git_repo_path", "workspace_path"):
+    for key in ("git_repo_path", "project_path"):
         s = (wf.get(key) or "").strip()
         if s:
             try:
@@ -184,7 +184,7 @@ def run_resolved_pidea_workflow(
             repo = _repo_path(wf)
             tmpl = (options.get("branchName") or "").strip()
             if not repo or not tmpl:
-                err = "git_create_branch: need ide_workflow.git_repo_path (or workspace_path) and branchName in JSON"
+                err = "git_create_branch: need ide_workflow.git_repo_path (or project_path) and branchName in JSON"
                 logger.warning("pidea workflow %s: %s", name, err)
                 if strict:
                     return False, err

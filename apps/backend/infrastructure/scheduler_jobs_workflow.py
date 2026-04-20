@@ -29,7 +29,7 @@ _ALLOWED_KEYS = frozenset(
         "git_repo_path",
         "git_branch_template",
         "git_source_branch",
-        "workspace_path",
+        "project_path",
         "phase_prompt_paths",
         "use_pidea_task_management_phases",
         "pidea_workflow_name",
@@ -39,7 +39,7 @@ _ALLOWED_KEYS = frozenset(
         "task_plan_glob",
         "task_plan_max_files",
         "task_plan_max_chars",
-        "use_cdp_workspace_path",
+        "use_cdp_project_path",
     }
 )
 
@@ -93,8 +93,8 @@ def normalize_ide_workflow(raw: Any) -> dict[str, Any]:
         out["git_branch_template"] = str(raw["git_branch_template"]).strip()
     if raw.get("git_source_branch"):
         out["git_source_branch"] = str(raw["git_source_branch"]).strip()
-    if raw.get("workspace_path"):
-        out["workspace_path"] = str(raw["workspace_path"]).strip()
+    if raw.get("project_path"):
+        out["project_path"] = str(raw["project_path"]).strip()
 
     wf_name_in = raw.get("pidea_workflow_name")
     if wf_name_in is not None and str(wf_name_in).strip():
@@ -165,8 +165,8 @@ def normalize_ide_workflow(raw: Any) -> dict[str, Any]:
         if ".." in tg:
             raise ValueError("task_plan_glob must not contain ..")
         out["task_plan_glob"] = tg
-    if "use_cdp_workspace_path" in raw:
-        out["use_cdp_workspace_path"] = bool(raw.get("use_cdp_workspace_path"))
+    if "use_cdp_project_path" in raw:
+        out["use_cdp_project_path"] = bool(raw.get("use_cdp_project_path"))
 
     for key, lo, hi in (
         ("task_plan_max_files", 1, 50),
@@ -238,7 +238,7 @@ def run_optional_git_branch(
         ``(False, error)`` on failure (caller should not advance last_run_at).
     """
     tmpl = (wf.get("git_branch_template") or "").strip()
-    repo_s = (wf.get("git_repo_path") or wf.get("workspace_path") or "").strip()
+    repo_s = (wf.get("git_repo_path") or wf.get("project_path") or "").strip()
     if not tmpl and not repo_s:
         return True, None
     if not tmpl or not repo_s:

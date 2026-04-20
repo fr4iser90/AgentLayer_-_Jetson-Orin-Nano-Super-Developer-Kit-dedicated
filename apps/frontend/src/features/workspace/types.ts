@@ -1,5 +1,6 @@
 export type BlockType =
   | "table"
+  | "schedules"
   | "markdown"
   | "gallery"
   | "hero"

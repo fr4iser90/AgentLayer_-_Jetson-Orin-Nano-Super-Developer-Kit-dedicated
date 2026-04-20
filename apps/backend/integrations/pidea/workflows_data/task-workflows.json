@@ -41,7 +41,7 @@
             "requestedBy": "${userId}",
             "userId": "${userId}",
             "projectId": "${options.projectId}",
-            "workspacePath": "${options.projectPath}",
+            "projectPath": "${options.projectPath}",
             "autoDetectIDE": true,
             "clickNewChat": true
           },
@@ -60,7 +60,7 @@
             "requestedBy": "${userId}",
             "userId": "${userId}",
             "projectId": "${options.projectId}",
-            "workspacePath": "${options.projectPath}"
+            "projectPath": "${options.projectPath}"
           },
           "strict": false,
           "condition": "previousStep.success && previousStep.result.success",
@@ -90,7 +90,7 @@
             "requestedBy": "${userId}",
             "userId": "${userId}",
             "projectId": "${options.projectId}",
-            "workspacePath": "${options.projectPath}"
+            "projectPath": "${options.projectPath}"
           },
           "strict": true,
           "condition": "previousStep.success && previousStep.result.success"
@@ -109,7 +109,7 @@
             "requestedBy": "${userId}",
             "userId": "${userId}",
             "projectId": "${options.projectId}",
-            "workspacePath": "${options.projectPath}",
+            "projectPath": "${options.projectPath}",
             "autoDetectIDE": true,
             "clickNewChat": true
           },
@@ -139,7 +139,7 @@
             "requestedBy": "${userId}",
             "userId": "${userId}",
             "projectId": "${options.projectId}",
-            "workspacePath": "${options.projectPath}"
+            "projectPath": "${options.projectPath}"
           },
           "strict": false,
           "condition": "previousStep.success && previousStep.result.success",

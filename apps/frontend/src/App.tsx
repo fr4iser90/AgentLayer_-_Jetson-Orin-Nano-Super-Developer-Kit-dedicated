@@ -10,6 +10,7 @@ import { AdminInterfaces } from "./pages/admin/AdminInterfaces";
 import { AdminTools } from "./pages/admin/AdminTools";
 import { AdminUsers } from "./pages/admin/AdminUsers";
 import { AdminScheduledJobs } from "./pages/admin/AdminScheduledJobs";
+import { AdminSchedules } from "./pages/admin/AdminSchedules";
 import { ChatPage } from "./pages/ChatPage";
 import { DocsPage } from "./pages/DocsPage";
 import { HomePage } from "./pages/HomePage";
@@ -61,6 +62,7 @@ export function App() {
                 <Route path="tools" element={<AdminTools />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="scheduled-jobs" element={<AdminScheduledJobs />} />
+                <Route path="schedules" element={<AdminSchedules />} />
                 <Route path="ide-agent" element={<AdminIdeAgent />} />
                 <Route
                   path="ide-agents/:ide/control-center"

@@ -81,6 +81,8 @@ from apps.backend.infrastructure.log_redaction import (
 from apps.backend.infrastructure.public_error import http_500_detail
 from apps.backend.integrations.pidea.api_router import router as pidea_router
 from apps.backend.api.scheduler_jobs_api import router as scheduler_jobs_router
+from apps.backend.api.scheduler_jobs_admin_api import router as scheduler_jobs_admin_router
+from apps.backend.api.project_runs_api import router as project_runs_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -123,6 +125,10 @@ from apps.backend.infrastructure.scheduler_jobs_runner import (
     start_scheduler_jobs_worker,
     stop_scheduler_jobs_worker,
 )
+from apps.backend.infrastructure.project_runs_runner import (
+    start_project_runs_worker,
+    stop_project_runs_worker,
+)
 from apps.backend.integrations import discord_bridge, telegram_bridge
 
 # Optional out-of-band gateways (Telegram, Discord, …). New bridges: start/stop here like below;
@@ -160,6 +166,10 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Scheduler jobs server worker failed to start (optional)")
     try:
+        start_project_runs_worker()
+    except Exception:
+        logger.exception("Project runs worker failed to start (optional)")
+    try:
         discord_bridge.start_background()
     except Exception:
         logger.exception("Discord bridge failed to start (optional)")
@@ -185,6 +195,10 @@ async def lifespan(_app: FastAPI):
         stop_scheduler_jobs_worker()
     except Exception:
         pass
+    try:
+        stop_project_runs_worker()
+    except Exception:
+        pass
     db.close_pool()
 
 
@@ -200,6 +214,8 @@ app.include_router(chat_ws_router)
 app.include_router(studio_router)
 app.include_router(pidea_router)
 app.include_router(scheduler_jobs_router)
+app.include_router(scheduler_jobs_admin_router)
+app.include_router(project_runs_router)
 
 
 # Auth Endpoints

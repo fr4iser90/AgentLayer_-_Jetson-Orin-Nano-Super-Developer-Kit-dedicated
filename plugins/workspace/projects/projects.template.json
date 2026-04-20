@@ -1,0 +1,48 @@
+{
+  "kind": "projects",
+  "description": "Template for kind projects — copied into DB on create.",
+  "ui_layout": {
+    "version": 1,
+    "blocks": [
+      {
+        "id": "projects-table",
+        "type": "table",
+        "grid": { "x": 0, "y": 0, "w": 12, "h": 9 },
+        "props": {
+          "dataPath": "projects",
+          "enableSearch": true,
+          "searchPlaceholder": "Search projects…",
+          "enableRowDetail": true,
+          "enableRunNow": true,
+          "columns": [
+            { "field": "pinned", "kind": "checkbox", "label": "" },
+            { "field": "title", "kind": "text", "label": "Project" },
+            { "field": "remote_url", "kind": "text", "label": "Remote" },
+            { "field": "project_path", "kind": "text", "label": "Local path" },
+            { "field": "tags", "kind": "text", "label": "Tags" }
+          ]
+        }
+      },
+      {
+        "id": "projects-schedules",
+        "type": "schedules",
+        "grid": { "x": 0, "y": 9, "w": 12, "h": 5 },
+        "props": { "scope": "both", "executionTarget": "ide_agent" }
+      },
+      {
+        "id": "project-notes",
+        "type": "markdown",
+        "grid": { "x": 0, "y": 14, "w": 12, "h": 4 },
+        "props": {
+          "dataPath": "notes",
+          "placeholder": "Notes for this portfolio…"
+        }
+      }
+    ]
+  },
+  "initial_data": {
+    "projects": [],
+    "notes": ""
+  }
+}
+

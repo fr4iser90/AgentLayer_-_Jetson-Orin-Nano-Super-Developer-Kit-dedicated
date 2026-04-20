@@ -23,6 +23,7 @@ from apps.backend.domain.agent import chat_completion
 from apps.backend.domain.identity import reset_identity, set_identity
 from apps.backend.infrastructure import operator_settings
 from apps.backend.infrastructure import scheduler_jobs_store
+from apps.backend.infrastructure import project_runs_store
 from apps.backend.infrastructure.db import db
 from apps.backend.integrations.pidea.content_library_prompts import (
     SCHEDULER_PIPELINE_ANALYZE_CREATE,
@@ -41,7 +42,7 @@ from apps.backend.integrations.pidea.pidea_workflow_executor import (
     run_pidea_workflow_by_id,
 )
 from apps.backend.integrations.pidea.task_plan_bundle import bundle_task_plans_from_repo
-from apps.backend.integrations.pidea.workspace_path_cdp import detect_workspace_path_from_ide_sync
+from apps.backend.integrations.pidea.project_path_cdp import detect_project_path_from_ide_sync
 
 logger = logging.getLogger(__name__)
 
@@ -227,26 +228,26 @@ def _run_ide_agent_pidea_job(row: dict[str, Any], *, timeout_s: float) -> None:
         elif use_pipeline:
             # Analyze + Create im selben Chat (Create ohne neuen Chat), dann Git-Branch, dann Execute (+ optional Review).
             wf_run: dict[str, Any] = dict(wf)
-            if wf_run.get("use_cdp_workspace_path", True) and not (
+            if wf_run.get("use_cdp_project_path", True) and not (
                 str(wf_run.get("git_repo_path") or "").strip()
-                or str(wf_run.get("workspace_path") or "").strip()
+                or str(wf_run.get("project_path") or "").strip()
             ):
-                det = detect_workspace_path_from_ide_sync()
+                det = detect_project_path_from_ide_sync()
                 if det:
-                    wf_run["workspace_path"] = det
+                    wf_run["project_path"] = det
                     logger.info(
-                        "scheduler_jobs: pipeline CDP workspace_path=%s job_id=%s",
+                        "scheduler_jobs: pipeline CDP project_path=%s job_id=%s",
                         det,
                         job_id,
                     )
             footer = job_context_footer(row)
             pre = (wf_run.get("prompt_preamble") or "").strip()
-            if not (wf_run.get("git_repo_path") or wf_run.get("workspace_path")) or not (
+            if not (wf_run.get("git_repo_path") or wf_run.get("project_path")) or not (
                 wf_run.get("git_branch_template") or ""
             ).strip():
                 logger.warning(
                     "scheduler_jobs: pipeline job_id=%s — set git_branch_template and "
-                    "git_repo_path or workspace_path (or rely on CDP workspace detection) "
+                    "git_repo_path or project_path (or rely on CDP workspace detection) "
                     "for branch / task-plan files",
                     job_id,
                 )
@@ -300,7 +301,7 @@ def _run_ide_agent_pidea_job(row: dict[str, Any], *, timeout_s: float) -> None:
                 ):
                     repo_s = (
                         str(wf_run.get("git_repo_path") or "").strip()
-                        or str(wf_run.get("workspace_path") or "").strip()
+                        or str(wf_run.get("project_path") or "").strip()
                     )
                     if repo_s:
                         try:
@@ -339,7 +340,7 @@ def _run_ide_agent_pidea_job(row: dict[str, Any], *, timeout_s: float) -> None:
                             [
                                 "---\n"
                                 "[No repo path and CDP did not yield a usable local path — set "
-                                "ide_workflow.git_repo_path or workspace_path, or fix CDP/Docker so the IDE path "
+                                "ide_workflow.git_repo_path or project_path, or fix CDP/Docker so the IDE path "
                                 "matches this host’s filesystem.]\n",
                                 "",
                             ]
@@ -463,7 +464,31 @@ def _worker_loop() -> None:
                     if _stop.is_set():
                         break
                     try:
-                        _run_ide_agent_pidea_job(row, timeout_s=timeout_s)
+                        # Decoupled: scheduler enqueues a one-shot run; execution worker processes it.
+                        tenant_id = _tenant_id(row)
+                        job_id = _uid(row, "id")
+                        exec_uid = _uid(row, "execution_user_id")
+                        created_by = _uid(row, "created_by_user_id")
+                        instr = str(row.get("instructions") or "").strip()
+                        wf = ide_workflow_from_row(row)
+                        if not instr:
+                            scheduler_jobs_store.mark_job_last_run(job_id=job_id, tenant_id=tenant_id)
+                            continue
+                        run = project_runs_store.insert_run(
+                            tenant_id=tenant_id,
+                            created_by_user_id=created_by,
+                            execution_user_id=exec_uid,
+                            scheduler_job_id=job_id,
+                            workspace_id=_uid(row, "workspace_id") if row.get("workspace_id") else None,
+                            project_row_id=None,
+                            project_title=None,
+                            execution_target="ide_agent",
+                            instructions=instr,
+                            ide_workflow=wf,
+                        )
+                        if run:
+                            logger.info("scheduler_jobs: enqueued project_run id=%s from job_id=%s", run.get("id"), job_id)
+                            scheduler_jobs_store.mark_job_last_run(job_id=job_id, tenant_id=tenant_id)
                     except Exception:
                         logger.exception("scheduler_jobs: ide_agent PIDEA run failed")
         except Exception:

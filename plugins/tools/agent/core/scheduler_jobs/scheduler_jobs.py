@@ -29,6 +29,7 @@ TOOL_TRIGGERS = (
     "job",
     "ide agent",
     "recurring",
+    "scheduler_jobs",
 )
 TOOL_CAPABILITIES = ("scheduler.job.read", "scheduler.job.write")
 TOOL_MIN_ROLE = "user"
@@ -237,7 +238,7 @@ TOOLS: list[dict[str, Any]] = [
                 "default: new chat + task-analyze, then task-create in the same chat, then git branch, then new chat + "
                 "task-execute (+ optional scheduler_pipeline_include_review). Or set ide_workflow explicitly: use_pidea_task_management_phases, "
                 "phase_prompt_paths, pidea_workflow_name (JSON id), use_pidea_scheduler_pipeline, git_repo_path or "
-                "workspace_path, git_branch_template."
+                "project_path, git_branch_template."
             ),
             "parameters": {
                 "type": "object",
@@ -275,7 +276,7 @@ TOOLS: list[dict[str, Any]] = [
                             "(analyze → create → git → execute). Or: pidea_workflow_name (JSON workflow), "
                             "use_pidea_task_management_phases / phase_prompt_paths, "
                             "use_pidea_scheduler_pipeline false for a single message. "
-                            "git_repo_path or workspace_path + git_branch_template for the branch step."
+                            "git_repo_path or project_path + git_branch_template for the branch step."
                         ),
                     },
                 },
