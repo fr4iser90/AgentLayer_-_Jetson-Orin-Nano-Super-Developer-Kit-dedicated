@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAuth } from "../../auth/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { useAuth } from "../auth/AuthContext";
+import { apiFetch } from "../lib/api";
 
 type SchedulerJobRow = {
   id: string;
@@ -10,9 +10,7 @@ type SchedulerJobRow = {
   interval_minutes: number;
   enabled: boolean;
   last_run_at: string | null;
-  deleted_at?: string | null;
   created_at: string;
-  ide_workflow?: unknown;
   instructions?: string;
 };
 
@@ -36,25 +34,18 @@ function pill(enabled: boolean) {
     : "bg-white/10 text-surface-muted border-surface-border";
 }
 
-export function AdminSchedules() {
+export function MySchedulesPage() {
   const auth = useAuth();
   const [jobs, setJobs] = useState<SchedulerJobRow[] | null>(null);
+  const [presets, setPresets] = useState<SchedulerJobPreset[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [presets, setPresets] = useState<SchedulerJobPreset[] | null>(null);
-
-  const [scope, setScope] = useState<"all" | "global_only" | "workspace">("all");
-  const [workspaceId, setWorkspaceId] = useState<string>("");
-  const [includeGlobal, setIncludeGlobal] = useState(true);
-  const [target, setTarget] = useState<"all" | "ide_agent" | "server_periodic">("all");
-  const [enabled, setEnabled] = useState<"all" | "true" | "false">("all");
-  const [includeArchived, setIncludeArchived] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createPresetId, setCreatePresetId] = useState<string>("");
-  const [createTarget, setCreateTarget] = useState<"ide_agent" | "server_periodic">("ide_agent");
-  const [createInterval, setCreateInterval] = useState(60);
-  const [createEnabled, setCreateEnabled] = useState(true);
+  const [createTarget, setCreateTarget] = useState<"server_periodic" | "ide_agent">("server_periodic");
+  const [createInterval, setCreateInterval] = useState(1440);
+  const [createEnabled, setCreateEnabled] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
   const [createInstructions, setCreateInstructions] = useState("");
   const [createWorkspaceId, setCreateWorkspaceId] = useState("");
@@ -66,24 +57,15 @@ export function AdminSchedules() {
 
   const query = useMemo(() => {
     const q = new URLSearchParams();
-    if (scope === "global_only") {
-      q.set("include_global", "true");
-    } else if (scope === "workspace") {
-      if (workspaceId.trim()) q.set("workspace_id", workspaceId.trim());
-      q.set("include_global", includeGlobal ? "true" : "false");
-    }
-    if (target !== "all") q.set("execution_target", target);
-    if (enabled !== "all") q.set("enabled", enabled);
-    if (includeArchived) q.set("include_archived", "true");
     q.set("limit", "200");
     return q;
-  }, [scope, workspaceId, includeGlobal, target, enabled, includeArchived]);
+  }, []);
 
   const refresh = async () => {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiFetch(`/v1/admin/scheduler-jobs?${query.toString()}`, auth);
+      const res = await apiFetch(`/v1/user/scheduler-jobs?${query.toString()}`, auth);
       const j = (await res.json().catch(() => null)) as any;
       if (!res.ok || !j?.ok) {
         setErr(String(j?.detail ?? j?.error ?? res.status));
@@ -102,12 +84,12 @@ export function AdminSchedules() {
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.toString()]);
+  }, []);
 
   useEffect(() => {
     const loadPresets = async () => {
       try {
-        const res = await apiFetch(`/v1/admin/scheduler-job-presets`, auth);
+        const res = await apiFetch(`/v1/user/scheduler-job-presets`, auth);
         const j = (await res.json().catch(() => null)) as any;
         if (!res.ok || !j?.ok) {
           setPresets([]);
@@ -135,35 +117,10 @@ export function AdminSchedules() {
   };
 
   const toggleEnabled = async (jobId: string, next: boolean) => {
-    const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}/enabled`, auth, {
+    const res = await apiFetch(`/v1/user/scheduler-jobs/${jobId}/enabled`, auth, {
       method: "PATCH",
       body: JSON.stringify({ enabled: next }),
     });
-    const j = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !j?.ok) {
-      setErr(String(j?.detail ?? j?.error ?? res.status));
-      return;
-    }
-    await refresh();
-  };
-
-  const archiveJob = async (jobId: string, archived: boolean) => {
-    const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}/archived`, auth, {
-      method: "PATCH",
-      body: JSON.stringify({ archived }),
-    });
-    const j = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !j?.ok) {
-      setErr(String(j?.detail ?? j?.error ?? res.status));
-      return;
-    }
-    await refresh();
-  };
-
-  const hardDelete = async (jobId: string) => {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm("Delete this schedule permanently? This cannot be undone.")) return;
-    const res = await apiFetch(`/v1/admin/scheduler-jobs/${jobId}`, auth, { method: "DELETE" });
     const j = (await res.json().catch(() => null)) as any;
     if (!res.ok || !j?.ok) {
       setErr(String(j?.detail ?? j?.error ?? res.status));
@@ -181,7 +138,7 @@ export function AdminSchedules() {
 
   const saveEdit = async () => {
     if (!editJob) return;
-    const res = await apiFetch(`/v1/admin/scheduler-jobs/${editJob.id}`, auth, {
+    const res = await apiFetch(`/v1/user/scheduler-jobs/${editJob.id}`, auth, {
       method: "PATCH",
       body: JSON.stringify({
         title: editTitle,
@@ -198,9 +155,21 @@ export function AdminSchedules() {
     await refresh();
   };
 
+  const hardDelete = async (jobId: string) => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm("Delete this schedule permanently? This cannot be undone.")) return;
+    const res = await apiFetch(`/v1/user/scheduler-jobs/${jobId}`, auth, { method: "DELETE" });
+    const j = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !j?.ok) {
+      setErr(String(j?.detail ?? j?.error ?? res.status));
+      return;
+    }
+    await refresh();
+  };
+
   const createJob = async () => {
     setErr(null);
-    const res = await apiFetch(`/v1/admin/scheduler-jobs`, auth, {
+    const res = await apiFetch(`/v1/user/scheduler-jobs`, auth, {
       method: "POST",
       body: JSON.stringify({
         execution_target: createTarget,
@@ -229,158 +198,75 @@ export function AdminSchedules() {
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Schedules</h1>
+          <h1 className="text-2xl font-semibold text-white">My schedules</h1>
           <p className="mt-2 text-sm text-surface-muted">
-            Persisted user-defined schedules (<span className="font-mono">scheduler_jobs</span>). Use
-            this to inspect and toggle jobs. Execution happens via run queue.
+            Your saved schedules (recurring jobs). RSS schedules run as <span className="font-mono">server_periodic</span>.
           </p>
         </div>
-        <button
-          type="button"
-          className="rounded-md border border-surface-border px-3 py-2 text-sm text-neutral-100 hover:bg-white/5"
-          onClick={() => void refresh()}
-          disabled={loading}
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
-      </div>
-
-      <div className="mt-6 rounded-xl border border-surface-border bg-surface-raised/50 p-4">
-        <div className="grid gap-3 md:grid-cols-5">
-          <label className="text-xs text-surface-muted">
-            Scope
-            <select
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-              value={scope}
-              onChange={(e) => setScope(e.target.value as any)}
-            >
-              <option value="all">All</option>
-              <option value="global_only">Global only (workspace_id NULL)</option>
-              <option value="workspace">Workspace scoped</option>
-            </select>
-          </label>
-          <label className="text-xs text-surface-muted md:col-span-2">
-            Workspace id (UUID)
-            <input
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-              value={workspaceId}
-              onChange={(e) => setWorkspaceId(e.target.value)}
-              placeholder="optional"
-              disabled={scope !== "workspace"}
-            />
-          </label>
-          <label className="text-xs text-surface-muted">
-            Target
-            <select
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-              value={target}
-              onChange={(e) => setTarget(e.target.value as any)}
-            >
-              <option value="all">All</option>
-              <option value="ide_agent">ide_agent</option>
-              <option value="server_periodic">server_periodic</option>
-            </select>
-          </label>
-          <label className="text-xs text-surface-muted">
-            Enabled
-            <select
-              className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-              value={enabled}
-              onChange={(e) => setEnabled(e.target.value as any)}
-            >
-              <option value="all">All</option>
-              <option value="true">Enabled</option>
-              <option value="false">Disabled</option>
-            </select>
-          </label>
-        </div>
-        {scope === "workspace" ? (
-          <label className="mt-3 flex items-center gap-2 text-xs text-surface-muted">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-surface-border"
-              checked={includeGlobal}
-              onChange={(e) => setIncludeGlobal(e.target.checked)}
-            />
-            Include global schedules
-          </label>
-        ) : null}
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-xs text-surface-muted">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-surface-border"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-            />
-            Show archived
-          </label>
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded-md bg-violet-600/80 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500"
+            className="rounded-md border border-surface-border px-3 py-2 text-sm text-neutral-100 hover:bg-white/5"
             onClick={() => setCreateOpen(true)}
           >
-            Create schedule
+            Create
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-surface-border px-3 py-2 text-sm text-neutral-100 hover:bg-white/5 disabled:opacity-60"
+            onClick={() => void refresh()}
+            disabled={loading}
+          >
+            {loading ? "Loading…" : "Refresh"}
           </button>
         </div>
       </div>
 
-      {err ? (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
-          {err}
-        </div>
-      ) : null}
+      {err ? <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{err}</div> : null}
 
       <div className="mt-6 overflow-x-auto rounded-xl border border-surface-border">
-        <table className="w-full min-w-[840px] border-collapse text-left text-sm">
-          <thead className="bg-black/30">
-            <tr className="border-b border-surface-border text-surface-muted">
-              <th className="px-3 py-2 font-medium">Enabled</th>
-              <th className="px-3 py-2 font-medium">Target</th>
-              <th className="px-3 py-2 font-medium">Title</th>
-              <th className="px-3 py-2 font-medium">Interval</th>
-              <th className="px-3 py-2 font-medium">Workspace</th>
-              <th className="px-3 py-2 font-medium">Last run</th>
-              <th className="px-3 py-2 font-medium">Created</th>
-              <th className="px-3 py-2 font-medium">Actions</th>
+        <table className="min-w-full text-left text-sm">
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-surface-muted">
+            <tr>
+              <th className="px-3 py-3">Enabled</th>
+              <th className="px-3 py-3">Target</th>
+              <th className="px-3 py-3">Title</th>
+              <th className="px-3 py-3">Interval</th>
+              <th className="px-3 py-3">Workspace</th>
+              <th className="px-3 py-3">Last run</th>
+              <th className="px-3 py-3">Created</th>
+              <th className="px-3 py-3">Actions</th>
             </tr>
           </thead>
-          <tbody>
-            {!jobs ? (
+          <tbody className="divide-y divide-surface-border">
+            {jobs === null ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-surface-muted">
-                  {loading ? "Loading…" : "No data yet."}
+                <td className="px-3 py-4 text-surface-muted" colSpan={8}>
+                  {loading ? "Loading…" : "No data."}
                 </td>
               </tr>
             ) : jobs.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-10 text-center text-surface-muted">
-                  No schedules.
+                <td className="px-3 py-4 text-surface-muted" colSpan={8}>
+                  No schedules yet.
                 </td>
               </tr>
             ) : (
               jobs.map((j) => (
-                <tr key={j.id} className="border-b border-white/5">
-                  <td className="px-3 py-2">
-                    <span className={`rounded-md border px-2 py-0.5 text-xs ${pill(j.enabled)}`}>
+                <tr key={j.id} className="hover:bg-white/2">
+                  <td className="px-3 py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${pill(j.enabled)}`}>
                       {j.enabled ? "enabled" : "disabled"}
                     </span>
-                    {j.deleted_at ? (
-                      <span className="ml-2 rounded-md border border-surface-border bg-white/5 px-2 py-0.5 text-xs text-surface-muted">
-                        archived
-                      </span>
-                    ) : null}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-neutral-100">{j.execution_target}</td>
-                  <td className="px-3 py-2 text-neutral-100">{j.title || "—"}</td>
-                  <td className="px-3 py-2 text-surface-muted">{j.interval_minutes} min</td>
-                  <td className="px-3 py-2 font-mono text-[11px] text-surface-muted">
-                    {j.workspace_id || "global"}
-                  </td>
-                  <td className="px-3 py-2 text-surface-muted">{j.last_run_at || "—"}</td>
-                  <td className="px-3 py-2 text-surface-muted">{j.created_at}</td>
-                  <td className="px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <td className="px-3 py-3 font-mono text-xs text-neutral-200">{j.execution_target}</td>
+                  <td className="px-3 py-3 text-neutral-100">{j.title || "—"}</td>
+                  <td className="px-3 py-3 text-neutral-100">{j.interval_minutes} min</td>
+                  <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.workspace_id || "global"}</td>
+                  <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.last_run_at || "—"}</td>
+                  <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.created_at}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
@@ -394,13 +280,6 @@ export function AdminSchedules() {
                         onClick={() => openEdit(j)}
                       >
                         Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md border border-surface-border px-2 py-1 text-xs text-neutral-100 hover:bg-white/5"
-                        onClick={() => void archiveJob(j.id, !j.deleted_at)}
-                      >
-                        {j.deleted_at ? "Unarchive" : "Archive"}
                       </button>
                       <button
                         type="button"
@@ -424,7 +303,7 @@ export function AdminSchedules() {
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold text-white">Create schedule</div>
-                <div className="text-xs text-surface-muted">Writes a new row to scheduler_jobs.</div>
+                <div className="text-xs text-surface-muted">Creates a new scheduler job for your user.</div>
               </div>
               <button
                 type="button"
@@ -434,6 +313,7 @@ export function AdminSchedules() {
                 Close
               </button>
             </div>
+
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-xs text-surface-muted md:col-span-2">
                 Preset (optional)
@@ -459,6 +339,7 @@ export function AdminSchedules() {
                   </div>
                 ) : null}
               </label>
+
               <label className="text-xs text-surface-muted">
                 Target
                 <select
@@ -466,8 +347,8 @@ export function AdminSchedules() {
                   value={createTarget}
                   onChange={(e) => setCreateTarget(e.target.value as any)}
                 >
-                  <option value="ide_agent">ide_agent</option>
                   <option value="server_periodic">server_periodic</option>
+                  <option value="ide_agent">ide_agent (admin only)</option>
                 </select>
               </label>
               <label className="text-xs text-surface-muted">
@@ -518,6 +399,7 @@ export function AdminSchedules() {
                 Enabled
               </label>
             </div>
+
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"

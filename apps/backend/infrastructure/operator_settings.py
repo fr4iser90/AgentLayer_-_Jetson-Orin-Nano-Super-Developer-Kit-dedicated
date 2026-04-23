@@ -620,7 +620,7 @@ def resolved_pidea_connection_config() -> Any:
     cdp = (
         str(r.get("pidea_cdp_http_url") or "").strip().rstrip("/")
         or str(getattr(config, "PIDEA_CDP_HTTP_URL", "") or "").strip().rstrip("/")
-        or "http://127.0.0.1:9222"
+        or "http://0.0.0.0:9222"
     )
     ide = (
         str(r.get("pidea_selector_ide") or "").strip().lower()

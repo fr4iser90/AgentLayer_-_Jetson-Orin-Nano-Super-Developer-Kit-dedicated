@@ -230,7 +230,7 @@ export function AdminIdeAgent() {
                 className={input}
                 value={pideaCdp}
                 onChange={(e) => setPideaCdp(e.target.value)}
-                placeholder="http://127.0.0.1:9222"
+                placeholder="http://127.0.0.1:9222 or http://0.0.0.0:9222"
               />
               <p className="mt-2 text-xs leading-relaxed text-surface-muted">
                 API in <strong className="font-medium text-neutral-400">Docker</strong>: do not use{" "}
@@ -240,7 +240,7 @@ export function AdminIdeAgent() {
                 <span className="font-mono text-neutral-500">host.docker.internal</span> gives ECONNREFUSED (Cursor often
                 listens on <span className="font-mono text-neutral-500">127.0.0.1</span> only). Alternative: Linux{" "}
                 <span className="font-mono text-neutral-500">network_mode: host</span> for the API +{" "}
-                <span className="font-mono text-neutral-500">http://127.0.0.1:9222</span>. Start Cursor with{" "}
+                <span className="font-mono text-neutral-500">http://127.0.0.1:9222 or http://0.0.0.0:9222</span>. Start Cursor with{" "}
                 <span className="font-mono text-neutral-500">--remote-debugging-port=9222</span>.
               </p>
             </div>

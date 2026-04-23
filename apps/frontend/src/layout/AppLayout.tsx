@@ -53,6 +53,9 @@ export function AppLayout() {
               <NavLink to="/workspace" className={linkClass}>
                 {t("nav.workspace")}
               </NavLink>
+              <NavLink to="/schedules" className={linkClass}>
+                {t("nav.schedules")}
+              </NavLink>
             </>
           ) : (
             <div className="flex min-w-0 flex-wrap items-center gap-2">

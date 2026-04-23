@@ -1,0 +1,13 @@
+{
+  "id": "daily_rss_summary",
+  "label": "Daily RSS Summary (Feeds workspace)",
+  "description": "Fetch + summarize enabled RSS feeds from a feeds workspace and write the markdown summary back into the workspace.",
+  "job": {
+    "execution_target": "server_periodic",
+    "interval_minutes": 1440,
+    "enabled": false,
+    "title": "Daily RSS summary",
+    "instructions": "Call the tool feeds_summarize for the target feeds workspace. If workspace_id is not provided, first call feeds_workspaces and choose the most relevant feeds workspace. Use language=de, enabled_only=true, deliver_to_chat=true. The tool writes latest_summary/history into the workspace and also posts the markdown into a personal chat conversation. After the tool call, reply with a 1-line status including items summarized, delivered_to_chat, and any errors."
+  }
+}
+

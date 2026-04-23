@@ -55,7 +55,7 @@ def _enrich_connect_error(cdp_http_url: str, exc: BaseException) -> str:
             "(2) Linux: run agent-layer with network_mode: host and use http://127.0.0.1:9222. "
             "(3) Host: expose the port on 0.0.0.0 (or socat) so Docker can connect."
         )
-    if u.startswith("http://127.0.0.1") or u.startswith("http://localhost"):
+    if u.startswith("http://0.0.0.0") or u.startswith("http://localhost"):
         if "econnrefused" in base.lower() or "connection refused" in base.lower():
             return (
                 f"{base}\n\n"

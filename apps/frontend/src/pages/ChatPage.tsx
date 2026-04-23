@@ -166,6 +166,7 @@ export function ChatPage() {
   const activeThreadIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const toolStartTimesRef = useRef<Map<string, number>>(new Map());
   activeThreadIdRef.current = activeThreadId;
 
   const displayName = useMemo(() => {
@@ -607,13 +608,47 @@ export function ChatPage() {
           return;
         }
         if (typ === "agent.tool_start") {
-          appendAgentLine("tool", `→ ${String(msg.name ?? "tool")}`);
+          const toolName = String(msg.name ?? "tool");
+          toolStartTimesRef.current.set(toolName, Date.now());
+          appendAgentLine("tool", `→ ${toolName}`);
           return;
         }
         if (typ === "agent.tool_done") {
           const n = msg.name != null ? String(msg.name) : "tool";
           const ch = msg.result_chars != null ? String(msg.result_chars) : "";
-          appendAgentLine("tool", `← ${n}${ch ? ` (${ch} chars)` : ""}`);
+          const durationMs = msg.duration_ms != null ? Number(msg.duration_ms) : null;
+          
+          let durationText = "";
+          if (durationMs != null && durationMs >= 0) {
+            if (durationMs < 1000) {
+              durationText = `${durationMs} ms`;
+            } else if (durationMs < 60000) {
+              durationText = `${(durationMs / 1000).toFixed(1)} s`;
+            } else {
+              durationText = `${(durationMs / 60000).toFixed(1)} min`;
+            }
+          } else {
+            // Fallback wenn Backend noch keine duration_ms mitschickt
+            const startTime = toolStartTimesRef.current.get(n);
+            if (startTime != null) {
+              const ms = Date.now() - startTime;
+              toolStartTimesRef.current.delete(n);
+              
+              if (ms < 1000) {
+                durationText = `${ms} ms`;
+              } else if (ms < 60000) {
+                durationText = `${(ms / 1000).toFixed(1)} s`;
+              } else {
+                durationText = `${(ms / 60000).toFixed(1)} min`;
+              }
+            }
+          }
+
+          const parts: string[] = [];
+          if (ch) parts.push(`${ch} chars`);
+          if (durationText) parts.push(durationText);
+          
+          appendAgentLine("tool", `← ${n}${parts.length ? ` (${parts.join(", ")})` : ""}`);
           return;
         }
         if (typ === "agent.step_wait") {
@@ -999,6 +1034,9 @@ export function ChatPage() {
                     >
                       <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-surface-muted">
                         {m.role === "user" ? "You" : "Assistant"}
+                        <span className="ml-2 font-normal normal-case">
+                          {new Date(m.timestamp ?? Date.now()).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
                       </span>
                       {m.role === "user" ? (
                         <MessageBody content={m.content} />

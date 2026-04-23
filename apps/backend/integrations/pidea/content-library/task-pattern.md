@@ -7,7 +7,7 @@ Centralized reference for all task management patterns, file structures, task fi
 
 ### File Path Structure
 ```
-docs/09_roadmap/tasks/[category]/[name]/
+docs/agent/tasks/[category]/[name]/
 ├── [name]-index.md
 ├── [name]-implementation.md
 ├── [name]-phase-[number].md
@@ -18,11 +18,11 @@ docs/09_roadmap/tasks/[category]/[name]/
 ### File Pattern Requirements
 > **File Pattern Requirement:**  
 > All Index, Implementation and Phase files must always be created using this pattern:
-> - **Index**: `docs/09_roadmap/tasks/[category]/[name]/[name]-index.md`  
-> - **Implementation**: `docs/09_roadmap/tasks/[category]/[name]/[name]-implementation.md`  
-> - **Phase**: `docs/09_roadmap/tasks/[category]/[name]/[name]-phase-[number].md`  
-> - **Analysis**: `docs/09_roadmap/tasks/[category]/[name]/[name]-analysis.md`
-> - **Review**: `docs/09_roadmap/tasks/[category]/[name]/[name]-review.md`
+> - **Index**: `docs/agent/tasks/[category]/[name]/[name]-index.md`  
+> - **Implementation**: `docs/agent/tasks/[category]/[name]/[name]-implementation.md`  
+> - **Phase**: `docs/agent/tasks/[category]/[name]/[name]-phase-[number].md`  
+> - **Analysis**: `docs/agent/tasks/[category]/[name]/[name]-analysis.md`
+> - **Review**: `docs/agent/tasks/[category]/[name]/[name]-review.md`
 > 
 > If ANY file is missing, it MUST be created automatically. This pattern is required for orchestration and grouping in the system.
 
@@ -39,7 +39,7 @@ priority: [low|medium|high|critical]
 status: [pending|in_progress|completed|failed|cancelled]
 
 -- Source Information
-source_path: [docs/09_roadmap/tasks/[category]/[name]/[name]-implementation.md]
+source_path: [docs/agent/tasks/[category]/[name]/[name]-implementation.md]
 source_content: [Full markdown content for reference]
 
 -- AI Automation Fields

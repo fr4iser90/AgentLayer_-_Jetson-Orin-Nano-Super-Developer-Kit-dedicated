@@ -115,7 +115,10 @@ async def _run_server_job(row: dict[str, Any]) -> None:
             {"role": "user", "content": "Run this scheduled task now."},
         ],
         "stream": False,
-        "agent_plain_completion": True,
+        # Allow tool-calling for server_periodic schedules (otherwise they can't do real work).
+        "agent_plain_completion": False,
+        # Heuristic: most server schedules are productivity automation (RSS, workspace updates, etc.).
+        "TOOL_DOMAIN": "productivity",
         "model": str(getattr(config, "OLLAMA_DEFAULT_MODEL", "llama3.2") or "llama3.2"),
     }
 
@@ -319,7 +322,7 @@ def _run_ide_agent_pidea_job(row: dict[str, Any], *, timeout_s: float) -> None:
                                     [
                                         "---\n"
                                         "[No task-plan .md files matched the glob — task-create may not have "
-                                        "written under docs/09_roadmap/tasks/ yet, or adjust ide_workflow.task_plan_glob.]\n",
+                                        "written under docs/agent/tasks/ yet, or adjust ide_workflow.task_plan_glob.]\n",
                                         "",
                                     ]
                                 )

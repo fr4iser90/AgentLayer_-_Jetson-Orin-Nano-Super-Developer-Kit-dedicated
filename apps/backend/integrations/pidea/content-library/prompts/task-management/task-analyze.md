@@ -5,7 +5,7 @@ Generate a comprehensive analysis of what's missing, incomplete, or needs improv
 
 **Note**: This prompt focuses on project-wide analysis, not individual task validation. For task-specific validation, use `task-review.md`.
 
-Create new [Name]-analysis.md in docs/09_roadmap/tasks/[category]/[name]/ with the following structure:
+Create new [Name]-analysis.md in docs/agent/tasks/[category]/[name]/ with the following structure:
 **Note**: The system automatically creates a hierarchical folder structure: Category → Task Name → Analysis files
 
 ## Template Structure

@@ -5,17 +5,17 @@ Generate a complete, actionable development plan with all necessary details for 
 
 ## Phase
 Check Plan against codebase, collect all data u need!
-Create new Plan/Implementation [Name]-implementation.md in docs/09_roadmap/tasks/[category]/[name]/ with the following structure:
+Create new Plan/Implementation [Name]-implementation.md in docs/agent/tasks/[category]/[name]/ with the following structure:
 **Note**: The system automatically creates a hierarchical folder structure: Category → Task Name → Implementation files
 
 ## Template Structure
 
 > **File Pattern Requirement:**  
 > All Index, Implementation and Phase files must always be created using this pattern:
-> - **Index**: docs/09_roadmap/tasks/[category]/[name]/[name]-index.md  
+> - **Index**: docs/agent/tasks/[category]/[name]/[name]-index.md  
 > If a file is missing, it must be created automatically. This pattern is required for orchestration and grouping in the system.  
-> - **Implementation**: docs/09_roadmap/tasks/[category]/[name]/[name]-implementation.md  
-> - **Phase**: docs/09_roadmap/tasks/[category]/[name]/[name]-phase-[number].md  
+> - **Implementation**: docs/agent/tasks/[category]/[name]/[name]-implementation.md  
+> - **Phase**: docs/agent/tasks/[category]/[name]/[name]-phase-[number].md  
 
 
 ### 1. Project Overview
@@ -295,7 +295,7 @@ const resolveTestPath = (category, componentName, componentType = 'service') => 
 ### Automatic Index File Generation
 When creating a task, automatically generate a master index file:
 
-**File Path**: `docs/09_roadmap/tasks/[category]/[name]/[name]-index.md`
+**File Path**: `docs/agent/tasks/[category]/[name]/[name]-index.md`
 
 **Purpose**: Central overview and navigation hub for all task-related files
 
@@ -314,7 +314,7 @@ When creating a task, automatically generate a master index file:
 
 ## 📁 File Structure
 ```
-docs/09_roadmap/tasks/[category]/[name]/
+docs/agent/tasks/[category]/[name]/
 ├── [name]-index.md (this file)
 ├── [name]-implementation.md
 ├── [name]-phase-1.md
@@ -407,11 +407,11 @@ The index file should automatically update when:
 
 When you specify a **Category** in section 1, the system automatically:
 
-1. **Creates category folder** if it doesn't exist: `docs/09_roadmap/tasks/[category]/`
-2. **Creates task folder** for each task: `docs/09_roadmap/tasks/[category]/[name]/`
-3. **Places main implementation file**: `docs/09_roadmap/tasks/[category]/[name]/[name]-implementation.md`
-4. **Creates phase files** for subtasks: `docs/09_roadmap/tasks/[category]/[name]/[name]-phase-[number].md`
-5. **Creates master index file**: `docs/09_roadmap/tasks/[category]/[name]/[name]-index.md`
+1. **Creates category folder** if it doesn't exist: `docs/agent/tasks/[category]/`
+2. **Creates task folder** for each task: `docs/agent/tasks/[category]/[name]/`
+3. **Places main implementation file**: `docs/agent/tasks/[category]/[name]/[name]-implementation.md`
+4. **Creates phase files** for subtasks: `docs/agent/tasks/[category]/[name]/[name]-phase-[number].md`
+5. **Creates master index file**: `docs/agent/tasks/[category]/[name]/[name]-index.md`
 6. **Organizes tasks hierarchically** for better management
 
 ### Available Categories:
@@ -429,7 +429,7 @@ When you specify a **Category** in section 1, the system automatically:
 
 ### Example Folder Structure:
 ```
-docs/09_roadmap/tasks/
+docs/agent/tasks/
 ├── backend/
 │   ├── user-authentication/
 │   │   ├── user-authentication-index.md

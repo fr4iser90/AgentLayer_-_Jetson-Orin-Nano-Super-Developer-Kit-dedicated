@@ -30,6 +30,7 @@ import { StudioPage } from "./pages/StudioPage";
 import { IdeAgentPage } from "./pages/IdeAgentPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
+import { MySchedulesPage } from "./pages/MySchedulesPage";
 
 export function App() {
   return (
@@ -44,6 +45,7 @@ export function App() {
             <Route path="ide-agent" element={<IdeAgentPage />} />
             <Route path="studio" element={<StudioPage />} />
             <Route path="workspace" element={<WorkspacePage />} />
+            <Route path="schedules" element={<MySchedulesPage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="/settings/profile" replace />} />

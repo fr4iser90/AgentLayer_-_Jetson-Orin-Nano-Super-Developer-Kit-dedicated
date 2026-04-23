@@ -1,0 +1,13 @@
+{
+  "id": "hourly_coding_task_pick_ide_run",
+  "label": "Hourly: pick coding task → IDE run (git branch)",
+  "description": "Every hour: pick the next open todo task (must have project_path), enqueue an ide_agent project_run with git branch + main as source. Replace placeholders before enabling.",
+  "job": {
+    "execution_target": "server_periodic",
+    "interval_minutes": 60,
+    "enabled": false,
+    "title": "Hourly coding task → IDE queue",
+    "workspace_id": null,
+    "instructions": "Call the tool tasks_pick_and_enqueue_ide_run exactly once with this JSON object (replace placeholders):\n{\n  \"workspace_id\": \"<TODO_WORKSPACE_UUID>\",\n  \"execution_user_id\": \"<ADMIN_USER_UUID>\",\n  \"execution_profile\": \"coding_pipeline_git\",\n  \"default_git_source_branch\": \"main\",\n  \"default_git_branch_template\": \"agent/{{task.title}}-{{timestamp}}\",\n  \"instructions_prefix\": \"Automated hourly pick: implement the task safely; keep changes small; run tests if present.\",\n  \"require_pidea_enabled\": true\n}\n\nRules:\n- Only call tasks_pick_and_enqueue_ide_run (no other tools).\n- After the tool returns JSON, reply with one short line: picked true/false, run id if any, and error if any."
+  }
+}

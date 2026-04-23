@@ -57,8 +57,6 @@ services:
       # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./plugins/tools/agent/agent_created/.tool_backups)
     # Optional read-only:  - ./plugins/tools/agent/agent_created:/data/tools:ro
     # Optional: mount dirs for fs_* if you need host files in-container (paths are cwd/absolute; no AGENT_WORKSPACE_ROOT).
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - ai-net
 volumes:

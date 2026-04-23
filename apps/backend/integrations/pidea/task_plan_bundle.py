@@ -1,4 +1,4 @@
-"""Liest Task-Pläne aus dem Workspace (PIDEA: ``docs/09_roadmap/tasks/...``) für den Execute-Schritt."""
+"""Liest Task-Pläne aus dem Workspace (PIDEA: ``docs/agent/tasks/...``) für den Execute-Schritt."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TASK_PLAN_GLOB = "docs/09_roadmap/tasks/**/*.md"
+DEFAULT_TASK_PLAN_GLOB = "docs/agent/tasks/**/*.md"
 
 
 def bundle_task_plans_from_repo(
