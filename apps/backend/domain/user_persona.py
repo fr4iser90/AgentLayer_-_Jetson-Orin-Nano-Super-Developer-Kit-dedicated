@@ -54,7 +54,7 @@ def _want_injection_section(prefs: dict[str, Any], key: str) -> bool:
         return True
     if key not in prefs:
         return True
-    return bool(prefs[key])
+    return bool(prefs[key]) is not False
 
 
 def _format_weighted_tags(items: Any) -> str | None:
@@ -85,9 +85,10 @@ def format_agent_profile_summary(prof: dict[str, Any]) -> str:
     Compact bullet list — only non-empty fields. Optional ``injection_preferences``
     keys: include_identity, include_location, include_communication, include_interests,
     include_work, include_tools, include_behavior, include_usage_patterns,
-    include_dynamic_traits (only applies when inject_dynamic_traits is true).
+    include_dynamic_traits, include_known_people
+    (only applies when inject_dynamic_traits is true).
     """
-    if not prof.get("inject_structured_profile"):
+    if bool(prof.get("inject_structured_profile")) is False:
         return ""
     prefs = prof.get("injection_preferences") or {}
     if not isinstance(prefs, dict):
@@ -109,6 +110,11 @@ def format_agent_profile_summary(prof: dict[str, Any]) -> str:
         add("Output language", prof.get("preferred_output_language"))
         add("Locale", prof.get("locale"))
         add("Timezone", prof.get("timezone"))
+
+        # Known people / friends context
+        # NOTE: Known people are NOT injected by default anymore
+        # They are available via the dedicated `get_friend_info` tool which the agent will call ONLY when needed
+        # This prevents ~1-2k token overhead in every single chat request
 
     if _want_injection_section(prefs, "include_location"):
         add("Home location", prof.get("home_location"))

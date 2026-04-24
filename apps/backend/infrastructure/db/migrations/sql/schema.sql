@@ -38,6 +38,42 @@ CREATE UNIQUE INDEX idx_users_tenant_discord_user ON users (tenant_id, discord_u
 CREATE UNIQUE INDEX idx_users_tenant_telegram_user ON users (tenant_id, telegram_user_id)
   WHERE telegram_user_id IS NOT NULL AND btrim(telegram_user_id) <> '';
 
+CREATE TABLE user_workspaces (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'custom',
+  title TEXT NOT NULL DEFAULT '',
+  ui_layout JSONB NOT NULL DEFAULT '{}'::jsonb,
+  data JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_user_workspaces_tenant ON user_workspaces (tenant_id);
+CREATE INDEX idx_user_workspaces_owner ON user_workspaces (owner_user_id, created_at DESC);
+CREATE INDEX idx_user_workspaces_updated ON user_workspaces (updated_at DESC);
+
+CREATE TABLE workspace_block_share_grants (
+  id BIGSERIAL PRIMARY KEY,
+  workspace_id UUID NOT NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  viewer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  block_ids TEXT[] NOT NULL DEFAULT '{}',
+  permission TEXT NOT NULL DEFAULT 'view',
+  created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, viewer_user_id)
+);
+
+CREATE INDEX idx_workspace_block_shares_workspace ON workspace_block_share_grants (workspace_id);
+CREATE INDEX idx_workspace_block_shares_viewer ON workspace_block_share_grants (viewer_user_id);
+
+CREATE TABLE tenant_workspace_installed_template_kinds (
+  tenant_id BIGINT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  kinds TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
+);
+
 CREATE TABLE todos (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL,
@@ -509,7 +545,7 @@ CREATE INDEX idx_workspace_files_owner ON workspace_files (owner_user_id, create
 CREATE INDEX idx_workspace_files_workspace ON workspace_files (workspace_id);
 
 CREATE TABLE workspace_members (
-  workspace_id UUID NOT NULL,
+  workspace_id UUID NOT NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'co_owner')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

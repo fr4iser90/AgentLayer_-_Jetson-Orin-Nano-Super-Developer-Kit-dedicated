@@ -8,6 +8,7 @@ import logging
 import re
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
+from dateutil.relativedelta import relativedelta
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -190,9 +191,14 @@ def _to_utc_datetime(val: Any) -> datetime | None:
     if val is None:
         return None
     if isinstance(val, datetime):
-        if val.tzinfo is None:
-            return val.replace(tzinfo=UTC)
-        return val.astimezone(UTC)
+        # ✅ Fix icalendar vDatetime Bug: native datetime casten ZUERST!
+        # vDatetime.astimezone() ist seit 2019 kaputt und macht gar nichts
+        native = datetime(
+            val.year, val.month, val.day,
+            val.hour, val.minute, val.second, val.microsecond,
+            val.tzinfo
+        )
+        return native.astimezone(UTC)
     if isinstance(val, date):
         return datetime.combine(val, time.min, tzinfo=UTC)
     return None
@@ -302,9 +308,6 @@ def calendar_ics_list_events(arguments: dict[str, Any]) -> str:
     days_back = max(0, min(days_back, 366))
     months_ahead = max(0, min(months_ahead, 24))
     months_back = max(0, min(months_back, 12))
-    eff_ahead = min(MAX_EFFECTIVE_DAYS_AHEAD, days_ahead + months_ahead * 31)
-    eff_back = min(MAX_EFFECTIVE_DAYS_BACK, days_back + months_back * 31)
-
     include_by_month = arguments.get("include_by_month")
     if include_by_month is None:
         by_month_default = True
@@ -315,8 +318,19 @@ def calendar_ics_list_events(arguments: dict[str, Any]) -> str:
         by_month_default = s in ("1", "true", "yes", "on")
 
     now = datetime.now(UTC)
-    win_start = now - timedelta(days=eff_back)
-    win_end = now + timedelta(days=eff_ahead)
+    
+    # ✅ Korrekte Kalender Monat Berechnung statt * 31
+    win_end = now + timedelta(days=days_ahead) + relativedelta(months=+months_ahead)
+    win_start = now - timedelta(days=days_back) - relativedelta(months=months_back)
+    
+    # Noch immer Limits respektieren
+    max_win_end = now + timedelta(days=MAX_EFFECTIVE_DAYS_AHEAD)
+    max_win_start = now - timedelta(days=MAX_EFFECTIVE_DAYS_BACK)
+    
+    if win_end > max_win_end:
+        win_end = max_win_end
+    if win_start < max_win_start:
+        win_start = max_win_start
 
     try:
         with httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True) as client:
@@ -402,8 +416,8 @@ def calendar_ics_list_events(arguments: dict[str, Any]) -> str:
             "days_ahead": days_ahead,
             "months_back": months_back,
             "months_ahead": months_ahead,
-            "effective_days_back": eff_back,
-            "effective_days_ahead": eff_ahead,
+            "effective_days_back": (now - win_start).days,
+            "effective_days_ahead": (win_end - now).days,
         },
         "count": len(events_out),
         "truncated": truncated,

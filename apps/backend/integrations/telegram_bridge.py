@@ -349,6 +349,8 @@ def _async_worker_session(cfg: _BridgeCfg) -> None:
             "telegram_bridge: Telegram rejected the bot token (401 / invalid). "
             "Paste the token from @BotFather (format `123456:ABC...`). Retrying in 120s."
         )
+        # ✅ FIX: Immediately reload config NOW before sleeping, so user changes are picked up directly
+        _load_bridge_cfg_with_reason()
         time.sleep(120)
     except Exception:
         logger.exception("telegram_bridge: session crashed")

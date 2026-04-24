@@ -38,6 +38,12 @@ export function SettingsLayout() {
           >
             Agent
           </NavLink>
+          <NavLink
+            to="/settings/friends"
+            className={({ isActive }) => `${subLink} ${isActive ? subLinkActive : subLinkIdle}`}
+          >
+            👥 Friends
+          </NavLink>
         </nav>
       </aside>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">

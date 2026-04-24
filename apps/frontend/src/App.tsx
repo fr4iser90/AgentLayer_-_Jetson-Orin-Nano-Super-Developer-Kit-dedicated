@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { SettingsLayout } from "./layout/SettingsLayout";
 import { AuthProvider } from "./auth/AuthContext";
+import { FriendsSettings } from "./pages/settings/FriendsSettings";
 import { RequireAdmin } from "./auth/RequireAdmin";
 import { RequireSession } from "./auth/RequireSession";
 import { AppLayout } from "./layout/AppLayout";
@@ -49,6 +50,7 @@ export function App() {
             <Route path="docs" element={<DocsPage />} />
             <Route path="settings" element={<SettingsLayout />}>
               <Route index element={<Navigate to="/settings/profile" replace />} />
+              <Route path="friends" element={<FriendsSettings />} />
               <Route path="profile" element={<ProfileSettings />} />
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="tools" element={<ToolsSettings />} />

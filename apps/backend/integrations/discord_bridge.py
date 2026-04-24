@@ -294,6 +294,8 @@ def _worker() -> None:
                 "**bot token** (long string with dots), not the OAuth2 *Client Secret* and not the "
                 "Application ID. Remove accidental spaces or quotes. Retrying in 120s."
             )
+            # ✅ FIX: Immediately reload config NOW before sleeping, so user changes are picked up directly
+            _load_bridge_cfg()
             time.sleep(120)
             continue
         except Exception:

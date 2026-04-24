@@ -35,14 +35,14 @@ def upgrade() -> None:
     op.execute("DROP INDEX IF EXISTS uq_chat_conv_user_workspace;")
     op.execute(
         """
-        CREATE UNIQUE INDEX uq_chat_conv_user_workspace_personal
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_conv_user_workspace_personal
         ON chat_conversations (user_id, workspace_id)
         WHERE workspace_id IS NOT NULL AND shared = false;
         """
     )
     op.execute(
         """
-        CREATE UNIQUE INDEX uq_chat_conv_workspace_shared
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_conv_workspace_shared
         ON chat_conversations (workspace_id)
         WHERE workspace_id IS NOT NULL AND shared = true;
         """

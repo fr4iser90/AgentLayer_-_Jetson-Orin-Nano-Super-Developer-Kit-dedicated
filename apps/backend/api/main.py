@@ -86,6 +86,7 @@ from apps.backend.api.scheduler_job_presets_api import router as scheduler_job_p
 from apps.backend.api.scheduler_jobs_user_api import router as scheduler_jobs_user_router
 from apps.backend.api.scheduler_job_presets_user_api import router as scheduler_job_presets_user_router
 from apps.backend.api.project_runs_api import router as project_runs_router
+from apps.backend.api.friends_api import router as friends_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -222,6 +223,8 @@ app.include_router(scheduler_job_presets_router)
 app.include_router(scheduler_jobs_user_router)
 app.include_router(scheduler_job_presets_user_router)
 app.include_router(project_runs_router)
+app.include_router(friends_router)
+app.include_router(friends_router)
 
 
 # Auth Endpoints
