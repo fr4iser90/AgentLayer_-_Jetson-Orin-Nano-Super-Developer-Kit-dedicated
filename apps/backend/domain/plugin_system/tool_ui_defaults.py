@@ -20,7 +20,7 @@ PACKAGE_UI_DEFAULTS: dict[str, dict[str, Any]] = {
         "category": "productivity",
         "display_name": "Task list",
         "order": 21,
-        "tagline": "List, read, and add tasks on kind=todo workspaces",
+        "tagline": "List, read, and add tasks on kind=todo dashboards",
     },
     "calendar_ics": {
         "category": "productivity",
@@ -31,19 +31,19 @@ PACKAGE_UI_DEFAULTS: dict[str, dict[str, Any]] = {
         "category": "productivity",
         "display_name": "Shopping list",
         "order": 25,
-        "tagline": "List, read, and add items on shopping_list workspaces",
+        "tagline": "List, read, and add items on shopping_list dashboards",
     },
     "pets": {
         "category": "productivity",
         "display_name": "Pets",
         "order": 26,
-        "tagline": "Read and update pets workspaces (animals, notes, album photos)",
+        "tagline": "Read and update pets dashboards (animals, notes, album photos)",
     },
     "ideas": {
         "category": "productivity",
         "display_name": "Ideas & memos",
         "order": 27,
-        "tagline": "Read and update ideas workspaces (idea table + scratchpad)",
+        "tagline": "Read and update ideas dashboards (idea table + scratchpad)",
     },
     "clock": {
         "category": "productivity",

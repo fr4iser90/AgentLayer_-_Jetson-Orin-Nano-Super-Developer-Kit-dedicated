@@ -19,6 +19,7 @@ import { AgentSettings } from "./pages/settings/AgentSettings";
 import { ConnectionsSettings } from "./pages/settings/ConnectionsSettings";
 import { ProfileSettings } from "./pages/settings/ProfileSettings";
 import { ToolsSettings } from "./pages/settings/ToolsSettings";
+import SharesSettings from "./pages/settings/SharesSettings";
 import { AdminIdeAgent } from "./pages/admin/AdminIdeAgent";
 import {
   IdeAgentIdeControlCenterPage,
@@ -29,9 +30,10 @@ import { IdeAgentToolsGate } from "./pages/admin/ide-agents/IdeAgentToolsGate";
 import { DomAnalyzerPage } from "./pages/admin/ide-agents/DomAnalyzerPage";
 import { StudioPage } from "./pages/StudioPage";
 import { IdeAgentPage } from "./pages/IdeAgentPage";
-import { WorkspacePage } from "./pages/WorkspacePage";
+import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MySchedulesPage } from "./pages/MySchedulesPage";
+import { CodingAgentPage } from "./pages/CodingAgentPage";
 
 export function App() {
   return (
@@ -43,9 +45,10 @@ export function App() {
           <Route element={<RequireSession />}>
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />
+            <Route path="coding-agent" element={<CodingAgentPage />} />
             <Route path="ide-agent" element={<IdeAgentPage />} />
             <Route path="studio" element={<StudioPage />} />
-            <Route path="workspace" element={<WorkspacePage />} />
+            <Route path="dashboard" element={<DashboardPage />} />
             <Route path="schedules" element={<MySchedulesPage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="settings" element={<SettingsLayout />}>
@@ -54,8 +57,9 @@ export function App() {
               <Route path="profile" element={<ProfileSettings />} />
               <Route path="connections" element={<ConnectionsSettings />} />
               <Route path="tools" element={<ToolsSettings />} />
-              <Route path="agent" element={<AgentSettings />} />
-              <Route path="experimental" element={<Navigate to="/admin/ide-agent" replace />} />
+            <Route path="agent" element={<AgentSettings />} />
+            <Route path="shares" element={<SharesSettings />} />
+            <Route path="experimental" element={<Navigate to="/admin/ide-agent" replace />} />
             </Route>
             <Route path="admin" element={<RequireAdmin />}>
               <Route element={<AdminLayout />}>

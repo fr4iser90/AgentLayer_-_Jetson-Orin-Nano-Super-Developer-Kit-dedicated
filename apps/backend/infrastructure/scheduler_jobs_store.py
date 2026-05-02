@@ -40,7 +40,7 @@ def insert_job(
     tenant_id: int,
     created_by_user_id: uuid.UUID,
     execution_user_id: uuid.UUID,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     execution_target: str,
     title: str | None,
     instructions: str,
@@ -54,12 +54,12 @@ def insert_job(
             cur.execute(
                 """
                 INSERT INTO scheduler_jobs (
-                  tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                  tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                   execution_target, title, instructions, interval_minutes, enabled,
                   ide_workflow, updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-                RETURNING id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                RETURNING id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                           execution_target, title, instructions, interval_minutes, enabled,
                           ide_workflow, last_run_at, created_at, updated_at
                 """,
@@ -67,7 +67,7 @@ def insert_job(
                     tenant_id,
                     created_by_user_id,
                     execution_user_id,
-                    workspace_id,
+                    dashboard_id,
                     execution_target,
                     title,
                     instructions,
@@ -86,15 +86,15 @@ def list_jobs_for_user(
     tenant_id: int,
     current_user_id: uuid.UUID,
     is_admin: bool,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     lim = max(1, min(200, limit))
     params: list[Any] = [tenant_id]
     ws_filter = ""
-    if workspace_id is not None:
-        ws_filter = " AND j.workspace_id = %s"
-        params.append(workspace_id)
+    if dashboard_id is not None:
+        ws_filter = " AND j.dashboard_id = %s"
+        params.append(dashboard_id)
     role_filter = ""
     if not is_admin:
         role_filter = " AND (j.created_by_user_id = %s OR j.execution_user_id = %s)"
@@ -104,7 +104,7 @@ def list_jobs_for_user(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
-                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.workspace_id,
+                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.dashboard_id,
                        j.execution_target, j.title, j.instructions, j.interval_minutes, j.enabled,
                        j.ide_workflow, j.last_run_at, j.created_at, j.updated_at
                 FROM scheduler_jobs j
@@ -125,7 +125,7 @@ def list_jobs_for_user(
 def list_jobs_for_tenant(
     *,
     tenant_id: int,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     include_global: bool,
     execution_target: str | None,
     enabled: bool | None,
@@ -133,12 +133,12 @@ def list_jobs_for_tenant(
     limit: int = 200,
 ) -> list[dict[str, Any]]:
     """
-    Admin listing: tenant-wide jobs with optional workspace scoping.
+    Admin listing: tenant-wide jobs with optional dashboard scoping.
 
-    - workspace_id=None: list global-only when include_global=True, else all jobs (legacy)
-    - workspace_id!=None:
-        - include_global=True: workspace-bound + global (workspace_id IS NULL)
-        - include_global=False: only workspace-bound
+    - dashboard_id=None: list global-only when include_global=True, else all jobs (legacy)
+    - dashboard_id!=None:
+        - include_global=True: dashboard-bound + global (dashboard_id IS NULL)
+        - include_global=False: only dashboard-bound
     """
     lim = max(1, min(500, limit))
     params: list[Any] = [tenant_id]
@@ -146,15 +146,15 @@ def list_jobs_for_tenant(
     if not include_archived:
         where += " AND j.deleted_at IS NULL"
 
-    if workspace_id is not None:
+    if dashboard_id is not None:
         if include_global:
-            where += " AND (j.workspace_id = %s OR j.workspace_id IS NULL)"
+            where += " AND (j.dashboard_id = %s OR j.dashboard_id IS NULL)"
         else:
-            where += " AND j.workspace_id = %s"
-        params.append(workspace_id)
+            where += " AND j.dashboard_id = %s"
+        params.append(dashboard_id)
     else:
         if include_global:
-            where += " AND j.workspace_id IS NULL"
+            where += " AND j.dashboard_id IS NULL"
 
     if execution_target is not None and str(execution_target).strip():
         where += " AND j.execution_target = %s"
@@ -169,7 +169,7 @@ def list_jobs_for_tenant(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
-                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.workspace_id,
+                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.dashboard_id,
                        j.execution_target, j.title, j.instructions, j.interval_minutes, j.enabled,
                        j.ide_workflow, j.last_run_at, j.deleted_at, j.created_at, j.updated_at
                 FROM scheduler_jobs j
@@ -189,7 +189,7 @@ def get_job(job_id: uuid.UUID, tenant_id: int) -> dict[str, Any] | None:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                SELECT id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                        execution_target, title, instructions, interval_minutes, enabled,
                        ide_workflow, last_run_at, deleted_at, created_at, updated_at
                 FROM scheduler_jobs
@@ -224,7 +224,7 @@ def set_enabled(
                 UPDATE scheduler_jobs
                 SET enabled = %s, updated_at = %s
                 WHERE id = %s AND tenant_id = %s
-                RETURNING id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                RETURNING id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                           execution_target, title, instructions, interval_minutes, enabled,
                           ide_workflow, last_run_at, created_at, updated_at
                 """,
@@ -269,7 +269,7 @@ def update_job(
                     ide_workflow = %s,
                     updated_at = %s
                 WHERE id = %s AND tenant_id = %s
-                RETURNING id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                RETURNING id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                           execution_target, title, instructions, interval_minutes, enabled,
                           ide_workflow, last_run_at, deleted_at, created_at, updated_at
                 """,
@@ -359,7 +359,7 @@ def fetch_due_jobs_server_periodic(*, limit: int = 10) -> list[dict[str, Any]]:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                SELECT id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                        execution_target, title, instructions, interval_minutes, enabled,
                        ide_workflow, last_run_at, created_at, updated_at
                 FROM scheduler_jobs
@@ -388,7 +388,7 @@ def fetch_due_jobs_ide_agent_for_pidea(*, limit: int = 5) -> list[dict[str, Any]
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.workspace_id,
+                SELECT j.id, j.tenant_id, j.created_by_user_id, j.execution_user_id, j.dashboard_id,
                        j.execution_target, j.title, j.instructions, j.interval_minutes, j.enabled,
                        j.ide_workflow, j.last_run_at, j.created_at, j.updated_at
                 FROM scheduler_jobs j
@@ -417,7 +417,7 @@ def fetch_due_jobs_ide_for_user(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                SELECT id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                        execution_target, title, instructions, interval_minutes, enabled,
                        ide_workflow, last_run_at, created_at, updated_at
                 FROM scheduler_jobs
@@ -476,7 +476,7 @@ def ack_job_run_for_user(
                 UPDATE scheduler_jobs
                 SET last_run_at = %s, updated_at = %s
                 WHERE id = %s AND tenant_id = %s
-                RETURNING id, tenant_id, created_by_user_id, execution_user_id, workspace_id,
+                RETURNING id, tenant_id, created_by_user_id, execution_user_id, dashboard_id,
                           execution_target, title, instructions, interval_minutes, enabled,
                           ide_workflow, last_run_at, created_at, updated_at
                 """,

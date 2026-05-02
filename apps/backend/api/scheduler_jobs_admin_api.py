@@ -25,7 +25,7 @@ class SchedulerJobCreateBody(BaseModel):
     enabled: bool = True
     title: str | None = Field(default=None, max_length=500)
     instructions: str = Field(..., min_length=1, max_length=32000)
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     ide_workflow: dict[str, Any] | None = None
 
 
@@ -43,7 +43,7 @@ class SchedulerJobArchiveBody(BaseModel):
 @router.get("")
 async def scheduler_job_list(
     request: Request,
-    workspace_id: str | None = None,
+    dashboard_id: str | None = None,
     include_global: bool = False,
     include_archived: bool = False,
     execution_target: str | None = None,
@@ -53,17 +53,17 @@ async def scheduler_job_list(
     user = await require_admin(request)
     tenant_id = db.user_tenant_id(user.id)
     ws_id: uuid.UUID | None = None
-    if workspace_id is not None and str(workspace_id).strip():
+    if dashboard_id is not None and str(dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(workspace_id).strip())
+            ws_id = uuid.UUID(str(dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
     tgt = (execution_target or "").strip().lower() or None
     if tgt is not None and tgt not in ("server_periodic", "ide_agent"):
         raise HTTPException(status_code=400, detail="invalid execution_target")
     rows = scheduler_jobs_store.list_jobs_for_tenant(
         tenant_id=tenant_id,
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         include_global=bool(include_global),
         execution_target=tgt,
         enabled=enabled,
@@ -81,16 +81,16 @@ async def scheduler_job_create(request: Request, body: SchedulerJobCreateBody) -
     if tgt not in ("server_periodic", "ide_agent"):
         raise HTTPException(status_code=400, detail="invalid execution_target")
     ws_id: uuid.UUID | None = None
-    if body.workspace_id is not None and str(body.workspace_id).strip():
+    if body.dashboard_id is not None and str(body.dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(body.workspace_id).strip())
+            ws_id = uuid.UUID(str(body.dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
     row = scheduler_jobs_store.insert_job(
         tenant_id=tenant_id,
         created_by_user_id=user.id,
         execution_user_id=user.id,
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         execution_target=tgt,
         title=(body.title or "").strip() or None,
         instructions=body.instructions.strip(),

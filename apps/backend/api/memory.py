@@ -61,7 +61,7 @@ def fact_upsert_for_identity(
     *,
     key: str,
     value_json: Any,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     confidence: float | None = None,
     source: str | None = None,
     expires_at: datetime | None = None,
@@ -74,7 +74,7 @@ def fact_upsert_for_identity(
     return db.memory_fact_upsert(
         key=key,
         value_json=value_json,
-        workspace_id=workspace_id,
+        dashboard_id=dashboard_id,
         confidence=confidence,
         source=source,
         expires_at=expires_at,
@@ -83,27 +83,27 @@ def fact_upsert_for_identity(
 
 def fact_list_for_identity(
     *,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     prefix: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     if not _enabled():
         return []
     _require_identity()
-    return db.memory_fact_list(workspace_id=workspace_id, prefix=prefix, limit=limit)
+    return db.memory_fact_list(dashboard_id=dashboard_id, prefix=prefix, limit=limit)
 
 
-def fact_delete_for_identity(*, key: str, workspace_id: uuid.UUID | None = None) -> bool:
+def fact_delete_for_identity(*, key: str, dashboard_id: uuid.UUID | None = None) -> bool:
     if not _enabled():
         raise ValueError("memory is disabled on this server")
     _require_identity()
-    return db.memory_fact_delete(key=key, workspace_id=workspace_id)
+    return db.memory_fact_delete(key=key, dashboard_id=dashboard_id)
 
 
 def note_add_for_identity(
     *,
     text: str,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     tags: list[str] | None = None,
     source: str | None = None,
 ) -> dict[str, Any]:
@@ -113,14 +113,14 @@ def note_add_for_identity(
     t = (text or "").strip()
     _reject_secrets(t)
     emb = ollama_embed_one(t)
-    nid = db.memory_note_insert(text=t, embedding=emb, tags=tags, source=source, workspace_id=workspace_id)
+    nid = db.memory_note_insert(text=t, embedding=emb, tags=tags, source=source, dashboard_id=dashboard_id)
     return {"ok": True, "id": nid}
 
 
 def note_search_for_identity(
     *,
     query: str,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     tags: list[str] | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
@@ -131,7 +131,7 @@ def note_search_for_identity(
     if not q:
         return []
     emb = ollama_embed_one(q)
-    return db.memory_note_vector_search(query_embedding=emb, workspace_id=workspace_id, tags=tags, limit=limit)
+    return db.memory_note_vector_search(query_embedding=emb, dashboard_id=dashboard_id, tags=tags, limit=limit)
 
 
 def note_delete_for_identity(*, note_id: int) -> bool:
@@ -143,7 +143,7 @@ def note_delete_for_identity(*, note_id: int) -> bool:
 
 def graph_node_add_for_identity(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     kind: str,
     label: str,
     summary: str,
@@ -169,7 +169,7 @@ def graph_node_add_for_identity(
     except Exception:
         emb = None
     return db.memory_graph_node_insert(
-        workspace_id=workspace_id,
+        dashboard_id=dashboard_id,
         kind=kind,
         label=lab,
         summary=summ,
@@ -205,13 +205,13 @@ def graph_edge_add_for_identity(
 
 def graph_nodes_list_for_identity(
     *,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     if not _memory_graph_enabled():
         return []
     _require_identity()
-    return db.memory_graph_list_nodes(workspace_id=workspace_id, limit=limit)
+    return db.memory_graph_list_nodes(dashboard_id=dashboard_id, limit=limit)
 
 
 def graph_node_delete_for_identity(*, node_id: int) -> bool:
@@ -222,7 +222,7 @@ def graph_node_delete_for_identity(*, node_id: int) -> bool:
 
 
 def _maybe_log_graph_activation(
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     user_query: str,
     rows: list[dict[str, Any]],
 ) -> None:
@@ -240,7 +240,7 @@ def _maybe_log_graph_activation(
         scores = {str(int(r["id"])): round(float(activation_score(r)), 5) for r in rows}
         nids = [int(r["id"]) for r in rows]
         db.memory_graph_activation_log_insert(
-            workspace_id=workspace_id,
+            dashboard_id=dashboard_id,
             node_ids=nids,
             query_sha256=qhash,
             meta={
@@ -255,7 +255,7 @@ def _maybe_log_graph_activation(
 
 def graph_render_for_identity(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     user_query: str,
     max_nodes: int = 12,
 ) -> str:
@@ -276,7 +276,7 @@ def graph_render_for_identity(
     hops = int(mg["max_hops"])
     hops = max(0, min(hops, 4))
     rows = db.memory_graph_activate(
-        workspace_id=workspace_id,
+        dashboard_id=dashboard_id,
         tokens=tokens,
         query_embedding=qemb,
         vec_seed_limit=8,
@@ -285,7 +285,7 @@ def graph_render_for_identity(
         max_hops=hops,
     )
     rows = rank_and_filter_nodes(rows)
-    _maybe_log_graph_activation(workspace_id, user_query, rows)
+    _maybe_log_graph_activation(dashboard_id, user_query, rows)
     return build_graph_prompt_section(rows)
 
 
@@ -306,7 +306,7 @@ def graph_activation_log_for_identity(*, limit: int = 100) -> list[dict[str, Any
 def graph_propose_from_text_for_identity(
     *,
     text: str,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     apply: bool,
 ) -> dict[str, Any]:
     if not _memory_graph_enabled():
@@ -314,12 +314,12 @@ def graph_propose_from_text_for_identity(
     _require_identity()
     from apps.backend.api.memory_graph_extract import propose_graph_from_text
 
-    return propose_graph_from_text(text=text, workspace_id=workspace_id, apply=apply)
+    return propose_graph_from_text(text=text, dashboard_id=dashboard_id, apply=apply)
 
 
 def render_memory_context(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     user_query: str,
     facts_limit: int = 40,
     notes_limit: int = 6,
@@ -327,13 +327,13 @@ def render_memory_context(
     """Build a compact system snippet. Caller decides where to inject it."""
     if not _enabled():
         return ""
-    facts_global = fact_list_for_identity(workspace_id=None, limit=facts_limit)
-    facts_ws = fact_list_for_identity(workspace_id=workspace_id, limit=facts_limit) if workspace_id else []
+    facts_global = fact_list_for_identity(dashboard_id=None, limit=facts_limit)
+    facts_ws = fact_list_for_identity(dashboard_id=dashboard_id, limit=facts_limit) if dashboard_id else []
     merged: dict[str, dict[str, Any]] = {str(f["key"]): f for f in facts_global}
     for f in facts_ws:
         merged[str(f["key"])] = f
-    notes = note_search_for_identity(query=user_query, workspace_id=workspace_id, limit=notes_limit)
-    graph_snip = graph_render_for_identity(workspace_id=workspace_id, user_query=user_query)
+    notes = note_search_for_identity(query=user_query, dashboard_id=dashboard_id, limit=notes_limit)
+    graph_snip = graph_render_for_identity(dashboard_id=dashboard_id, user_query=user_query)
 
     if not merged and not notes and not graph_snip:
         return ""

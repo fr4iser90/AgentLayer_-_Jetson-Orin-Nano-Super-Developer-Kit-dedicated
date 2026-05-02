@@ -17,11 +17,11 @@ These directories hold **bundles** you can add, fork, or omit without changing c
 |------|------|
 | **`plugins/tools/`** | Agent tool modules (`TOOLS` / `HANDLERS`) scanned by the registry (see `AGENT_TOOL_DIRS`; defaults include `plugins/tools` and `plugins/workflows`). |
 | **`plugins/workflows/`** | Workflow-style Python modules scanned together with tools where applicable. |
-| **`plugins/workspace/`** | Workspace domain folders (`workspace.kind.json`, templates, examples). The server discovers kinds under this tree. |
+| **`plugins/dashboard/`** | Dashboard domain folders (`dashboard.kind.json`, templates, examples). The server discovers kinds under this tree. |
 | **`plugins/image_generation/`** | ComfyUI JSON graphs and presets (e.g. Studio workflow files referenced from `studio_catalog`). |
 | **`plugins/interfaces/`** | Optional out-of-band integrations (e.g. Discord/Telegram bots) deployed beside the app, not the web UI. |
 
-**Naming note:** `apps/backend/workspace/` is **server code** for `/v1/workspaces`; `plugins/workspace/` is **content** (kinds/bundles). Same word, different layer.
+**Naming note:** `apps/backend/dashboard/` is **server code** for `/v1/dashboards`; `plugins/dashboard/` is **content** (kinds/bundles). Same word, different layer.
 
 ## Operations
 

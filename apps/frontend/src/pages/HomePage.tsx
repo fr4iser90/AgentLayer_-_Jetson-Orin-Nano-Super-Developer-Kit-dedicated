@@ -37,10 +37,10 @@ export function HomePage() {
         </li>
         <li>
           <Link
-            to="/workspace"
+            to="/dashboard"
             className="block rounded-xl border border-surface-border bg-surface-raised px-5 py-4 text-white hover:bg-white/5"
           >
-            <span className="font-medium">Workspace</span>
+            <span className="font-medium">Dashboard</span>
             <span className="mt-1 block text-sm text-surface-muted">
               Mehrere Arten (u. a. Aufgaben, Freunde, Haustiere) — Schema einmal installieren, dann anlegen
             </span>

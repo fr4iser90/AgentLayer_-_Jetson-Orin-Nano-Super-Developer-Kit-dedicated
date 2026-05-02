@@ -16,6 +16,8 @@ type UserRow = {
   tenant_name?: string | null;
   discord_user_id?: string | null;
   telegram_user_id?: string | null;
+  workspace_quota?: number;
+  workspace_self_allowed?: boolean;
 };
 
 function rowLabel(r: UserRow): string {
@@ -110,6 +112,49 @@ export function AdminUsers() {
       setSavingUserId(null);
     }
   }
+
+  async function patchWorkspaceQuota(userId: string, quota: number) {
+    setSavingUserId(userId);
+    setListErr(null);
+    try {
+      const res = await apiFetch(`/v1/admin/users/${userId}`, auth, {
+        method: "PATCH",
+        body: JSON.stringify({ workspace_quota: quota }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+      if (!res.ok) {
+        setListErr(typeof data.detail === "string" ? data.detail : "Could not update workspace quota");
+        return;
+      }
+      await loadUsers();
+    } catch (e) {
+      setListErr(e instanceof Error ? e.message : "Could not update workspace quota");
+    } finally {
+      setSavingUserId(null);
+    }
+  }
+
+  async function patchWorkspaceSelfAllowed(userId: string, allowed: boolean) {
+    setSavingUserId(userId);
+    setListErr(null);
+    try {
+      const res = await apiFetch(`/v1/admin/users/${userId}`, auth, {
+        method: "PATCH",
+        body: JSON.stringify({ workspace_self_allowed: allowed }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { detail?: unknown };
+      if (!res.ok) {
+        setListErr(typeof data.detail === "string" ? data.detail : "Could not update self-editing permission");
+        return;
+      }
+      await loadUsers();
+    } catch (e) {
+      setListErr(e instanceof Error ? e.message : "Could not update self-editing permission");
+    } finally {
+      setSavingUserId(null);
+    }
+  }
+
 
   async function createUser() {
     const email = newEmail.trim();
@@ -222,6 +267,8 @@ export function AdminUsers() {
                 <th className="px-4 py-3 font-medium">Email / identity</th>
                 <th className="px-4 py-3 font-medium">Tenant</th>
                 <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium">Workspace Quota</th>
+                <th className="px-4 py-3 font-medium">Self Edit</th>
                 <th className="px-4 py-3 font-medium">Discord id</th>
                 <th className="px-4 py-3 font-medium">Telegram id</th>
                 <th className="px-4 py-3 font-medium">Created</th>
@@ -230,19 +277,19 @@ export function AdminUsers() {
             <tbody>
               {listLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={8} className="px-4 py-6 text-center text-surface-muted">
                     Loading…
                   </td>
                 </tr>
               ) : listErr ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-red-400">
+                  <td colSpan={8} className="px-4 py-6 text-center text-red-400">
                     {listErr}
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-surface-muted">
+                  <td colSpan={8} className="px-4 py-6 text-center text-surface-muted">
                     No users found.
                   </td>
                 </tr>
@@ -291,6 +338,30 @@ export function AdminUsers() {
                         >
                           {r.role}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          className="w-16 rounded-md border border-surface-border bg-black/20 px-2 py-1 text-xs text-white"
+                          value={r.workspace_quota ?? 10}
+                          disabled={saving}
+                          onChange={(e) => {
+                            const next = parseInt(e.target.value, 10);
+                            if (!Number.isFinite(next) || next < 1 || next > 1000) return;
+                            void patchWorkspaceQuota(r.id, next);
+                          }}
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          className="rounded border-surface-border"
+                          checked={r.workspace_self_allowed ?? false}
+                          disabled={saving || r.role?.toLowerCase() === "admin"}
+                          onChange={(e) => void patchWorkspaceSelfAllowed(r.id, e.target.checked)}
+                        />
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-neutral-400">
                         {r.discord_user_id?.trim() ? r.discord_user_id.trim() : "—"}

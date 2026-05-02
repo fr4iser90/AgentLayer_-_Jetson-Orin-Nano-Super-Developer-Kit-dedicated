@@ -157,7 +157,9 @@ def list_all_users() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT u.id, u.email, u.role, u.created_at, u.external_sub, u.display_name,
-                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id
+                       u.tenant_id, t.name AS tenant_name, u.discord_user_id, u.telegram_user_id,
+                       COALESCE(u.workspace_quota, 10) AS workspace_quota,
+                       COALESCE(u.workspace_self_allowed, false) AS workspace_self_allowed
                 FROM users u
                 LEFT JOIN tenants t ON t.id = u.tenant_id
                 ORDER BY u.created_at ASC NULLS LAST, u.email ASC NULLS LAST, u.external_sub ASC
@@ -177,6 +179,8 @@ def list_all_users() -> list[dict[str, Any]]:
             tenant_name,
             discord_uid,
             telegram_uid,
+            workspace_quota,
+            workspace_self_allowed,
         ) = row
         tid = int(tenant_id) if tenant_id is not None else 1
         du = str(discord_uid).strip() if discord_uid is not None else ""
@@ -193,6 +197,8 @@ def list_all_users() -> list[dict[str, Any]]:
                 "tenant_name": (tenant_name or "") if tenant_name is not None else "",
                 "discord_user_id": du or None,
                 "telegram_user_id": tu or None,
+                "workspace_quota": workspace_quota if workspace_quota is not None else 10,
+                "workspace_self_allowed": bool(workspace_self_allowed) if workspace_self_allowed is not None else False,
             }
         )
     return out
@@ -342,13 +348,13 @@ def create_user(email: str, password: str, role: str = "user", tenant_id: int = 
     return user
 
 
-def ide_agent_access_for_user(user: User) -> bool:
-    """True when PIDEA is globally on and the user is **admin** (direct IDE / Playwright control)."""
-    from apps.backend.infrastructure import operator_settings
+# def ide_agent_access_for_user(user: User) -> bool:
+#     """True when PIDEA is globally on and the user is **admin** (direct IDE / Playwright control)."""
+#     from apps.backend.infrastructure import operator_settings
 
-    if not operator_settings.pidea_effective_enabled():
-        return False
-    return (user.role or "").strip().lower() == "admin"
+#     if not operator_settings.pidea_effective_enabled():
+#         return False
+#     return (user.role or "").strip().lower() == "admin"
 
 
 def update_user_ide_agent_allowed(user_id: uuid.UUID, allowed: bool) -> bool:

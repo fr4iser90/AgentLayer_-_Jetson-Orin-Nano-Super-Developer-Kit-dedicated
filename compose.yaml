@@ -1,6 +1,6 @@
 # Agent layer + PostgreSQL. Netzwerk ai-net (wie examples/ollama/docker/compose.yaml).
 #
-# Variablen: docker/.env (von .env.example kopieren). Compose lädt .env automatisch.
+# Variablen: docker/.env (von .env_example kopieren). Compose lädt .env automatisch.
 #
 # Start:
 #   docker compose up -d
@@ -27,6 +27,19 @@ services:
       timeout: 5s
       retries: 15
       start_period: 10s
+  qdrant:
+    image: qdrant/qdrant:v1.9.0
+    container_name: agent-layer-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - agent_qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - ai-net
   agent-layer:
     build:
       context: .
@@ -39,6 +52,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      qdrant:
+        condition: service_started
     ports:
       - "${AGENT_HTTP_PORT:-8088}:8080"
     env_file:
@@ -53,14 +68,17 @@ services:
       - pidea_playwright_site:/data/pidea/playwright-site-packages
       - pidea_playwright_browsers:/data/pidea/ms-playwright
       - pidea_pip_cache:/root/.cache/pip
+      # Coding workspace -> mount the actual source code
+      - .:/code:ro
       # Backups (replace_tool/update_tool): Default /data/tool_backups liegt NICHT auf diesem Mount →
       # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./plugins/tools/agent/agent_created/.tool_backups)
     # Optional read-only:  - ./plugins/tools/agent/agent_created:/data/tools:ro
-    # Optional: mount dirs for fs_* if you need host files in-container (paths are cwd/absolute; no AGENT_WORKSPACE_ROOT).
+    # Optional: mount dirs for fs_* if you need host files in-container (paths are cwd/absolute; no AGENT_DASHBOARD_ROOT).
     networks:
       - ai-net
 volumes:
   agent_pg_data:
+  agent_qdrant_data:
   pidea_playwright_site:
   pidea_playwright_browsers:
   pidea_pip_cache:

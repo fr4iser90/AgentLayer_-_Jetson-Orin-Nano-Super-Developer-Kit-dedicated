@@ -828,7 +828,7 @@ def memory_fact_upsert(
     *,
     key: str,
     value_json: Any,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     confidence: float | None = None,
     source: str | None = None,
     expires_at: datetime | None = None,
@@ -843,14 +843,14 @@ def memory_fact_upsert(
     src = (source or "user").strip() or "user"
     with pool().connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            if workspace_id is None:
+            if dashboard_id is None:
                 cur.execute(
                     """
                     INSERT INTO user_memory_facts
-                      (tenant_id, user_id, workspace_id, key, value_json, confidence, source, expires_at, deleted_at)
+                      (tenant_id, user_id, dashboard_id, key, value_json, confidence, source, expires_at, deleted_at)
                     VALUES (%s, %s, NULL, %s, %s::jsonb, %s, %s, %s, NULL)
                     ON CONFLICT (tenant_id, user_id, key)
-                      WHERE workspace_id IS NULL AND deleted_at IS NULL
+                      WHERE dashboard_id IS NULL AND deleted_at IS NULL
                     DO UPDATE SET
                       value_json = EXCLUDED.value_json,
                       confidence = EXCLUDED.confidence,
@@ -858,7 +858,7 @@ def memory_fact_upsert(
                       expires_at = EXCLUDED.expires_at,
                       updated_at = now(),
                       deleted_at = NULL
-                    RETURNING id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                    RETURNING id, key, value_json, confidence, source, dashboard_id, expires_at, updated_at
                     """,
                     (tenant_id, user_id, k, Json(value_json), conf, src, expires_at),
                 )
@@ -866,10 +866,10 @@ def memory_fact_upsert(
                 cur.execute(
                     """
                     INSERT INTO user_memory_facts
-                      (tenant_id, user_id, workspace_id, key, value_json, confidence, source, expires_at, deleted_at)
+                      (tenant_id, user_id, dashboard_id, key, value_json, confidence, source, expires_at, deleted_at)
                     VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, NULL)
-                    ON CONFLICT (tenant_id, user_id, workspace_id, key)
-                      WHERE workspace_id IS NOT NULL AND deleted_at IS NULL
+                    ON CONFLICT (tenant_id, user_id, dashboard_id, key)
+                      WHERE dashboard_id IS NOT NULL AND deleted_at IS NULL
                     DO UPDATE SET
                       value_json = EXCLUDED.value_json,
                       confidence = EXCLUDED.confidence,
@@ -877,9 +877,9 @@ def memory_fact_upsert(
                       expires_at = EXCLUDED.expires_at,
                       updated_at = now(),
                       deleted_at = NULL
-                    RETURNING id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                    RETURNING id, key, value_json, confidence, source, dashboard_id, expires_at, updated_at
                     """,
-                    (tenant_id, user_id, workspace_id, k, Json(value_json), conf, src, expires_at),
+                    (tenant_id, user_id, dashboard_id, k, Json(value_json), conf, src, expires_at),
                 )
             row = cur.fetchone()
         conn.commit()
@@ -891,7 +891,7 @@ def memory_fact_upsert(
         "value_json": row["value_json"],
         "confidence": float(row["confidence"]) if row.get("confidence") is not None else 1.0,
         "source": row["source"],
-        "workspace_id": str(row["workspace_id"]) if row.get("workspace_id") else None,
+        "dashboard_id": str(row["dashboard_id"]) if row.get("dashboard_id") else None,
         "expires_at": row["expires_at"].isoformat() if row.get("expires_at") else None,
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
@@ -899,7 +899,7 @@ def memory_fact_upsert(
 
 def memory_fact_list(
     *,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     prefix: str | None = None,
     limit: int = 50,
     include_expired: bool = False,
@@ -912,11 +912,11 @@ def memory_fact_list(
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, key, value_json, confidence, source, workspace_id, expires_at, updated_at
+                SELECT id, key, value_json, confidence, source, dashboard_id, expires_at, updated_at
                 FROM user_memory_facts
                 WHERE tenant_id = %s
                   AND user_id = %s
-                  AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                  AND (%s::uuid IS NULL AND dashboard_id IS NULL OR dashboard_id = %s::uuid)
                   AND deleted_at IS NULL
                   AND (%s OR expires_at IS NULL OR expires_at > now())
                   AND (%s = '' OR key ILIKE %s ESCAPE '\\')
@@ -926,8 +926,8 @@ def memory_fact_list(
                 (
                     tenant_id,
                     user_id,
-                    workspace_id,
-                    workspace_id,
+                    dashboard_id,
+                    dashboard_id,
                     bool(include_expired),
                     pre,
                     _ilike_contains(pre) if pre else "",
@@ -945,7 +945,7 @@ def memory_fact_list(
                 "value_json": r["value_json"],
                 "confidence": float(r.get("confidence") or 1.0),
                 "source": r.get("source") or "",
-                "workspace_id": str(r["workspace_id"]) if r.get("workspace_id") else None,
+                "dashboard_id": str(r["dashboard_id"]) if r.get("dashboard_id") else None,
                 "expires_at": r["expires_at"].isoformat() if r.get("expires_at") else None,
                 "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
             }
@@ -953,7 +953,7 @@ def memory_fact_list(
     return out
 
 
-def memory_fact_delete(*, key: str, workspace_id: uuid.UUID | None = None) -> bool:
+def memory_fact_delete(*, key: str, dashboard_id: uuid.UUID | None = None) -> bool:
     """Soft-delete one fact by key for the current identity."""
     tenant_id, user_id = _require_user_uuid()
     k = (key or "").strip()
@@ -961,14 +961,14 @@ def memory_fact_delete(*, key: str, workspace_id: uuid.UUID | None = None) -> bo
         raise ValueError("key is required")
     with pool().connection() as conn:
         with conn.cursor() as cur:
-            if workspace_id is None:
+            if dashboard_id is None:
                 cur.execute(
                     """
                     UPDATE user_memory_facts
                     SET deleted_at = now(), updated_at = now()
                     WHERE tenant_id = %s
                       AND user_id = %s
-                      AND workspace_id IS NULL
+                      AND dashboard_id IS NULL
                       AND key = %s
                       AND deleted_at IS NULL
                     """,
@@ -981,11 +981,11 @@ def memory_fact_delete(*, key: str, workspace_id: uuid.UUID | None = None) -> bo
                     SET deleted_at = now(), updated_at = now()
                     WHERE tenant_id = %s
                       AND user_id = %s
-                      AND workspace_id = %s
+                      AND dashboard_id = %s
                       AND key = %s
                       AND deleted_at IS NULL
                     """,
-                    (tenant_id, user_id, workspace_id, k),
+                    (tenant_id, user_id, dashboard_id, k),
                 )
             ok = cur.rowcount > 0
         conn.commit()
@@ -998,7 +998,7 @@ def memory_note_insert(
     embedding: list[float],
     tags: list[str] | None = None,
     source: str | None = None,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
 ) -> int:
     """Insert one semantic memory note for the current identity (embedding provided by caller)."""
     tenant_id, user_id = _require_user_uuid()
@@ -1013,11 +1013,11 @@ def memory_note_insert(
             cur.execute(
                 """
                 INSERT INTO user_memory_notes
-                  (tenant_id, user_id, workspace_id, text, tags, source, embedding)
+                  (tenant_id, user_id, dashboard_id, text, tags, source, embedding)
                 VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
                 RETURNING id
                 """,
-                (tenant_id, user_id, workspace_id, t, tg, src, ev),
+                (tenant_id, user_id, dashboard_id, t, tg, src, ev),
             )
             nid = int(cur.fetchone()[0])
         conn.commit()
@@ -1044,7 +1044,7 @@ def memory_note_soft_delete(note_id: int) -> bool:
 def memory_note_vector_search(
     *,
     query_embedding: list[float],
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     tags: list[str] | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
@@ -1063,19 +1063,19 @@ def memory_note_vector_search(
                       left(text, 4000) AS text,
                       tags,
                       source,
-                      workspace_id,
+                      dashboard_id,
                       updated_at,
                       (embedding <=> %s::vector) AS distance
                     FROM user_memory_notes
                     WHERE tenant_id = %s
                       AND user_id = %s
                       AND deleted_at IS NULL
-                      AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                      AND (%s::uuid IS NULL AND dashboard_id IS NULL OR dashboard_id = %s::uuid)
                       AND tags && %s
                     ORDER BY embedding <=> %s::vector
                     LIMIT %s
                     """,
-                    (qv, tenant_id, user_id, workspace_id, workspace_id, tg, qv, limit),
+                    (qv, tenant_id, user_id, dashboard_id, dashboard_id, tg, qv, limit),
                 )
             else:
                 cur.execute(
@@ -1085,18 +1085,18 @@ def memory_note_vector_search(
                       left(text, 4000) AS text,
                       tags,
                       source,
-                      workspace_id,
+                      dashboard_id,
                       updated_at,
                       (embedding <=> %s::vector) AS distance
                     FROM user_memory_notes
                     WHERE tenant_id = %s
                       AND user_id = %s
                       AND deleted_at IS NULL
-                      AND (%s::uuid IS NULL AND workspace_id IS NULL OR workspace_id = %s::uuid)
+                      AND (%s::uuid IS NULL AND dashboard_id IS NULL OR dashboard_id = %s::uuid)
                     ORDER BY embedding <=> %s::vector
                     LIMIT %s
                     """,
-                    (qv, tenant_id, user_id, workspace_id, workspace_id, qv, limit),
+                    (qv, tenant_id, user_id, dashboard_id, dashboard_id, qv, limit),
                 )
             rows = cur.fetchall()
         conn.commit()
@@ -1108,7 +1108,7 @@ def memory_note_vector_search(
                 "text": r["text"],
                 "tags": r.get("tags") or [],
                 "source": r.get("source") or "",
-                "workspace_id": str(r["workspace_id"]) if r.get("workspace_id") else None,
+                "dashboard_id": str(r["dashboard_id"]) if r.get("dashboard_id") else None,
                 "updated_at": r["updated_at"].isoformat() if r.get("updated_at") else None,
                 "distance": float(r.get("distance")) if r.get("distance") is not None else None,
             }
@@ -1118,7 +1118,7 @@ def memory_note_vector_search(
 
 def memory_graph_node_insert(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     kind: str,
     label: str,
     summary: str,
@@ -1157,18 +1157,18 @@ def memory_graph_node_insert(
                 cur.execute(
                     """
                     INSERT INTO user_memory_graph_nodes (
-                      tenant_id, user_id, workspace_id, kind, label, summary, payload, importance,
+                      tenant_id, user_id, dashboard_id, kind, label, summary, payload, importance,
                       confidence, source, last_verified, subject_key, stability, priority,
                       embedding, deleted_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s::vector, NULL)
                     RETURNING id, kind, label, summary, payload, importance, confidence, source,
-                      last_verified, subject_key, stability, priority, workspace_id, created_at, updated_at
+                      last_verified, subject_key, stability, priority, dashboard_id, created_at, updated_at
                     """,
                     (
                         tenant_id,
                         user_id,
-                        workspace_id,
+                        dashboard_id,
                         k,
                         lab,
                         summ,
@@ -1187,17 +1187,17 @@ def memory_graph_node_insert(
                 cur.execute(
                     """
                     INSERT INTO user_memory_graph_nodes (
-                      tenant_id, user_id, workspace_id, kind, label, summary, payload, importance,
+                      tenant_id, user_id, dashboard_id, kind, label, summary, payload, importance,
                       confidence, source, last_verified, subject_key, stability, priority, deleted_at
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, NULL)
                     RETURNING id, kind, label, summary, payload, importance, confidence, source,
-                      last_verified, subject_key, stability, priority, workspace_id, created_at, updated_at
+                      last_verified, subject_key, stability, priority, dashboard_id, created_at, updated_at
                     """,
                     (
                         tenant_id,
                         user_id,
-                        workspace_id,
+                        dashboard_id,
                         k,
                         lab,
                         summ,
@@ -1289,7 +1289,7 @@ def memory_graph_node_soft_delete(*, node_id: int) -> bool:
 
 def memory_graph_list_nodes(
     *,
-    workspace_id: uuid.UUID | None = None,
+    dashboard_id: uuid.UUID | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     tenant_id, user_id = _require_user_uuid()
@@ -1300,14 +1300,14 @@ def memory_graph_list_nodes(
                 """
                 SELECT id, kind, label, left(summary, 4000) AS summary, payload, importance,
                   confidence, source, last_verified, subject_key, stability, priority,
-                  workspace_id, created_at, updated_at
+                  dashboard_id, created_at, updated_at
                 FROM user_memory_graph_nodes
                 WHERE tenant_id = %s AND user_id = %s AND deleted_at IS NULL
-                  AND (workspace_id IS NULL OR (%s::uuid IS NOT NULL AND workspace_id = %s::uuid))
+                  AND (dashboard_id IS NULL OR (%s::uuid IS NOT NULL AND dashboard_id = %s::uuid))
                 ORDER BY updated_at DESC
                 LIMIT %s
                 """,
-                (tenant_id, user_id, workspace_id, workspace_id, limit),
+                (tenant_id, user_id, dashboard_id, dashboard_id, limit),
             )
             rows = cur.fetchall()
         conn.commit()
@@ -1330,7 +1330,7 @@ def _memory_graph_node_row(row: Any) -> dict[str, Any]:
         "subject_key": (str(row["subject_key"]).strip() if row.get("subject_key") is not None else None),
         "stability": str(row.get("stability") or "normal"),
         "priority": float(row.get("priority") if row.get("priority") is not None else 0.0),
-        "workspace_id": str(row["workspace_id"]) if row.get("workspace_id") else None,
+        "dashboard_id": str(row["dashboard_id"]) if row.get("dashboard_id") else None,
         "created_at": cr.isoformat() if cr else "",
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else "",
     }
@@ -1339,13 +1339,13 @@ def _memory_graph_node_row(row: Any) -> dict[str, Any]:
 _GRAPH_NODE_SELECT = """
   id, kind, label, left(summary, 4000) AS summary, payload, importance,
   confidence, source, last_verified, subject_key, stability, priority,
-  workspace_id, created_at, updated_at
+  dashboard_id, created_at, updated_at
 """
 
 
 def memory_graph_activate(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     tokens: list[str],
     query_embedding: list[float] | None = None,
     vec_seed_limit: int = 8,
@@ -1384,18 +1384,18 @@ def memory_graph_activate(
                       (embedding <=> %s::vector) AS distance
                     FROM user_memory_graph_nodes
                     WHERE tenant_id = %s AND user_id = %s AND deleted_at IS NULL
-                      AND (workspace_id IS NULL OR (%s::uuid IS NOT NULL AND workspace_id = %s::uuid))
+                      AND (dashboard_id IS NULL OR (%s::uuid IS NOT NULL AND dashboard_id = %s::uuid))
                       AND embedding IS NOT NULL
                     ORDER BY embedding <=> %s::vector
                     LIMIT %s
                     """,
-                    (qv, tenant_id, user_id, workspace_id, workspace_id, qv, vec_seed_limit),
+                    (qv, tenant_id, user_id, dashboard_id, dashboard_id, qv, vec_seed_limit),
                 )
                 vec_rows = cur.fetchall()
 
             if clean:
                 or_parts: list[str] = []
-                args: list[Any] = [tenant_id, user_id, workspace_id, workspace_id]
+                args: list[Any] = [tenant_id, user_id, dashboard_id, dashboard_id]
                 for tok in clean:
                     pat = f"%{tok}%"
                     or_parts.append("(label ILIKE %s OR summary ILIKE %s)")
@@ -1406,7 +1406,7 @@ def memory_graph_activate(
                     SELECT {_GRAPH_NODE_SELECT.strip()}
                     FROM user_memory_graph_nodes
                     WHERE tenant_id = %s AND user_id = %s AND deleted_at IS NULL
-                      AND (workspace_id IS NULL OR (%s::uuid IS NOT NULL AND workspace_id = %s::uuid))
+                      AND (dashboard_id IS NULL OR (%s::uuid IS NOT NULL AND dashboard_id = %s::uuid))
                       AND ({or_sql})
                     ORDER BY updated_at DESC
                     LIMIT %s
@@ -1524,7 +1524,7 @@ def memory_graph_stats() -> dict[str, Any]:
 
 def memory_graph_activation_log_insert(
     *,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     node_ids: list[int],
     query_sha256: str | None,
     meta: dict[str, Any],
@@ -1541,12 +1541,12 @@ def memory_graph_activation_log_insert(
             cur.execute(
                 """
                 INSERT INTO user_memory_graph_activation_log (
-                  tenant_id, user_id, workspace_id, node_ids, query_sha256, meta
+                  tenant_id, user_id, dashboard_id, node_ids, query_sha256, meta
                 )
                 VALUES (%s, %s, %s, %s, %s, %s::jsonb)
                 RETURNING id
                 """,
-                (tenant_id, user_id, workspace_id, nids, qh or None, Json(m)),
+                (tenant_id, user_id, dashboard_id, nids, qh or None, Json(m)),
             )
             rid = cur.fetchone()
         conn.commit()
@@ -1560,7 +1560,7 @@ def memory_graph_activation_log_list(*, limit: int = 100) -> list[dict[str, Any]
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 """
-                SELECT id, workspace_id, node_ids, query_sha256, meta, created_at
+                SELECT id, dashboard_id, node_ids, query_sha256, meta, created_at
                 FROM user_memory_graph_activation_log
                 WHERE tenant_id = %s AND user_id = %s
                 ORDER BY created_at DESC
@@ -1572,11 +1572,11 @@ def memory_graph_activation_log_list(*, limit: int = 100) -> list[dict[str, Any]
         conn.commit()
     out: list[dict[str, Any]] = []
     for r in rows:
-        w = r.get("workspace_id")
+        w = r.get("dashboard_id")
         out.append(
             {
                 "id": int(r["id"]),
-                "workspace_id": str(w) if w else None,
+                "dashboard_id": str(w) if w else None,
                 "node_ids": [int(x) for x in (r.get("node_ids") or [])],
                 "query_sha256": r.get("query_sha256"),
                 "meta": r.get("meta") if isinstance(r.get("meta"), dict) else {},

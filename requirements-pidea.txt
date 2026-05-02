@@ -1,5 +1,0 @@
-# Optional: PIDEA (Cursor DOM via Playwright CDP). Install only when PIDEA is enabled.
-#   pip install -r requirements-pidea.txt
-#   playwright install chromium
-# CDP-URL: Admin → IDE Agent (DB), nicht in compose. Playwright-Persistenz: compose.yaml (Volumes + PIDEA_PLAYWRIGHT_* env).
-playwright>=1.49.0,<2

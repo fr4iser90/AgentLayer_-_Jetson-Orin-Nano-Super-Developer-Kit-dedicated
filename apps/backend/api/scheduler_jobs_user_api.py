@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from apps.backend.infrastructure.auth import get_current_user
 from apps.backend.infrastructure.db import db
 from apps.backend.infrastructure import scheduler_jobs_store
-from apps.backend.workspace.db import workspace_access_ex
+from apps.backend.dashboard.db import dashboard_access_ex
 
 router = APIRouter(prefix="/v1/user/scheduler-jobs", tags=["scheduler-jobs-user"])
 
@@ -22,7 +22,7 @@ class SchedulerJobCreateBody(BaseModel):
     enabled: bool = True
     title: str | None = Field(default=None, max_length=500)
     instructions: str = Field(..., min_length=1, max_length=32000)
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     ide_workflow: dict[str, Any] | None = None
 
 
@@ -37,20 +37,20 @@ class SchedulerJobPatchBody(BaseModel):
 
 
 @router.get("")
-async def scheduler_job_list(request: Request, workspace_id: str | None = None, limit: int = 50) -> dict:
+async def scheduler_job_list(request: Request, dashboard_id: str | None = None, limit: int = 50) -> dict:
     user = await get_current_user(request)
     tenant_id = db.user_tenant_id(user.id)
     ws_id: uuid.UUID | None = None
-    if workspace_id is not None and str(workspace_id).strip():
+    if dashboard_id is not None and str(dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(workspace_id).strip())
+            ws_id = uuid.UUID(str(dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
     rows = scheduler_jobs_store.list_jobs_for_user(
         tenant_id=tenant_id,
         current_user_id=user.id,
         is_admin=(user.role == "admin"),
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         limit=limit,
     )
     return {"ok": True, "jobs": [scheduler_jobs_store.row_to_public(r) for r in rows]}
@@ -67,26 +67,26 @@ async def scheduler_job_create(request: Request, body: SchedulerJobCreateBody) -
         raise HTTPException(status_code=403, detail="execution_target ide_agent requires admin")
 
     ws_id: uuid.UUID | None = None
-    if body.workspace_id is not None and str(body.workspace_id).strip():
+    if body.dashboard_id is not None and str(body.dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(body.workspace_id).strip())
+            ws_id = uuid.UUID(str(body.dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
-        d = workspace_access_ex(user.id, tenant_id, ws_id)
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
+        d = dashboard_access_ex(user.id, tenant_id, ws_id)
         if d.role is None:
-            raise HTTPException(status_code=403, detail="workspace not accessible")
+            raise HTTPException(status_code=403, detail="dashboard not accessible")
         if d.allowed_block_ids is None:
             if d.role not in ("owner", "co_owner", "editor"):
-                raise HTTPException(status_code=403, detail="workspace is read-only for this user")
+                raise HTTPException(status_code=403, detail="dashboard is read-only for this user")
         else:
             if not d.granular_can_write:
-                raise HTTPException(status_code=403, detail="workspace is read-only for this user")
+                raise HTTPException(status_code=403, detail="dashboard is read-only for this user")
 
     row = scheduler_jobs_store.insert_job(
         tenant_id=tenant_id,
         created_by_user_id=user.id,
         execution_user_id=user.id,
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         execution_target=tgt,
         title=(body.title or "").strip() or None,
         instructions=body.instructions.strip(),

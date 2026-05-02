@@ -25,24 +25,24 @@ from apps.backend.infrastructure import operator_settings
 from apps.backend.infrastructure import scheduler_jobs_store
 from apps.backend.infrastructure import project_runs_store
 from apps.backend.infrastructure.db import db
-from apps.backend.integrations.pidea.content_library_prompts import (
-    SCHEDULER_PIPELINE_ANALYZE_CREATE,
-    SCHEDULER_PIPELINE_EXECUTE,
-    SCHEDULER_PIPELINE_REVIEW,
-    read_content_library_prompt,
-    resolved_phase_paths,
-)
-from apps.backend.infrastructure.scheduler_jobs_workflow import (
-    compose_pidea_message,
-    ide_workflow_from_row,
-    job_context_footer,
-    run_optional_git_branch,
-)
-from apps.backend.integrations.pidea.pidea_workflow_executor import (
-    run_pidea_workflow_by_id,
-)
-from apps.backend.integrations.pidea.task_plan_bundle import bundle_task_plans_from_repo
-from apps.backend.integrations.pidea.project_path_cdp import detect_project_path_from_ide_sync
+# from apps.backend.integrations.pidea.content_library_prompts import (
+#     SCHEDULER_PIPELINE_ANALYZE_CREATE,
+#     SCHEDULER_PIPELINE_EXECUTE,
+#     SCHEDULER_PIPELINE_REVIEW,
+#     read_content_library_prompt,
+#     resolved_phase_paths,
+# )
+# from apps.backend.infrastructure.scheduler_jobs_workflow import (
+#     compose_pidea_message,
+#     ide_workflow_from_row,
+#     job_context_footer,
+#     run_optional_git_branch,
+# )
+# from apps.backend.integrations.pidea.pidea_workflow_executor import (
+#     run_pidea_workflow_by_id,
+# )
+# from apps.backend.integrations.pidea.task_plan_bundle import bundle_task_plans_from_repo
+# from apps.backend.integrations.pidea.project_path_cdp import detect_project_path_from_ide_sync
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +95,10 @@ async def _run_server_job(row: dict[str, Any]) -> None:
         scheduler_jobs_store.mark_job_last_run(job_id=job_id, tenant_id=tenant_id)
         return
 
-    ws = row.get("workspace_id")
+    ws = row.get("dashboard_id")
     ws_hint = ""
     if ws is not None:
-        ws_hint = f"\nWorkspace scope (id): {ws}\n"
+        ws_hint = f"\nDashboard scope (id): {ws}\n"
 
     sys_prompt = (
         "You are executing a persisted scheduled server job (scheduler_jobs, execution_target=server_periodic). "
@@ -117,7 +117,7 @@ async def _run_server_job(row: dict[str, Any]) -> None:
         "stream": False,
         # Allow tool-calling for server_periodic schedules (otherwise they can't do real work).
         "agent_plain_completion": False,
-        # Heuristic: most server schedules are productivity automation (RSS, workspace updates, etc.).
+        # Heuristic: most server schedules are productivity automation (RSS, dashboard updates, etc.).
         "TOOL_DOMAIN": "productivity",
         "model": str(getattr(config, "OLLAMA_DEFAULT_MODEL", "llama3.2") or "llama3.2"),
     }
@@ -250,7 +250,7 @@ def _run_ide_agent_pidea_job(row: dict[str, Any], *, timeout_s: float) -> None:
             ).strip():
                 logger.warning(
                     "scheduler_jobs: pipeline job_id=%s — set git_branch_template and "
-                    "git_repo_path or project_path (or rely on CDP workspace detection) "
+                    "git_repo_path or project_path (or rely on CDP dashboard detection) "
                     "for branch / task-plan files",
                     job_id,
                 )
@@ -482,7 +482,7 @@ def _worker_loop() -> None:
                             created_by_user_id=created_by,
                             execution_user_id=exec_uid,
                             scheduler_job_id=job_id,
-                            workspace_id=_uid(row, "workspace_id") if row.get("workspace_id") else None,
+                            dashboard_id=_uid(row, "dashboard_id") if row.get("dashboard_id") else None,
                             project_row_id=None,
                             project_title=None,
                             execution_target="ide_agent",

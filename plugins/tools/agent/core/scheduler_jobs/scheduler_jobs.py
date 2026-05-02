@@ -9,7 +9,7 @@ from typing import Any, Callable
 from apps.backend.domain.identity import get_identity
 from apps.backend.infrastructure.db import db
 from apps.backend.infrastructure import scheduler_jobs_store
-from apps.backend.workspace.db import workspace_access_ex
+from apps.backend.dashboard.db import dashboard_access_ex
 
 __version__ = "1.0.0"
 TOOL_ID = "scheduler_jobs"
@@ -20,7 +20,7 @@ TOOL_DESCRIPTION = (
     "Create, list, or enable/disable persisted scheduler jobs (separate from the single operator "
     "tick in Admin → Interfaces). Use schedule_job_create to queue work for the IDE agent or server; "
     "schedule_job_list to inspect; schedule_job_set_enabled to pause/resume. "
-    "execution_target ide_agent requires admin; workspace-bound jobs require edit access to that workspace."
+    "execution_target ide_agent requires admin; dashboard-bound jobs require edit access to that dashboard."
 )
 TOOL_TRIGGERS = (
     "schedule",
@@ -60,8 +60,8 @@ def _identity() -> tuple[int, uuid.UUID] | None:
     return (int(tid), uid)
 
 
-def _workspace_allows_schedule(tenant_id: int, user_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
-    d = workspace_access_ex(user_id, tenant_id, workspace_id)
+def _dashboard_allows_schedule(tenant_id: int, user_id: uuid.UUID, dashboard_id: uuid.UUID) -> bool:
+    d = dashboard_access_ex(user_id, tenant_id, dashboard_id)
     if d.role is None:
         return False
     if d.allowed_block_ids is None:
@@ -79,7 +79,7 @@ def _parse_uuid(s: Any, *, field: str) -> uuid.UUID | None:
 
 
 def schedule_job_create(arguments: dict[str, Any]) -> str:
-    """Insert a scheduler_jobs row; ide_agent requires admin; optional workspace_id."""
+    """Insert a scheduler_jobs row; ide_agent requires admin; optional dashboard_id."""
     idt = _identity()
     if not idt:
         return _err("missing identity — not authenticated")
@@ -119,13 +119,13 @@ def schedule_job_create(arguments: dict[str, Any]) -> str:
     elif not scheduler_jobs_store.user_belongs_to_tenant(exec_uid, tenant_id):
         return _err("execution_user_id must be a user in your tenant")
 
-    ws_raw = arguments.get("workspace_id")
-    workspace_id: uuid.UUID | None = _parse_uuid(ws_raw, field="workspace_id")
-    if ws_raw is not None and str(ws_raw).strip() and workspace_id is None:
-        return _err("invalid workspace_id UUID")
-    if workspace_id is not None:
-        if not _workspace_allows_schedule(tenant_id, caller_uid, workspace_id):
-            return _err("no permission to attach a schedule to this workspace")
+    ws_raw = arguments.get("dashboard_id")
+    dashboard_id: uuid.UUID | None = _parse_uuid(ws_raw, field="dashboard_id")
+    if ws_raw is not None and str(ws_raw).strip() and dashboard_id is None:
+        return _err("invalid dashboard_id UUID")
+    if dashboard_id is not None:
+        if not _dashboard_allows_schedule(tenant_id, caller_uid, dashboard_id):
+            return _err("no permission to attach a schedule to this dashboard")
 
     ide_wf: dict[str, Any] = {}
     if arguments.get("ide_workflow") is not None:
@@ -144,7 +144,7 @@ def schedule_job_create(arguments: dict[str, Any]) -> str:
         tenant_id=tenant_id,
         created_by_user_id=caller_uid,
         execution_user_id=exec_uid,
-        workspace_id=workspace_id,
+        dashboard_id=dashboard_id,
         execution_target=raw_target,
         title=title,
         instructions=instructions,
@@ -164,9 +164,9 @@ def schedule_job_list(arguments: dict[str, Any]) -> str:
     tenant_id, caller_uid = idt
     is_admin = db.user_role(caller_uid) == "admin"
 
-    ws = _parse_uuid(arguments.get("workspace_id"), field="workspace_id")
-    if arguments.get("workspace_id") is not None and str(arguments.get("workspace_id")).strip() and ws is None:
-        return _err("invalid workspace_id UUID")
+    ws = _parse_uuid(arguments.get("dashboard_id"), field="dashboard_id")
+    if arguments.get("dashboard_id") is not None and str(arguments.get("dashboard_id")).strip() and ws is None:
+        return _err("invalid dashboard_id UUID")
 
     try:
         lim = int(arguments.get("limit", 50))
@@ -177,7 +177,7 @@ def schedule_job_list(arguments: dict[str, Any]) -> str:
         tenant_id=tenant_id,
         current_user_id=caller_uid,
         is_admin=is_admin,
-        workspace_id=ws,
+        dashboard_id=ws,
         limit=lim,
     )
     return _ok(
@@ -229,7 +229,7 @@ TOOLS: list[dict[str, Any]] = [
             "TOOL_DESCRIPTION": (
                 "Create a persisted scheduler job. execution_target: server_periodic (general server) or "
                 "ide_agent (runs later in the IDE agent context) — ide_agent requires admin. "
-                "instructions: what to do. Optional workspace_id (UUID) to scope to a workspace. "
+                "instructions: what to do. Optional dashboard_id (UUID) to scope to a dashboard. "
                 "Optional execution_user_id (UUID) — defaults to the current user (identity the job runs as). "
                 "interval_minutes: 5–10080 (default 60). "
                 "Optional ide_workflow (object): new_chat, prompt_preamble; optional git_repo_path, "
@@ -253,9 +253,9 @@ TOOLS: list[dict[str, Any]] = [
                         "TOOL_DESCRIPTION": "ide_agent requires admin.",
                     },
                     "title": {"type": "string", "TOOL_DESCRIPTION": "Short label (optional)."},
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID of user_workspaces row; requires edit access.",
+                        "TOOL_DESCRIPTION": "Optional UUID of user_dashboards row; requires edit access.",
                     },
                     "execution_user_id": {
                         "type": "string",
@@ -290,12 +290,12 @@ TOOLS: list[dict[str, Any]] = [
             "name": "schedule_job_list",
             "TOOL_DESCRIPTION": (
                 "List scheduler jobs in your tenant. Non-admins see jobs they created or that target them "
-                "as execution user. Optional workspace_id filter."
+                "as execution user. Optional dashboard_id filter."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "Optional filter UUID."},
+                    "dashboard_id": {"type": "string", "TOOL_DESCRIPTION": "Optional filter UUID."},
                     "limit": {"type": "integer", "TOOL_DESCRIPTION": "Max rows (default 50, max 200)."},
                 },
             },

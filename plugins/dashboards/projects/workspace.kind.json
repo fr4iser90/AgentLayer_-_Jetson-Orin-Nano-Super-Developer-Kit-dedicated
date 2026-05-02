@@ -1,0 +1,8 @@
+{
+  "kind": "projects",
+  "label": "Projects",
+  "description": "A portfolio of projects (repos) with quick notes and lightweight metadata.",
+  "template": "projects.template.json",
+  "schema_sql": "migrations/001_user_dashboards.sql"
+}
+

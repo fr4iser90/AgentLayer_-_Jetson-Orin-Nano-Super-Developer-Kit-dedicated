@@ -18,9 +18,9 @@ export type ChatThread = {
   /** Last agent timeline (optional; kept small in storage). */
   agentLog?: AgentTimelineEntry[];
   updatedAt: number;
-  /** Set when this thread is the workspace-scoped assistant chat (server-side). */
-  workspaceId?: string;
-  /** Shared workspace thread (members see same messages). */
+  /** Set when this thread is the dashboard-scoped assistant chat (server-side). */
+  dashboardId?: string;
+  /** Shared dashboard thread (members see same messages). */
   shared?: boolean;
   /** Origin: first-party ``web`` or bridge provider id. */
   source?: ChatSource;

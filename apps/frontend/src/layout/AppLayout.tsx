@@ -42,6 +42,9 @@ export function AppLayout() {
               <NavLink to="/chat" className={linkClass}>
                 {t("nav.chat")}
               </NavLink>
+              <NavLink to="/coding-agent" className={linkClass}>
+                Coding
+              </NavLink>
               {!ideAgentLoading && ideAgentEnabled ? (
                 <NavLink to="/ide-agent" className={linkClass}>
                   {t("nav.ideAgent")}
@@ -50,11 +53,14 @@ export function AppLayout() {
               <NavLink to="/studio" className={linkClass}>
                 {t("nav.studio")}
               </NavLink>
-              <NavLink to="/workspace" className={linkClass}>
-                {t("nav.workspace")}
+              <NavLink to="/dashboard" className={linkClass}>
+                {t("nav.dashboard")}
               </NavLink>
               <NavLink to="/schedules" className={linkClass}>
                 {t("nav.schedules")}
+              </NavLink>
+              <NavLink to="/settings/shares" className={linkClass}>
+                🔗 Shares
               </NavLink>
             </>
           ) : (

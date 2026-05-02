@@ -22,7 +22,7 @@ def upgrade() -> None:
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           created_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           execution_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE SET NULL,
+          dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE SET NULL,
           execution_target TEXT NOT NULL
             CHECK (execution_target IN ('server_periodic', 'ide_agent')),
           title TEXT,
@@ -49,9 +49,9 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_workspace
-          ON scheduler_jobs (workspace_id)
-          WHERE workspace_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_dashboard
+          ON scheduler_jobs (dashboard_id)
+          WHERE dashboard_id IS NOT NULL;
         """
     )
     op.execute(

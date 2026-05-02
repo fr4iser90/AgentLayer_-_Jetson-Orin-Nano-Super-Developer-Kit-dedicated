@@ -225,18 +225,36 @@ WORKSPACE_SEARCH_MAX_FILE_BYTES = _env_int("AGENT_WORKSPACE_SEARCH_MAX_FILE_BYTE
 WORKSPACE_MAX_GLOB_FILES = _env_int("AGENT_WORKSPACE_MAX_GLOB_FILES", 2000)
 WORKSPACE_MAX_READ_LINES = _env_int("AGENT_WORKSPACE_MAX_READ_LINES", 8000)
 
-# Workspace UI: binary uploads (e.g. gallery). Operator may override max MB / MIME in DB.
+# Dashboard UI: binary uploads (e.g. gallery). Operator may override max MB / MIME in DB.
 WORKSPACE_UPLOAD_MAX_FILE_MB = max(1, min(_env_int("AGENT_WORKSPACE_UPLOAD_MAX_MB", 10), 512))
 
+# --- Coding tools (dashboard-scoped, container-isolated) ---
+# Root directory for all coding tool file operations; agent cannot escape this tree.
+_CODING_ROOT_RAW = (os.environ.get("AGENT_CODING_ROOT") or "").strip()
+CODING_ROOT: Path | None = Path(_CODING_ROOT_RAW).expanduser() if _CODING_ROOT_RAW else None
+# When true, coding tools are enabled; false → all coding_* tools return disabled error.
+CODING_ENABLED = _env_bool("AGENT_CODING_ENABLED", True)
+# Max file size for coding read/write operations.
+CODING_MAX_FILE_BYTES = _env_int("AGENT_CODING_MAX_FILE_BYTES", 2_000_000)
+# Comma-separated path prefixes that coding tools must NEVER access (resolved, lowercase).
+CODING_PATH_BLOCKLIST = frozenset(
+    x.strip().lower()
+    for x in (
+        os.environ.get("AGENT_CODING_PATH_BLOCKLIST")
+        or "/app,/data/tools,/data/tool_backups,/etc,/usr,/var,/proc,/sys,/root"
+    ).split(",")
+    if x.strip()
+)
 
-def workspace_upload_dir() -> Path:
+
+def WORKSPACE_upload_dir() -> Path:
     raw = (os.environ.get("AGENT_WORKSPACE_UPLOAD_DIR") or "").strip()
     if raw:
         return Path(raw).expanduser()
-    return Path(DATA_DIR) / "workspace_uploads"
+    return Path(DATA_DIR) / "WORKSPACE_uploads"
 
 
-def workspace_upload_env_allowed_mime() -> frozenset[str]:
+def WORKSPACE_upload_env_allowed_mime() -> frozenset[str]:
     raw = (
         os.environ.get("AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME")
         or "image/jpeg,image/png,image/gif,image/webp"
@@ -257,6 +275,11 @@ CREATE_TOOL_CODEGEN_ALLOW_NETWORK = _env_bool("AGENT_CREATE_TOOL_CODEGEN_ALLOW_N
 CREATE_TOOL_CODEGEN_MAX_ATTEMPTS = max(
     1, min(_env_int("AGENT_CREATE_TOOL_CODEGEN_MAX_ATTEMPTS", 1), 20)
 )
+
+# --- Qdrant (vector store for code index) ---
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333").rstrip("/")
+QDRANT_API_KEY = (os.environ.get("QDRANT_API_KEY") or "").strip()
+QDRANT_COLLECTION_CODE = "code_symbols"
 
 # --- PIDEA (DOM / Cursor·VSCode·Windsurf via Playwright + CDP) ---
 # Cursor mit --remote-debugging-port; Playwright nutzt die HTTP-CDP-URL (nicht ws:// direkt).

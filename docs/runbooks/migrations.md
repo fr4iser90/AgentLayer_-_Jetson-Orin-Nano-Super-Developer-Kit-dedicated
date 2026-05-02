@@ -18,7 +18,7 @@ Apply database migrations safely and verify schema state.
 1. Backup DB (if production).
 2. Run Alembic upgrade to head.
 3. Verify required tables exist:
-   - `user_workspaces`, `workspace_members`, `chat_conversations`, `rag_documents`, `rag_chunks`, `user_memory_facts`, `user_memory_notes`, etc.
+   - `user_dashboards`, `dashboard_members`, `chat_conversations`, `rag_documents`, `rag_chunks`, `user_memory_facts`, `user_memory_notes`, etc.
 
 ## Common failures
 

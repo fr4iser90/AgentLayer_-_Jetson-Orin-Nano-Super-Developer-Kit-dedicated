@@ -38,7 +38,7 @@ CREATE UNIQUE INDEX idx_users_tenant_discord_user ON users (tenant_id, discord_u
 CREATE UNIQUE INDEX idx_users_tenant_telegram_user ON users (tenant_id, telegram_user_id)
   WHERE telegram_user_id IS NOT NULL AND btrim(telegram_user_id) <> '';
 
-CREATE TABLE user_workspaces (
+CREATE TABLE user_dashboards (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -50,26 +50,26 @@ CREATE TABLE user_workspaces (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_user_workspaces_tenant ON user_workspaces (tenant_id);
-CREATE INDEX idx_user_workspaces_owner ON user_workspaces (owner_user_id, created_at DESC);
-CREATE INDEX idx_user_workspaces_updated ON user_workspaces (updated_at DESC);
+CREATE INDEX idx_user_dashboards_tenant ON user_dashboards (tenant_id);
+CREATE INDEX idx_user_dashboards_owner ON user_dashboards (owner_user_id, created_at DESC);
+CREATE INDEX idx_user_dashboards_updated ON user_dashboards (updated_at DESC);
 
-CREATE TABLE workspace_block_share_grants (
+CREATE TABLE dashboard_block_share_grants (
   id BIGSERIAL PRIMARY KEY,
-  workspace_id UUID NOT NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  dashboard_id UUID NOT NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
   viewer_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   block_ids TEXT[] NOT NULL DEFAULT '{}',
   permission TEXT NOT NULL DEFAULT 'view',
   created_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id, viewer_user_id)
+  UNIQUE (dashboard_id, viewer_user_id)
 );
 
-CREATE INDEX idx_workspace_block_shares_workspace ON workspace_block_share_grants (workspace_id);
-CREATE INDEX idx_workspace_block_shares_viewer ON workspace_block_share_grants (viewer_user_id);
+CREATE INDEX idx_dashboard_block_shares_dashboard ON dashboard_block_share_grants (dashboard_id);
+CREATE INDEX idx_dashboard_block_shares_viewer ON dashboard_block_share_grants (viewer_user_id);
 
-CREATE TABLE tenant_workspace_installed_template_kinds (
+CREATE TABLE tenant_dashboard_installed_template_kinds (
   tenant_id BIGINT PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
   kinds TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
 );
@@ -249,7 +249,7 @@ CREATE TABLE user_memory_facts (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
   value_json JSONB NOT NULL,
   confidence REAL NOT NULL DEFAULT 1.0,
@@ -262,25 +262,25 @@ CREATE TABLE user_memory_facts (
 
 CREATE UNIQUE INDEX ux_user_memory_facts_global_key
   ON user_memory_facts (tenant_id, user_id, key)
-  WHERE workspace_id IS NULL AND deleted_at IS NULL;
+  WHERE dashboard_id IS NULL AND deleted_at IS NULL;
 
-CREATE UNIQUE INDEX ux_user_memory_facts_workspace_key
-  ON user_memory_facts (tenant_id, user_id, workspace_id, key)
-  WHERE workspace_id IS NOT NULL AND deleted_at IS NULL;
+CREATE UNIQUE INDEX ux_user_memory_facts_dashboard_key
+  ON user_memory_facts (tenant_id, user_id, dashboard_id, key)
+  WHERE dashboard_id IS NOT NULL AND deleted_at IS NULL;
 
 CREATE INDEX idx_user_memory_facts_scope_updated
-  ON user_memory_facts (tenant_id, user_id, workspace_id, updated_at DESC)
+  ON user_memory_facts (tenant_id, user_id, dashboard_id, updated_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_user_memory_facts_scope_expires
-  ON user_memory_facts (tenant_id, user_id, workspace_id, expires_at)
+  ON user_memory_facts (tenant_id, user_id, dashboard_id, expires_at)
   WHERE deleted_at IS NULL;
 
 CREATE TABLE user_memory_notes (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
   tags TEXT[] NOT NULL DEFAULT '{}',
   source TEXT NOT NULL DEFAULT 'user',
@@ -291,7 +291,7 @@ CREATE TABLE user_memory_notes (
 );
 
 CREATE INDEX idx_user_memory_notes_scope_updated
-  ON user_memory_notes (tenant_id, user_id, workspace_id, updated_at DESC)
+  ON user_memory_notes (tenant_id, user_id, dashboard_id, updated_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_user_memory_notes_embedding
@@ -303,7 +303,7 @@ CREATE TABLE user_memory_graph_nodes (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+  dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
   kind TEXT NOT NULL DEFAULT 'event',
   label TEXT NOT NULL,
   summary TEXT NOT NULL DEFAULT '',
@@ -322,7 +322,7 @@ CREATE TABLE user_memory_graph_nodes (
 );
 
 CREATE INDEX idx_user_memory_graph_nodes_scope_updated
-  ON user_memory_graph_nodes (tenant_id, user_id, workspace_id, updated_at DESC)
+  ON user_memory_graph_nodes (tenant_id, user_id, dashboard_id, updated_at DESC)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX idx_user_memory_graph_nodes_subject
@@ -356,7 +356,7 @@ CREATE TABLE user_memory_graph_activation_log (
   id BIGSERIAL PRIMARY KEY,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE SET NULL,
+  dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE SET NULL,
   node_ids BIGINT[] NOT NULL DEFAULT '{}',
   query_sha256 CHAR(64) NULL,
   meta JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -452,8 +452,8 @@ CREATE TABLE operator_settings (
   telegram_bot_agent_bearer TEXT,
   telegram_trigger_prefix TEXT NOT NULL DEFAULT '!agent ',
   telegram_chat_model TEXT,
-  workspace_upload_max_file_mb INTEGER,
-  workspace_upload_allowed_mime TEXT,
+  dashboard_upload_max_file_mb INTEGER,
+  dashboard_upload_allowed_mime TEXT,
   llm_primary_backend TEXT NOT NULL DEFAULT 'ollama',
   llm_smart_routing_enabled BOOLEAN NOT NULL DEFAULT false,
   llm_router_ollama_model TEXT NOT NULL DEFAULT 'nemotron-3-nano:4b',
@@ -524,16 +524,16 @@ COMMENT ON COLUMN operator_tool_policies.allowed_tenant_ids IS
 
 COMMENT ON COLUMN operator_settings.agent_mode IS
   'sandbox | host; NULL = use AGENT_MODE from environment.';
-COMMENT ON COLUMN operator_settings.workspace_upload_max_file_mb IS
-  'Max upload size per file (MB); NULL = use AGENT_WORKSPACE_UPLOAD_MAX_MB.';
-COMMENT ON COLUMN operator_settings.workspace_upload_allowed_mime IS
-  'Comma-separated MIME allowlist; NULL = use AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME.';
+COMMENT ON COLUMN operator_settings.dashboard_upload_max_file_mb IS
+  'Max upload size per file (MB); NULL = use AGENT_DASHBOARD_UPLOAD_MAX_MB.';
+COMMENT ON COLUMN operator_settings.dashboard_upload_allowed_mime IS
+  'Comma-separated MIME allowlist; NULL = use AGENT_DASHBOARD_UPLOAD_ALLOWED_MIME.';
 
-CREATE TABLE workspace_files (
+CREATE TABLE dashboard_files (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  workspace_id UUID NOT NULL,
+  dashboard_id UUID NOT NULL,
   storage_relpath TEXT NOT NULL UNIQUE,
   content_type TEXT NOT NULL,
   size_bytes BIGINT NOT NULL,
@@ -541,18 +541,18 @@ CREATE TABLE workspace_files (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_workspace_files_owner ON workspace_files (owner_user_id, created_at DESC);
-CREATE INDEX idx_workspace_files_workspace ON workspace_files (workspace_id);
+CREATE INDEX idx_dashboard_files_owner ON dashboard_files (owner_user_id, created_at DESC);
+CREATE INDEX idx_dashboard_files_dashboard ON dashboard_files (dashboard_id);
 
-CREATE TABLE workspace_members (
-  workspace_id UUID NOT NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+CREATE TABLE dashboard_members (
+  dashboard_id UUID NOT NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'co_owner')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, user_id)
+  PRIMARY KEY (dashboard_id, user_id)
 );
 
-CREATE INDEX idx_workspace_members_user ON workspace_members (user_id);
+CREATE INDEX idx_dashboard_members_user ON dashboard_members (user_id);
 
 -- Server-side chat threads (first-party UI sync; per user, per tenant).
 
@@ -560,7 +560,7 @@ CREATE TABLE chat_conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  workspace_id UUID REFERENCES user_workspaces(id) ON DELETE SET NULL,
+  dashboard_id UUID REFERENCES user_dashboards(id) ON DELETE SET NULL,
   title TEXT NOT NULL DEFAULT '',
   mode TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'agent')),
   model TEXT NOT NULL DEFAULT '',
@@ -572,13 +572,13 @@ CREATE TABLE chat_conversations (
 
 CREATE INDEX idx_chat_conv_user_updated ON chat_conversations (user_id, updated_at DESC);
 CREATE INDEX idx_chat_conv_tenant ON chat_conversations (tenant_id);
-CREATE INDEX idx_chat_conv_workspace ON chat_conversations (workspace_id);
-CREATE UNIQUE INDEX uq_chat_conv_user_workspace_personal
-  ON chat_conversations (user_id, workspace_id)
-  WHERE workspace_id IS NOT NULL AND shared = false;
-CREATE UNIQUE INDEX uq_chat_conv_workspace_shared
-  ON chat_conversations (workspace_id)
-  WHERE workspace_id IS NOT NULL AND shared = true;
+CREATE INDEX idx_chat_conv_dashboard ON chat_conversations (dashboard_id);
+CREATE UNIQUE INDEX uq_chat_conv_user_dashboard_personal
+  ON chat_conversations (user_id, dashboard_id)
+  WHERE dashboard_id IS NOT NULL AND shared = false;
+CREATE UNIQUE INDEX uq_chat_conv_dashboard_shared
+  ON chat_conversations (dashboard_id)
+  WHERE dashboard_id IS NOT NULL AND shared = true;
 
 CREATE TABLE chat_messages (
   id BIGSERIAL PRIMARY KEY,

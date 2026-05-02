@@ -22,7 +22,7 @@ AgentLayer can run a Discord bridge that forwards messages (e.g. `!agent ...`) i
 - `!agent memory` → `memory_fact_list` + `memory_note_search`
 - `!agent forget key` / `!agent forget note <id>`
 
-### Workspaces
+### Dashboards
 
 Prefer “open in UI” for complex edits. Use tools for quick reads/patches:
 

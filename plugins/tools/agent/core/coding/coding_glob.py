@@ -1,0 +1,132 @@
+"""Glob files matching a pattern within the coding root."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any, Callable
+
+from apps.backend.core.config import config as _global_config
+
+from plugins.tools.agent.core.coding.coding_common import (
+    coding_root,
+    is_probably_text,
+    validate_coding_path,
+    _disabled_error,
+    _no_root_error,
+)
+
+__version__ = "1.0.0"
+TOOL_ID = "coding_glob"
+TOOL_BUCKET = "files"
+TOOL_DOMAIN = "coding"
+TOOL_TRIGGERS = ("coding glob", "find files", "glob pattern", "file pattern")
+TOOL_CAPABILITIES = ("coding.read",)
+TOOL_LABEL = "Coding: Glob"
+TOOL_DESCRIPTION = (
+    "Find files matching a glob pattern within the coding workspace. "
+    "Supports ** recursive patterns. Results sorted by modification time (newest first). "
+    "Truncated after 100 files."
+)
+
+MAX_FILES = _global_config.WORKSPACE_MAX_GLOB_FILES
+
+
+def coding_glob(arguments: dict[str, Any]) -> str:
+    pattern = (arguments.get("pattern") or "").strip()
+    if not pattern:
+        return json.dumps({"ok": False, "error": "pattern is required"}, ensure_ascii=False)
+    root = coding_root()
+    if root is None:
+        return _no_root_error()
+    if not _global_config.CODING_ENABLED:
+        return _disabled_error()
+    path_rel = (arguments.get("path") or "").strip() or "."
+    resolved, err = validate_coding_path(path_rel)
+    if err:
+        return err
+    assert resolved is not None
+    if not resolved.is_dir():
+        return json.dumps(
+            {"ok": False, "error": "path must be a directory"},
+            ensure_ascii=False,
+        )
+    matches: list[dict[str, Any]] = []
+    try:
+        root_r = root.resolve()
+        for p in resolved.glob(pattern):
+            if not p.is_file():
+                continue
+            try:
+                real = p.resolve()
+                real.relative_to(root_r)
+            except (ValueError, OSError):
+                continue
+            try:
+                rel = real.relative_to(resolved)
+            except ValueError:
+                continue
+            try:
+                st = p.stat()
+                mtime = st.st_mtime
+                size = st.st_size
+            except OSError:
+                mtime = 0
+                size = 0
+            matches.append({
+                "path": str(rel).replace("\\", "/"),
+                "full_path": str(real).replace("\\", "/"),
+                "size_bytes": size,
+                "mtime": mtime,
+            })
+            if len(matches) >= MAX_FILES:
+                break
+    except OSError as e:
+        return json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False)
+    matches.sort(key=lambda m: m["mtime"], reverse=True)
+    truncated = len(matches) >= MAX_FILES
+    if truncated:
+        matches = matches[:MAX_FILES]
+    out = [m["path"] for m in matches]
+    return json.dumps(
+        {
+            "ok": True,
+            "pattern": pattern,
+            "path": path_rel.replace("\\", "/"),
+            "files": out,
+            "truncated": truncated,
+            "max_files": MAX_FILES,
+            "count": len(out),
+        },
+        ensure_ascii=False,
+    )
+
+
+HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "coding_glob": coding_glob,
+}
+
+TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "coding_glob",
+            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Glob pattern, e.g. **/*.py, src/**/*.ts",
+                    },
+                    "path": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": "Base directory (default: coding root)",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+]

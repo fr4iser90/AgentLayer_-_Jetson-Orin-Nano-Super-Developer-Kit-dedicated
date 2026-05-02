@@ -6,7 +6,7 @@ tags: [api, http]
 
 ## Overview
 
-AgentLayer exposes an OpenAI-compatible chat endpoint plus app-specific endpoints (workspaces, user data, tools).
+AgentLayer exposes an OpenAI-compatible chat endpoint plus app-specific endpoints (dashboards, user data, tools).
 
 This page is a **high-signal index**, not an exhaustive OpenAPI reference.
 
@@ -21,27 +21,27 @@ This page is a **high-signal index**, not an exhaustive OpenAPI reference.
 Planner loop:
 - `src/domain/agent.py::chat_completion`
 
-## Workspaces
+## Dashboards
 
-- `GET /v1/workspaces` — list workspaces + schema state + kind catalog
-- `POST /v1/workspaces` — create new workspace from kind template
-- `GET /v1/workspaces/{id}` — load one workspace
-- `PATCH /v1/workspaces/{id}` — update title/ui_layout/data
-- `DELETE /v1/workspaces/{id}` — delete (owner only)
+- `GET /v1/dashboards` — list dashboards + schema state + kind catalog
+- `POST /v1/dashboards` — create new dashboard from kind template
+- `GET /v1/dashboards/{id}` — load one dashboard
+- `PATCH /v1/dashboards/{id}` — update title/ui_layout/data
+- `DELETE /v1/dashboards/{id}` — delete (owner only)
 
 Sharing:
 
-- `GET /v1/workspaces/{id}/members`
-- `POST /v1/workspaces/{id}/members`
-- `DELETE /v1/workspaces/{id}/members/{user_id}`
+- `GET /v1/dashboards/{id}/members`
+- `POST /v1/dashboards/{id}/members`
+- `DELETE /v1/dashboards/{id}/members/{user_id}`
 
 Uploads:
 
-- `POST /v1/workspaces/{id}/files`
-- `GET /v1/workspaces/files/{file_id}/content`
+- `POST /v1/dashboards/{id}/files`
+- `GET /v1/dashboards/files/{file_id}/content`
 
 Implementation:
-- `src/workspace/router.py`
+- `src/dashboard/router.py`
 
 ## Tools
 
@@ -61,13 +61,13 @@ Memory (facts + notes + graph):
 - `POST /v1/user/memory/notes`
 - `GET /v1/user/memory/notes/search`
 - `DELETE /v1/user/memory/notes/{note_id}`
-- `POST /v1/user/memory/graph/nodes` — structured graph node (label, summary, optional `workspace_id`)
+- `POST /v1/user/memory/graph/nodes` — structured graph node (label, summary, optional `dashboard_id`)
 - `POST /v1/user/memory/graph/edges` — link two node ids (`src_node_id`, `dst_node_id`)
 - `GET /v1/user/memory/graph/nodes`
 - `DELETE /v1/user/memory/graph/nodes/{node_id}`
 - `GET /v1/user/memory/graph/stats` — counts (nodes, missing embeddings, goal nodes, conflict groups)
 - `GET /v1/user/memory/graph/activation-log?limit=100` — recent graph activation events (requires **`memory_graph_log_activations`** in operator settings + migration `schema_019`)
-- `POST /v1/user/memory/graph/propose` — body `{ "text": "...", "apply": false, "workspace_id": null }` — LLM proposes nodes/edges; set `apply` true to persist
+- `POST /v1/user/memory/graph/propose` — body `{ "text": "...", "apply": false, "dashboard_id": null }` — LLM proposes nodes/edges; set `apply` true to persist
 
 ## RAG (admin)
 

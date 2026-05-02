@@ -1,4 +1,4 @@
-"""Agent tools for ``kind: todo`` workspaces — checkbox tasks, optional due hints, notes (see ``workspace/tasks``)."""
+"""Agent tools for ``kind: todo`` dashboards — checkbox tasks, optional due hints, notes (see ``dashboard/tasks``)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import uuid
 from typing import Any, Callable
 
 from apps.backend.domain.identity import get_identity
-from apps.backend.workspace import db as workspace_db
-from apps.backend.workspace.tool_workspace_resolve import (
-    resolve_workspace_id_for_kind,
-    workspace_rows_for_kind,
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard.tool_dashboard_resolve import (
+    resolve_dashboard_id_for_kind,
+    dashboard_rows_for_kind,
 )
 
 __version__ = "1.0.0"
@@ -19,10 +19,10 @@ TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "tasks"
 TOOL_LABEL = "Task list"
 TOOL_DESCRIPTION = (
-    "Read and update task-list workspaces (kind todo): checkbox tasks (title, optional due text), "
+    "Read and update task-list dashboards (kind todo): checkbox tasks (title, optional due text), "
     "and markdown notes. This is the correct tool for todos / tasks / checklists — not ideas or shopping. "
-    "workspace_id is optional when the user has exactly one todo board; if several exist, call "
-    "todo_workspaces or pass workspace_id. Prefer [Workspace context] when present."
+    "dashboard_id is optional when the user has exactly one todo board; if several exist, call "
+    "todo_dashboards or pass dashboard_id. Prefer [Dashboard context] when present."
 )
 TOOL_TRIGGERS = (
     "todo",
@@ -37,7 +37,7 @@ TOOL_TRIGGERS = (
     "erledigt",
     "fällig",
 )
-TOOL_CAPABILITIES = ("workspace.todo.read", "workspace.todo.write")
+TOOL_CAPABILITIES = ("dashboard.todo.read", "dashboard.todo.write")
 
 _MAX_TASKS = 500
 _MAX_BATCH = 40
@@ -58,7 +58,7 @@ def _identity() -> tuple[int, uuid.UUID] | None:
 
 def _ensure_todo(ws: dict[str, Any]) -> str | None:
     if (ws.get("kind") or "").strip() != "todo":
-        return "workspace is not a todo (task list) kind"
+        return "dashboard is not a todo (task list) kind"
     return None
 
 
@@ -113,34 +113,34 @@ def _coerce_task_list(arguments: dict[str, Any]) -> list[Any] | None:
     return None
 
 
-def todo_workspaces(arguments: dict[str, Any]) -> str:
-    """List todo (task list) workspaces for the current user."""
+def todo_dashboards(arguments: dict[str, Any]) -> str:
+    """List todo (task list) dashboards for the current user."""
     del arguments
     ident = _identity()
     if ident is None:
         return _err("No user identity — todo tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_rows_for_kind(uid, tid, "todo")
+    rows = dashboard_rows_for_kind(uid, tid, "todo")
     out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
-    return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboards": out}, ensure_ascii=False)
 
 
 def todo_read(arguments: dict[str, Any]) -> str:
-    """Return tasks and notes for one todo workspace."""
+    """Return tasks and notes for one todo dashboard."""
     ident = _identity()
     if ident is None:
         return _err("No user identity — todo tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="todo", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="todo", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_todo(ws)
     if bad:
         return _err(bad)
@@ -156,7 +156,7 @@ def todo_read(arguments: dict[str, Any]) -> str:
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "title": ws.get("title") or "",
             "tasks": tasks,
             "notes": notes,
@@ -166,7 +166,7 @@ def todo_read(arguments: dict[str, Any]) -> str:
 
 
 def todo_add_tasks(arguments: dict[str, Any]) -> str:
-    """Append tasks to a todo workspace."""
+    """Append tasks to a todo dashboard."""
     raw = _coerce_task_list(arguments)
     if not raw:
         return _err(
@@ -179,15 +179,15 @@ def todo_add_tasks(arguments: dict[str, Any]) -> str:
         return _err("No user identity — todo tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="todo", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="todo", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_todo(ws)
     if bad:
         return _err(bad)
@@ -217,14 +217,14 @@ def todo_add_tasks(arguments: dict[str, Any]) -> str:
     if "notes" not in data:
         data["notes"] = ""
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "added": len(new_rows),
             "tasks_count": len(merged),
         },
@@ -233,7 +233,7 @@ def todo_add_tasks(arguments: dict[str, Any]) -> str:
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "todo_workspaces": todo_workspaces,
+    "todo_dashboards": todo_dashboards,
     "todo_read": todo_read,
     "todo_add_tasks": todo_add_tasks,
 }
@@ -242,10 +242,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "todo_workspaces",
+            "name": "todo_dashboards",
             "TOOL_DESCRIPTION": (
-                "List task-list workspaces (kind todo). Call when which board is unclear and "
-                "there is no [Workspace context] workspace_id, or the user may mean a list other than the default."
+                "List task-list dashboards (kind todo). Call when which board is unclear and "
+                "there is no [Dashboard context] dashboard_id, or the user may mean a list other than the default."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -255,15 +255,15 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "todo_read",
             "TOOL_DESCRIPTION": (
-                "Read tasks and markdown notes for one todo (task list) workspace. "
-                "Omit workspace_id when the user has exactly one todo board; else pass UUID or list workspaces."
+                "Read tasks and markdown notes for one todo (task list) dashboard. "
+                "Omit dashboard_id when the user has exactly one todo board; else pass UUID or list dashboards."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single todo workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single todo dashboard).",
                     },
                 },
                 "required": [],
@@ -278,15 +278,15 @@ TOOLS: list[dict[str, Any]] = [
                 "Add one or more tasks (title required; optional due text, optional done). "
                 "Pass a JSON array in tasks=[...]. Do not output JSON in chat — call this tool. "
                 "If you mistakenly use rows= like ideas/shopping, that is accepted as alias. "
-                "Use for todos / task lists — not shopping or ideas workspaces. "
-                "Omit workspace_id when the user has exactly one todo workspace."
+                "Use for todos / task lists — not shopping or ideas dashboards. "
+                "Omit dashboard_id when the user has exactly one todo dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single todo workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single todo dashboard).",
                     },
                     "tasks": {
                         "type": "array",

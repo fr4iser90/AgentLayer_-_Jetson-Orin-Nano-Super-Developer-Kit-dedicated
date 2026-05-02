@@ -1,4 +1,4 @@
-"""Agent tools for ``kind: shopping_list`` workspaces — list, read, items, preferences, price log."""
+"""Agent tools for ``kind: shopping_list`` dashboards — list, read, items, preferences, price log."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import uuid
 from typing import Any, Callable
 
 from apps.backend.domain.identity import get_identity
-from apps.backend.workspace import db as workspace_db
-from apps.backend.workspace.tool_workspace_resolve import (
-    resolve_workspace_id_for_kind,
-    workspace_rows_for_kind,
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard.tool_dashboard_resolve import (
+    resolve_dashboard_id_for_kind,
+    dashboard_rows_for_kind,
 )
 
 __version__ = "1.1.0"
@@ -19,10 +19,10 @@ TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "shopping"
 TOOL_LABEL = "Shopping list"
 TOOL_DESCRIPTION = (
-    "Read and update shopping list workspaces (kind shopping_list): lists, items, notes, "
+    "Read and update shopping list dashboards (kind shopping_list): lists, items, notes, "
     "store/brand preferences (data.preferences), and append-only price snapshots (data.price_log). "
-    "workspace_id is optional when the user has exactly one shopping_list board; if several exist, "
-    "call shopping_list_workspaces or pass workspace_id. Prefer [Workspace context] when present. "
+    "dashboard_id is optional when the user has exactly one shopping_list board; if several exist, "
+    "call shopping_list_dashboards or pass dashboard_id. Prefer [Dashboard context] when present. "
     "Does not fetch live prices from the internet — stored prefs and documented research only."
 )
 TOOL_TRIGGERS = (
@@ -33,7 +33,7 @@ TOOL_TRIGGERS = (
     "groceries",
     # Avoid bare "liste" — it matches "To-do-Liste" / task lists (wrong category).
 )
-TOOL_CAPABILITIES = ("workspace.shopping.read", "workspace.shopping.write")
+TOOL_CAPABILITIES = ("dashboard.shopping.read", "dashboard.shopping.write")
 
 _MAX_ITEMS = 500
 _MAX_BATCH = 40
@@ -53,7 +53,7 @@ def _identity() -> tuple[int, uuid.UUID] | None:
 
 def _ensure_shopping(ws: dict[str, Any]) -> str | None:
     if (ws.get("kind") or "").strip() != "shopping_list":
-        return "workspace is not a shopping_list kind"
+        return "dashboard is not a shopping_list kind"
     return None
 
 
@@ -84,34 +84,34 @@ def _normalize_row(entry: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def shopping_list_workspaces(arguments: dict[str, Any]) -> str:
-    """List shopping_list workspaces for the current user."""
+def shopping_list_dashboards(arguments: dict[str, Any]) -> str:
+    """List shopping_list dashboards for the current user."""
     del arguments
     ident = _identity()
     if ident is None:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_rows_for_kind(uid, tid, "shopping_list")
+    rows = dashboard_rows_for_kind(uid, tid, "shopping_list")
     out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
-    return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboards": out}, ensure_ascii=False)
 
 
 def shopping_list_read(arguments: dict[str, Any]) -> str:
-    """Return items and notes for one shopping list workspace."""
+    """Return items and notes for one shopping list dashboard."""
     ident = _identity()
     if ident is None:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="shopping_list", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="shopping_list", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_shopping(ws)
     if bad:
         return _err(bad)
@@ -133,7 +133,7 @@ def shopping_list_read(arguments: dict[str, Any]) -> str:
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "title": ws.get("title") or "",
             "items": items,
             "notes": notes,
@@ -145,7 +145,7 @@ def shopping_list_read(arguments: dict[str, Any]) -> str:
 
 
 def shopping_list_add_items(arguments: dict[str, Any]) -> str:
-    """Append items to a shopping_list workspace."""
+    """Append items to a shopping_list dashboard."""
     raw_items = arguments.get("items")
     if not isinstance(raw_items, list) or not raw_items:
         return _err("items must be a non-empty array of {name, qty?, store?}")
@@ -155,15 +155,15 @@ def shopping_list_add_items(arguments: dict[str, Any]) -> str:
         return _err("No user identity — shopping list tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="shopping_list", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="shopping_list", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_shopping(ws)
     if bad:
         return _err(bad)
@@ -195,14 +195,14 @@ def shopping_list_add_items(arguments: dict[str, Any]) -> str:
     if "notes" not in data:
         data["notes"] = ""
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "added": len(new_rows),
             "items_count": len(merged),
         },
@@ -211,7 +211,7 @@ def shopping_list_add_items(arguments: dict[str, Any]) -> str:
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "shopping_list_workspaces": shopping_list_workspaces,
+    "shopping_list_dashboards": shopping_list_dashboards,
     "shopping_list_read": shopping_list_read,
     "shopping_list_add_items": shopping_list_add_items,
 }
@@ -220,10 +220,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "shopping_list_workspaces",
+            "name": "shopping_list_dashboards",
             "TOOL_DESCRIPTION": (
-                "List shopping list workspaces the user can open (kind shopping_list). "
-                "Call when which list is unclear and there is no [Workspace context] workspace_id, "
+                "List shopping list dashboards the user can open (kind shopping_list). "
+                "Call when which list is unclear and there is no [Dashboard context] dashboard_id, "
                 "or the user may mean a list other than the default context."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
@@ -234,15 +234,15 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "shopping_list_read",
             "TOOL_DESCRIPTION": (
-                "Read the current items and markdown notes for one shopping list workspace. "
-                "Omit workspace_id when the user has exactly one shopping_list board; else pass UUID or list workspaces."
+                "Read the current items and markdown notes for one shopping list dashboard. "
+                "Omit dashboard_id when the user has exactly one shopping_list board; else pass UUID or list dashboards."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list dashboard).",
                     },
                 },
                 "required": [],
@@ -255,14 +255,14 @@ TOOLS: list[dict[str, Any]] = [
             "name": "shopping_list_add_items",
             "TOOL_DESCRIPTION": (
                 "Add one or more rows to a shopping list (name, optional qty, optional store). "
-                "Omit workspace_id when the user has exactly one shopping_list workspace."
+                "Omit dashboard_id when the user has exactly one shopping_list dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single shopping_list dashboard).",
                     },
                     "items": {
                         "type": "array",

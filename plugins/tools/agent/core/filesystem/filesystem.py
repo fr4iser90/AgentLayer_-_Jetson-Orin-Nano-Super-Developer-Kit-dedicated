@@ -32,7 +32,7 @@ TOOL_TRIGGERS = (
     "list directory",
     "filesystem",
 )
-TOOL_CAPABILITIES = ("workspace.files",)
+TOOL_CAPABILITIES = ("dashboard.files",)
 
 MAX_FILE_BYTES = config.WORKSPACE_MAX_FILE_BYTES
 MAX_LIST_ENTRIES = config.WORKSPACE_MAX_LIST_ENTRIES

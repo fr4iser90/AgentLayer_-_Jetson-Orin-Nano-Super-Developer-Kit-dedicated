@@ -18,7 +18,7 @@ Accepted — complements ADR 0001.
 | `meta.inspect` | Load full schema or source (`get_tool_help`, `read_tool`). |
 | `meta.author` | Create/update/replace/rename tool modules. |
 | `secrets.user` | Register or document user secrets. |
-| `workspace.files` | Local filesystem read/write/search on host. |
+| `dashboard.files` | Local filesystem read/write/search on host. |
 | `environment.snapshot` | Structured outdoor/device snapshot (not “weather API” — that is `weather.observe`). |
 | `weather.observe` | Current conditions + forecast from a weather API. |
 | `web.search` | Web search / crawl helpers. |

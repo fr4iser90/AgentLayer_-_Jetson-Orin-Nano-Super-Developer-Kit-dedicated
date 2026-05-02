@@ -26,11 +26,11 @@ tags: [runbook, troubleshooting]
 
 - Fix Docker DNS / resolv.conf / network; retry worker
 
-## Workspace uploads not visible
+## Dashboard uploads not visible
 
 **Checks**
 
-- `workspace_files` table exists (migration)
+- `dashboard_files` table exists (migration)
 - upload dir configured and writable
-- `wsfile:` URLs rendered in `WorkspaceBlocks.tsx` (`GalleryImage`)
+- `wsfile:` URLs rendered in `DashboardBlocks.tsx` (`GalleryImage`)
 

@@ -25,7 +25,7 @@
             },
             {
                 "rule_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query",
-                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/workspace/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
+                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/dashboard/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
                 "message_regex": "Avoiding SQL string concatenation|raw query",
                 "reason": "Dynamic SQL builds fixed clause shapes (OR/SET fragments); user-derived values use %s placeholders. Memory-graph keyword branch repeats (label ILIKE %s OR summary ILIKE %s) per token—tokens never interpolated as SQL keywords."
             },
@@ -55,9 +55,9 @@
             },
             {
                 "rule_id": "javascript.lang.security.audit.prototype-pollution.prototype-pollution-loop.prototype-pollution-loop",
-                "path_regex": ".*/apps/frontend/apps/backend/features/workspace/workspaceDataPaths\\.ts$",
+                "path_regex": ".*/apps/frontend/apps/backend/features/dashboard/dashboardDataPaths\\.ts$",
                 "message_regex": "prototype|pollution",
-                "reason": "Paths are workspace dataPath strings; __proto__/constructor/prototype segments are now rejected. Residual scanner noise may remain on older branches."
+                "reason": "Paths are dashboard dataPath strings; __proto__/constructor/prototype segments are now rejected. Residual scanner noise may remain on older branches."
             },
             {
                 "rule_id": "javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket",
@@ -155,7 +155,7 @@
             },
             {
                 "rule_id": "B608",
-                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/workspace/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
+                "path_regex": ".*/(apps/backend/infrastructure/conversations_db\\.py|apps/backend/dashboard/db\\.py|apps/backend/infrastructure/db/db\\.py)$",
                 "message_regex": "SQL injection|string-based query",
                 "reason": "f-string only joins fixed SQL fragments; values use %s placeholders. Memory graph keyword OR clause repeats parameterized ILIKE patterns per token."
             },

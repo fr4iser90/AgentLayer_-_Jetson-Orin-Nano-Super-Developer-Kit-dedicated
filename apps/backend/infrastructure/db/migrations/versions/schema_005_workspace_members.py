@@ -1,4 +1,4 @@
-"""workspace_members: share workspaces (viewer/editor) within tenant.
+"""dashboard_members: share dashboards (viewer/editor) within tenant.
 
 Revision ID: schema_005
 Revises: schema_004
@@ -17,21 +17,21 @@ depends_on = None
 def upgrade() -> None:
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS workspace_members (
-          workspace_id UUID NOT NULL,
+        CREATE TABLE IF NOT EXISTS dashboard_members (
+          dashboard_id UUID NOT NULL,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          PRIMARY KEY (workspace_id, user_id)
+          PRIMARY KEY (dashboard_id, user_id)
         );
         """
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workspace_members_user "
-        "ON workspace_members (user_id);"
+        "CREATE INDEX IF NOT EXISTS idx_dashboard_members_user "
+        "ON dashboard_members (user_id);"
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_workspace_members_user;")
-    op.execute("DROP TABLE IF EXISTS workspace_members;")
+    op.execute("DROP INDEX IF EXISTS idx_dashboard_members_user;")
+    op.execute("DROP TABLE IF EXISTS dashboard_members;")

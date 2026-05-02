@@ -66,8 +66,8 @@ def _fetch_row() -> dict[str, Any]:
         "telegram_bot_agent_bearer": None,
         "telegram_trigger_prefix": "!agent ",
         "telegram_chat_model": None,
-        "workspace_upload_max_file_mb": None,
-        "workspace_upload_allowed_mime": None,
+        "dashboard_upload_max_file_mb": None,
+        "dashboard_upload_allowed_mime": None,
         "llm_primary_backend": "ollama",
         "llm_smart_routing_enabled": False,
         "llm_router_ollama_model": "nemotron-3-nano:4b",
@@ -114,42 +114,47 @@ def _fetch_row() -> dict[str, Any]:
         "scheduler_jobs_worker_enabled": True,
         "scheduler_jobs_ide_pidea_enabled": True,
         "scheduler_jobs_ide_pidea_timeout_sec": 300.0,
+        "workspace_allow_self_editing": False,
     }
-    with db.pool().connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT discord_application_id, integration_notes,
-                       optional_connection_key, agent_mode,
-                       discord_bot_enabled, discord_bot_token, discord_bot_agent_bearer,
-                       discord_trigger_prefix, discord_chat_model,
-                       telegram_application_id, telegram_bot_enabled, telegram_bot_token,
-                       telegram_bot_agent_bearer, telegram_trigger_prefix, telegram_chat_model,
-                       workspace_upload_max_file_mb, workspace_upload_allowed_mime,
-                       llm_primary_backend,
-                       llm_smart_routing_enabled, llm_router_ollama_model,
-                       llm_router_local_confidence_min, llm_router_timeout_sec,
-                       llm_route_long_prompt_chars, llm_route_short_local_max_chars,
-                       llm_route_many_code_fences, llm_route_many_messages,
-                       memory_graph_enabled, memory_graph_max_hops, memory_graph_min_score,
-                       memory_graph_max_bullets, memory_graph_max_prompt_chars,
-                       memory_graph_log_activations,
-                       memory_enabled, rag_enabled, rag_ollama_model, rag_embedding_dim,
-                       rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
-                       rag_tenant_shared_domains, docs_root,
-                       pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version,
-                       expose_internal_errors, http_client_log_level,
-                       scheduler_enabled, scheduler_interval_minutes, scheduler_user_id,
-                       scheduler_model, scheduler_max_tool_rounds, scheduler_notify_only_if_not_ok,
-                       scheduler_max_outbound_per_day, scheduler_allowed_tool_packages,
-                       scheduler_llm_backend, scheduler_tools_mode, scheduler_pidea_enabled,
-                       scheduler_instructions,
-                       scheduler_jobs_worker_enabled, scheduler_jobs_ide_pidea_enabled,
-                       scheduler_jobs_ide_pidea_timeout_sec
-                FROM operator_settings WHERE id = 1
-                """
-            )
-            row = cur.fetchone()
+    try:
+        with db.pool().connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT discord_application_id, integration_notes,
+                           optional_connection_key, agent_mode,
+                           discord_bot_enabled, discord_bot_token, discord_bot_agent_bearer,
+                           discord_trigger_prefix, discord_chat_model,
+                           telegram_application_id, telegram_bot_enabled, telegram_bot_token,
+                           telegram_bot_agent_bearer, telegram_trigger_prefix, telegram_chat_model,
+                           dashboard_upload_max_file_mb, dashboard_upload_allowed_mime,
+                           llm_primary_backend,
+                           llm_smart_routing_enabled, llm_router_ollama_model,
+                           llm_router_local_confidence_min, llm_router_timeout_sec,
+                           llm_route_long_prompt_chars, llm_route_short_local_max_chars,
+                           llm_route_many_code_fences, llm_route_many_messages,
+                           memory_graph_enabled, memory_graph_max_hops, memory_graph_min_score,
+                           memory_graph_max_bullets, memory_graph_max_prompt_chars,
+                           memory_graph_log_activations,
+                           memory_enabled, rag_enabled, rag_ollama_model, rag_embedding_dim,
+                           rag_chunk_size, rag_chunk_overlap, rag_top_k, rag_embed_timeout_sec,
+                           rag_tenant_shared_domains, docs_root,
+                           pidea_enabled, pidea_cdp_http_url, pidea_selector_ide, pidea_selector_version,
+                           expose_internal_errors, http_client_log_level,
+                           scheduler_enabled, scheduler_interval_minutes, scheduler_user_id,
+                           scheduler_model, scheduler_max_tool_rounds, scheduler_notify_only_if_not_ok,
+                           scheduler_max_outbound_per_day, scheduler_allowed_tool_packages,
+                           scheduler_llm_backend, scheduler_tools_mode, scheduler_pidea_enabled,
+                           scheduler_instructions,
+                    scheduler_jobs_worker_enabled, scheduler_jobs_ide_pidea_enabled,
+                           scheduler_jobs_ide_pidea_timeout_sec,
+                           workspace_allow_self_editing
+                    FROM operator_settings WHERE id = 1
+                    """
+                )
+                row = cur.fetchone()
+    except Exception:
+        return dict(empty)
     if not row:
         return dict(empty)
     return {
@@ -172,8 +177,8 @@ def _fetch_row() -> dict[str, Any]:
             str(row[13]).strip()[:64] if row[13] is not None else "!agent "
         ),
         "telegram_chat_model": row[14],
-        "workspace_upload_max_file_mb": row[15],
-        "workspace_upload_allowed_mime": row[16],
+        "dashboard_upload_max_file_mb": row[15],
+        "dashboard_upload_allowed_mime": row[16],
         "llm_primary_backend": (str(row[17]).strip().lower() if row[17] is not None else "") or "ollama",
         "llm_smart_routing_enabled": bool(row[18]) if row[18] is not None else False,
         "llm_router_ollama_model": (str(row[19]).strip() if row[19] is not None else "") or "nemotron-3-nano:4b",
@@ -224,6 +229,7 @@ def _fetch_row() -> dict[str, Any]:
         "scheduler_jobs_ide_pidea_timeout_sec": float(row[62])
         if len(row) > 62 and row[62] is not None
         else 300.0,
+        "workspace_allow_self_editing": bool(row[63]) if len(row) > 63 and row[63] is not None else False,
     }
 
 
@@ -249,10 +255,10 @@ def resolved_agent_mode() -> Literal["sandbox", "host"]:
     return "sandbox"
 
 
-def effective_workspace_upload_max_bytes() -> int:
+def effective_dashboard_upload_max_bytes() -> int:
     """DB override (MB) when set; else ``WORKSPACE_UPLOAD_MAX_FILE_MB`` from env."""
     r = _cached_row()
-    v = r.get("workspace_upload_max_file_mb")
+    v = r.get("dashboard_upload_max_file_mb")
     if v is not None:
         try:
             mb = int(v)
@@ -593,13 +599,13 @@ def _telegram_trigger_prefix_sql(r: dict[str, Any]) -> str:
     return str(v)[:64]
 
 
-def effective_workspace_upload_mime() -> frozenset[str]:
-    """Comma allowlist from DB when set; else env ``AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME``."""
+def effective_dashboard_upload_mime() -> frozenset[str]:
+    """Comma allowlist from DB when set; else env ``AGENT_DASHBOARD_UPLOAD_ALLOWED_MIME``."""
     r = _cached_row()
-    raw = r.get("workspace_upload_allowed_mime")
+    raw = r.get("dashboard_upload_allowed_mime")
     if isinstance(raw, str) and raw.strip():
         return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
-    return app_config.workspace_upload_env_allowed_mime()
+    return app_config.WORKSPACE_upload_env_allowed_mime()
 
 
 def pidea_effective_enabled() -> bool:
@@ -612,31 +618,31 @@ def pidea_effective_enabled() -> bool:
     return bool(_cached_row().get("pidea_enabled", False))
 
 
-def resolved_pidea_connection_config() -> Any:
-    """``ConnectionConfig`` for PIDEA (DB overrides, sonst ``config``)."""
-    from apps.backend.integrations.pidea.types import ConnectionConfig
+# def resolved_pidea_connection_config() -> Any:
+#     """``ConnectionConfig`` for PIDEA (DB overrides, sonst ``config``)."""
+#     from apps.backend.integrations.pidea.types import ConnectionConfig
 
-    r = _cached_row()
-    cdp = (
-        str(r.get("pidea_cdp_http_url") or "").strip().rstrip("/")
-        or str(getattr(config, "PIDEA_CDP_HTTP_URL", "") or "").strip().rstrip("/")
-        or "http://0.0.0.0:9222"
-    )
-    ide = (
-        str(r.get("pidea_selector_ide") or "").strip().lower()
-        or str(getattr(config, "PIDEA_SELECTOR_IDE", "cursor") or "").strip().lower()
-    )
-    ver = (
-        str(r.get("pidea_selector_version") or "").strip()
-        or str(getattr(config, "PIDEA_SELECTOR_VERSION", "1.7.17") or "").strip()
-    )
-    timeout = int(getattr(config, "PIDEA_DEFAULT_TIMEOUT_MS", 30_000))
-    return ConnectionConfig(
-        cdp_http_url=cdp,
-        selector_ide=ide,
-        selector_version=ver,
-        default_timeout_ms=timeout,
-    )
+#     r = _cached_row()
+#     cdp = (
+#         str(r.get("pidea_cdp_http_url") or "").strip().rstrip("/")
+#         or str(getattr(config, "PIDEA_CDP_HTTP_URL", "") or "").strip().rstrip("/")
+#         or "http://0.0.0.0:9222"
+#     )
+#     ide = (
+#         str(r.get("pidea_selector_ide") or "").strip().lower()
+#         or str(getattr(config, "PIDEA_SELECTOR_IDE", "cursor") or "").strip().lower()
+#     )
+#     ver = (
+#         str(r.get("pidea_selector_version") or "").strip()
+#         or str(getattr(config, "PIDEA_SELECTOR_VERSION", "1.7.17") or "").strip()
+#     )
+#     timeout = int(getattr(config, "PIDEA_DEFAULT_TIMEOUT_MS", 30_000))
+#     return ConnectionConfig(
+#         cdp_http_url=cdp,
+#         selector_ide=ide,
+#         selector_version=ver,
+#         default_timeout_ms=timeout,
+#     )
 
 
 def public_dict() -> dict[str, Any]:
@@ -662,10 +668,10 @@ def public_dict() -> dict[str, Any]:
         "telegram_bot_token_configured": bool(ttok),
         "telegram_trigger_prefix": _telegram_trigger_prefix_public(r),
         "telegram_chat_model": (str(r.get("telegram_chat_model") or "").strip())[:256],
-        "workspace_upload_max_file_mb": r.get("workspace_upload_max_file_mb"),
-        "workspace_upload_allowed_mime": (r.get("workspace_upload_allowed_mime") or "").strip(),
-        "workspace_upload_effective_max_bytes": effective_workspace_upload_max_bytes(),
-        "workspace_upload_effective_allowed_mime": sorted(effective_workspace_upload_mime()),
+        "dashboard_upload_max_file_mb": r.get("dashboard_upload_max_file_mb"),
+        "dashboard_upload_allowed_mime": (r.get("dashboard_upload_allowed_mime") or "").strip(),
+        "dashboard_upload_effective_max_bytes": effective_dashboard_upload_max_bytes(),
+        "dashboard_upload_effective_allowed_mime": sorted(effective_dashboard_upload_mime()),
         "llm_primary_backend": resolved_primary_llm_backend(),
         "llm_smart_routing_enabled": bool(r.get("llm_smart_routing_enabled")),
         "llm_router_ollama_model": (str(r.get("llm_router_ollama_model") or "").strip())[:128],
@@ -718,6 +724,7 @@ def public_dict() -> dict[str, Any]:
         "scheduler_jobs_ide_pidea_timeout_sec": _bound_float(
             r.get("scheduler_jobs_ide_pidea_timeout_sec"), 300.0, 30.0, 900.0
         ),
+        "workspace_allow_self_editing": bool(r.get("workspace_allow_self_editing", False)),
     }
 
 
@@ -743,8 +750,8 @@ class OperatorSettingsPatch(BaseModel):
     telegram_bot_token: str | None = Field(default=None, max_length=256)
     telegram_trigger_prefix: str | None = Field(default=None, max_length=64)
     telegram_chat_model: str | None = Field(default=None, max_length=256)
-    workspace_upload_max_file_mb: int | None = None
-    workspace_upload_allowed_mime: str | None = Field(default=None, max_length=2000)
+    dashboard_upload_max_file_mb: int | None = None
+    dashboard_upload_allowed_mime: str | None = Field(default=None, max_length=2000)
     llm_primary_backend: str | None = Field(default=None, max_length=32)
     llm_smart_routing_enabled: bool | None = None
     llm_router_ollama_model: str | None = Field(default=None, max_length=128)
@@ -791,6 +798,7 @@ class OperatorSettingsPatch(BaseModel):
     scheduler_jobs_worker_enabled: bool | None = None
     scheduler_jobs_ide_pidea_enabled: bool | None = None
     scheduler_jobs_ide_pidea_timeout_sec: float | None = Field(default=None, ge=30.0, le=900.0)
+    workspace_allow_self_editing: bool | None = None
 
 
 def scheduler_jobs_worker_settings() -> tuple[bool, bool, float]:
@@ -906,23 +914,23 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
     if "telegram_chat_model" in patch:
         v = patch["telegram_chat_model"]
         r["telegram_chat_model"] = None if v is None else (str(v).strip() or None)
-    if "workspace_upload_max_file_mb" in patch:
-        v = patch["workspace_upload_max_file_mb"]
+    if "dashboard_upload_max_file_mb" in patch:
+        v = patch["dashboard_upload_max_file_mb"]
         if v is None:
-            r["workspace_upload_max_file_mb"] = None
+            r["dashboard_upload_max_file_mb"] = None
         else:
             try:
                 mb = int(v)
-                r["workspace_upload_max_file_mb"] = mb if mb > 0 else None
+                r["dashboard_upload_max_file_mb"] = mb if mb > 0 else None
             except (TypeError, ValueError):
-                r["workspace_upload_max_file_mb"] = None
-    if "workspace_upload_allowed_mime" in patch:
-        v = patch["workspace_upload_allowed_mime"]
+                r["dashboard_upload_max_file_mb"] = None
+    if "dashboard_upload_allowed_mime" in patch:
+        v = patch["dashboard_upload_allowed_mime"]
         if v is None:
-            r["workspace_upload_allowed_mime"] = None
+            r["dashboard_upload_allowed_mime"] = None
         else:
             s = str(v).strip()
-            r["workspace_upload_allowed_mime"] = s or None
+            r["dashboard_upload_allowed_mime"] = s or None
     if "llm_primary_backend" in patch:
         v = patch["llm_primary_backend"]
         if v is None:
@@ -1078,6 +1086,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
         r["scheduler_jobs_ide_pidea_timeout_sec"] = (
             _bound_float(v, 300.0, 30.0, 900.0) if v is not None else 300.0
         )
+    if "workspace_allow_self_editing" in patch:
+        r["workspace_allow_self_editing"] = bool(patch["workspace_allow_self_editing"])
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -1100,8 +1110,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   telegram_bot_agent_bearer = %s,
                   telegram_trigger_prefix = %s,
                   telegram_chat_model = %s,
-                  workspace_upload_max_file_mb = %s,
-                  workspace_upload_allowed_mime = %s,
+                  dashboard_upload_max_file_mb = %s,
+                  dashboard_upload_allowed_mime = %s,
                   llm_primary_backend = %s,
                   llm_smart_routing_enabled = %s,
                   llm_router_ollama_model = %s,
@@ -1148,6 +1158,7 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                   scheduler_jobs_worker_enabled = %s,
                   scheduler_jobs_ide_pidea_enabled = %s,
                   scheduler_jobs_ide_pidea_timeout_sec = %s,
+                  workspace_allow_self_editing = %s,
                   updated_at = now()
                 WHERE id = 1
                 """,
@@ -1167,8 +1178,8 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     r.get("telegram_bot_agent_bearer"),
                     _telegram_trigger_prefix_sql(r),
                     r.get("telegram_chat_model"),
-                    r.get("workspace_upload_max_file_mb"),
-                    r.get("workspace_upload_allowed_mime"),
+                    r.get("dashboard_upload_max_file_mb"),
+                    r.get("dashboard_upload_allowed_mime"),
                     r.get("llm_primary_backend") or "ollama",
                     bool(r.get("llm_smart_routing_enabled")),
                     (str(r.get("llm_router_ollama_model") or "").strip() or "nemotron-3-nano:4b")[:128],
@@ -1219,6 +1230,7 @@ def apply_operator_settings_patch(body: OperatorSettingsPatch) -> None:
                     bool(r.get("scheduler_jobs_worker_enabled", True)),
                     bool(r.get("scheduler_jobs_ide_pidea_enabled", True)),
                     _bound_float(r.get("scheduler_jobs_ide_pidea_timeout_sec"), 300.0, 30.0, 900.0),
+                    bool(r.get("workspace_allow_self_editing", False)),
                 ),
             )
         conn.commit()

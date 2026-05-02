@@ -17,26 +17,26 @@ depends_on = None
 def upgrade() -> None:
     op.execute(
         """
-        ALTER TABLE workspace_block_share_grants
+        ALTER TABLE dashboard_block_share_grants
           ADD COLUMN IF NOT EXISTS permission TEXT NOT NULL DEFAULT 'view';
         """
     )
     op.execute(
         """
-        UPDATE workspace_block_share_grants SET permission = 'view'
+        UPDATE dashboard_block_share_grants SET permission = 'view'
         WHERE permission IS NULL OR btrim(permission) = '';
         """
     )
     op.execute(
         """
-        ALTER TABLE workspace_block_share_grants
-          DROP CONSTRAINT IF EXISTS workspace_block_share_grants_permission_check;
+        ALTER TABLE dashboard_block_share_grants
+          DROP CONSTRAINT IF EXISTS dashboard_block_share_grants_permission_check;
         """
     )
     op.execute(
         """
-        ALTER TABLE workspace_block_share_grants
-          ADD CONSTRAINT workspace_block_share_grants_permission_check
+        ALTER TABLE dashboard_block_share_grants
+          ADD CONSTRAINT dashboard_block_share_grants_permission_check
           CHECK (permission IN ('view', 'edit'));
         """
     )
@@ -44,8 +44,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(
-        "ALTER TABLE workspace_block_share_grants DROP CONSTRAINT IF EXISTS workspace_block_share_grants_permission_check;"
+        "ALTER TABLE dashboard_block_share_grants DROP CONSTRAINT IF EXISTS dashboard_block_share_grants_permission_check;"
     )
     op.execute(
-        "ALTER TABLE workspace_block_share_grants DROP COLUMN IF EXISTS permission;"
+        "ALTER TABLE dashboard_block_share_grants DROP COLUMN IF EXISTS permission;"
     )

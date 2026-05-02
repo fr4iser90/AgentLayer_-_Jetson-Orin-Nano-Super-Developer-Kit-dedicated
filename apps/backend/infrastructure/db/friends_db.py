@@ -227,3 +227,38 @@ def friend_remove(user_id: uuid.UUID, friend_user_id: uuid.UUID) -> bool:
             ok = cur.rowcount > 0
         conn.commit()
     return ok
+
+
+def friend_update(user_id: uuid.UUID, friend_user_id: uuid.UUID, relation: str | None = None, note: str | None = None) -> bool:
+    """Update friend metadata fields for your side of the friendship"""
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            update_fields = []
+            params = []
+            
+            if relation is not None:
+                update_fields.append("relation = %s")
+                params.append(relation)
+            
+            if note is not None:
+                update_fields.append("note = %s")
+                params.append(note)
+            
+            if not update_fields:
+                return True
+            
+            params.append(user_id)
+            params.append(friend_user_id)
+            
+            cur.execute(
+                f"""
+                UPDATE friends
+                SET {', '.join(update_fields)}
+                WHERE user_id = %s AND friend_user_id = %s
+                """,
+                tuple(params)
+            )
+            
+            ok = cur.rowcount > 0
+        conn.commit()
+    return ok

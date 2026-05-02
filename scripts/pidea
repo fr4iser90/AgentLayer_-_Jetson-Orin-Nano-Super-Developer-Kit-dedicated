@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# PIDEA CLI wrapper (repo root). Usage: ./scripts/pidea doctor
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}${ROOT}/src"
-exec python -m src.integrations.pidea.automation "$@"

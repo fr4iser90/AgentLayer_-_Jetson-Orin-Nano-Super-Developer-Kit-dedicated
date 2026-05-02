@@ -69,7 +69,7 @@ def bridge_agent_conversation_ensure(
             cur.execute(
                 """
                 INSERT INTO chat_conversations (
-                  id, user_id, tenant_id, workspace_id, title, mode, model, agent_log, shared
+                  id, user_id, tenant_id, dashboard_id, title, mode, model, agent_log, shared
                 )
                 VALUES (%s, %s, %s, NULL, %s, 'agent', %s, %s::jsonb, false)
                 """,

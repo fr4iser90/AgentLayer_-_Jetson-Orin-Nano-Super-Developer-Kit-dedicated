@@ -4,7 +4,7 @@ import { apiFetch } from "../../lib/api";
 
 type SchedulerJobRow = {
   id: string;
-  workspace_id: string | null;
+  dashboard_id: string | null;
   execution_target: string;
   title: string | null;
   interval_minutes: number;
@@ -26,7 +26,7 @@ type SchedulerJobPreset = {
     enabled?: boolean;
     title?: string | null;
     instructions?: string;
-    workspace_id?: string | null;
+    dashboard_id?: string | null;
   };
 };
 
@@ -43,8 +43,8 @@ export function AdminSchedules() {
   const [loading, setLoading] = useState(false);
   const [presets, setPresets] = useState<SchedulerJobPreset[] | null>(null);
 
-  const [scope, setScope] = useState<"all" | "global_only" | "workspace">("all");
-  const [workspaceId, setWorkspaceId] = useState<string>("");
+  const [scope, setScope] = useState<"all" | "global_only" | "dashboard">("all");
+  const [dashboardId, setDashboardId] = useState<string>("");
   const [includeGlobal, setIncludeGlobal] = useState(true);
   const [target, setTarget] = useState<"all" | "ide_agent" | "server_periodic">("all");
   const [enabled, setEnabled] = useState<"all" | "true" | "false">("all");
@@ -57,7 +57,7 @@ export function AdminSchedules() {
   const [createEnabled, setCreateEnabled] = useState(true);
   const [createTitle, setCreateTitle] = useState("");
   const [createInstructions, setCreateInstructions] = useState("");
-  const [createWorkspaceId, setCreateWorkspaceId] = useState("");
+  const [createDashboardId, setCreateDashboardId] = useState("");
 
   const [editJob, setEditJob] = useState<SchedulerJobRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -68,8 +68,8 @@ export function AdminSchedules() {
     const q = new URLSearchParams();
     if (scope === "global_only") {
       q.set("include_global", "true");
-    } else if (scope === "workspace") {
-      if (workspaceId.trim()) q.set("workspace_id", workspaceId.trim());
+    } else if (scope === "dashboard") {
+      if (dashboardId.trim()) q.set("dashboard_id", dashboardId.trim());
       q.set("include_global", includeGlobal ? "true" : "false");
     }
     if (target !== "all") q.set("execution_target", target);
@@ -77,7 +77,7 @@ export function AdminSchedules() {
     if (includeArchived) q.set("include_archived", "true");
     q.set("limit", "200");
     return q;
-  }, [scope, workspaceId, includeGlobal, target, enabled, includeArchived]);
+  }, [scope, dashboardId, includeGlobal, target, enabled, includeArchived]);
 
   const refresh = async () => {
     setLoading(true);
@@ -131,7 +131,7 @@ export function AdminSchedules() {
     if (typeof j.enabled === "boolean") setCreateEnabled(j.enabled);
     if (typeof j.title === "string") setCreateTitle(j.title);
     if (typeof j.instructions === "string") setCreateInstructions(j.instructions);
-    if (typeof j.workspace_id === "string") setCreateWorkspaceId(j.workspace_id);
+    if (typeof j.dashboard_id === "string") setCreateDashboardId(j.dashboard_id);
   };
 
   const toggleEnabled = async (jobId: string, next: boolean) => {
@@ -208,7 +208,7 @@ export function AdminSchedules() {
         enabled: createEnabled,
         title: createTitle || null,
         instructions: createInstructions,
-        workspace_id: createWorkspaceId || null,
+        dashboard_id: createDashboardId || null,
         ide_workflow: {},
       }),
     });
@@ -221,7 +221,7 @@ export function AdminSchedules() {
     setCreatePresetId("");
     setCreateTitle("");
     setCreateInstructions("");
-    setCreateWorkspaceId("");
+    setCreateDashboardId("");
     await refresh();
   };
 
@@ -255,18 +255,18 @@ export function AdminSchedules() {
               onChange={(e) => setScope(e.target.value as any)}
             >
               <option value="all">All</option>
-              <option value="global_only">Global only (workspace_id NULL)</option>
-              <option value="workspace">Workspace scoped</option>
+              <option value="global_only">Global only (dashboard_id NULL)</option>
+              <option value="dashboard">Dashboard scoped</option>
             </select>
           </label>
           <label className="text-xs text-surface-muted md:col-span-2">
-            Workspace id (UUID)
+            Dashboard id (UUID)
             <input
               className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-              value={workspaceId}
-              onChange={(e) => setWorkspaceId(e.target.value)}
+              value={dashboardId}
+              onChange={(e) => setDashboardId(e.target.value)}
               placeholder="optional"
-              disabled={scope !== "workspace"}
+              disabled={scope !== "dashboard"}
             />
           </label>
           <label className="text-xs text-surface-muted">
@@ -294,7 +294,7 @@ export function AdminSchedules() {
             </select>
           </label>
         </div>
-        {scope === "workspace" ? (
+        {scope === "dashboard" ? (
           <label className="mt-3 flex items-center gap-2 text-xs text-surface-muted">
             <input
               type="checkbox"
@@ -339,7 +339,7 @@ export function AdminSchedules() {
               <th className="px-3 py-2 font-medium">Target</th>
               <th className="px-3 py-2 font-medium">Title</th>
               <th className="px-3 py-2 font-medium">Interval</th>
-              <th className="px-3 py-2 font-medium">Workspace</th>
+              <th className="px-3 py-2 font-medium">Dashboard</th>
               <th className="px-3 py-2 font-medium">Last run</th>
               <th className="px-3 py-2 font-medium">Created</th>
               <th className="px-3 py-2 font-medium">Actions</th>
@@ -375,7 +375,7 @@ export function AdminSchedules() {
                   <td className="px-3 py-2 text-neutral-100">{j.title || "—"}</td>
                   <td className="px-3 py-2 text-surface-muted">{j.interval_minutes} min</td>
                   <td className="px-3 py-2 font-mono text-[11px] text-surface-muted">
-                    {j.workspace_id || "global"}
+                    {j.dashboard_id || "global"}
                   </td>
                   <td className="px-3 py-2 text-surface-muted">{j.last_run_at || "—"}</td>
                   <td className="px-3 py-2 text-surface-muted">{j.created_at}</td>
@@ -491,11 +491,11 @@ export function AdminSchedules() {
                 />
               </label>
               <label className="text-xs text-surface-muted md:col-span-2">
-                Workspace id (optional UUID; blank = global)
+                Dashboard id (optional UUID; blank = global)
                 <input
                   className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-                  value={createWorkspaceId}
-                  onChange={(e) => setCreateWorkspaceId(e.target.value)}
+                  value={createDashboardId}
+                  onChange={(e) => setCreateDashboardId(e.target.value)}
                   placeholder="optional"
                 />
               </label>

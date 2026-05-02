@@ -51,7 +51,7 @@ def memory_graph_node_add(arguments: dict[str, Any]) -> str:
         return _err("label is required")
     summary = str(arguments.get("summary") or "").strip()
     kind = str(arguments.get("kind") or "event").strip() or "event"
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     payload = arguments.get("payload")
     pl: dict[str, Any] | None = payload if isinstance(payload, dict) else None
     imp = arguments.get("importance")
@@ -62,7 +62,7 @@ def memory_graph_node_add(arguments: dict[str, Any]) -> str:
     prio = arguments.get("priority")
     try:
         row = memory_api.graph_node_add_for_identity(
-            workspace_id=wid,
+            dashboard_id=wid,
             kind=kind,
             label=label,
             summary=summary,
@@ -103,13 +103,13 @@ def memory_graph_edge_add(arguments: dict[str, Any]) -> str:
 
 
 def memory_graph_nodes_list(arguments: dict[str, Any]) -> str:
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     try:
         lim = int(arguments.get("limit") or 80)
     except (TypeError, ValueError):
         lim = 80
     try:
-        rows = memory_api.graph_nodes_list_for_identity(workspace_id=wid, limit=lim)
+        rows = memory_api.graph_nodes_list_for_identity(dashboard_id=wid, limit=lim)
     except Exception as e:
         return _err(str(e))
     return json.dumps({"ok": True, "nodes": rows, "count": len(rows)}, ensure_ascii=False)
@@ -119,12 +119,12 @@ def memory_graph_propose(arguments: dict[str, Any]) -> str:
     text = (arguments.get("text") or "").strip()
     if not text:
         return _err("text is required")
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     apply_raw = arguments.get("apply")
     apply = bool(apply_raw) if apply_raw is not None else False
     try:
         out = memory_api.graph_propose_from_text_for_identity(
-            text=text, workspace_id=wid, apply=apply
+            text=text, dashboard_id=wid, apply=apply
         )
     except Exception as e:
         return _err(str(e))
@@ -160,7 +160,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "kind": {"type": "string", "TOOL_DESCRIPTION": "e.g. event, entity, task"},
                     "label": {"type": "string"},
                     "summary": {"type": "string"},
@@ -185,7 +185,7 @@ TOOLS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "text": {"type": "string"},
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "apply": {"type": "boolean"},
                 },
                 "required": ["text"],
@@ -217,7 +217,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "limit": {"type": "integer"},
                 },
                 "required": [],

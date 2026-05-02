@@ -1,1 +1,1 @@
-"""Shipped plug-in content (tools, workflows, workspace bundles, …)."""
+"""Shipped plug-in content (tools, workflows, dashboard bundles, …)."""

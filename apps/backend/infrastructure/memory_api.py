@@ -28,11 +28,11 @@ def _parse_uuid(raw: str | None) -> uuid.UUID | None:
     try:
         return uuid.UUID(s)
     except ValueError:
-        raise HTTPException(status_code=400, detail="workspace_id must be UUID") from None
+        raise HTTPException(status_code=400, detail="dashboard_id must be UUID") from None
 
 
 class FactUpsertBody(BaseModel):
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     key: str = Field(min_length=1, max_length=256)
     value_json: Any
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -43,7 +43,7 @@ class FactUpsertBody(BaseModel):
 @router.post("/facts/upsert")
 def upsert_fact(request: Request, body: FactUpsertBody) -> dict:
     resolve_chat_identity(request)  # auth guard; memory_service uses identity internally
-    wid = _parse_uuid(body.workspace_id)
+    wid = _parse_uuid(body.dashboard_id)
     exp: datetime | None = None
     if body.expires_at and body.expires_at.strip():
         try:
@@ -54,7 +54,7 @@ def upsert_fact(request: Request, body: FactUpsertBody) -> dict:
         fact = memory_service.fact_upsert_for_identity(
             key=body.key,
             value_json=body.value_json,
-            workspace_id=wid,
+            dashboard_id=wid,
             confidence=body.confidence,
             source=body.source,
             expires_at=exp,
@@ -67,29 +67,29 @@ def upsert_fact(request: Request, body: FactUpsertBody) -> dict:
 
 
 @router.get("/facts")
-def list_facts(request: Request, workspace_id: str | None = None, prefix: str | None = None, limit: int = 50) -> dict:
+def list_facts(request: Request, dashboard_id: str | None = None, prefix: str | None = None, limit: int = 50) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(workspace_id)
+    wid = _parse_uuid(dashboard_id)
     try:
-        facts = memory_service.fact_list_for_identity(workspace_id=wid, prefix=prefix, limit=limit)
+        facts = memory_service.fact_list_for_identity(dashboard_id=wid, prefix=prefix, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"ok": True, "facts": facts, "count": len(facts)}
 
 
 @router.delete("/facts/{key}")
-def delete_fact(request: Request, key: str, workspace_id: str | None = None) -> dict:
+def delete_fact(request: Request, key: str, dashboard_id: str | None = None) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(workspace_id)
+    wid = _parse_uuid(dashboard_id)
     try:
-        ok = memory_service.fact_delete_for_identity(key=key, workspace_id=wid)
+        ok = memory_service.fact_delete_for_identity(key=key, dashboard_id=wid)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "deleted": bool(ok)}
 
 
 class NoteAddBody(BaseModel):
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     text: str = Field(min_length=1, max_length=20_000)
     tags: list[str] | None = None
     source: str | None = Field(default=None, max_length=256)
@@ -98,11 +98,11 @@ class NoteAddBody(BaseModel):
 @router.post("/notes")
 def add_note(request: Request, body: NoteAddBody) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(body.workspace_id)
+    wid = _parse_uuid(body.dashboard_id)
     try:
         out = memory_service.note_add_for_identity(
             text=body.text,
-            workspace_id=wid,
+            dashboard_id=wid,
             tags=body.tags,
             source=body.source,
         )
@@ -117,13 +117,13 @@ def add_note(request: Request, body: NoteAddBody) -> dict:
 def search_notes(
     request: Request,
     query: str,
-    workspace_id: str | None = None,
+    dashboard_id: str | None = None,
     limit: int = 10,
 ) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(workspace_id)
+    wid = _parse_uuid(dashboard_id)
     try:
-        hits = memory_service.note_search_for_identity(query=query, workspace_id=wid, limit=limit)
+        hits = memory_service.note_search_for_identity(query=query, dashboard_id=wid, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"ok": True, "hits": hits, "count": len(hits)}
@@ -140,7 +140,7 @@ def delete_note(request: Request, note_id: int) -> dict:
 
 
 class GraphNodeBody(BaseModel):
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     kind: str = Field(default="event", max_length=64)
     label: str = Field(min_length=1, max_length=500)
     summary: str = Field(default="", max_length=20_000)
@@ -157,7 +157,7 @@ class GraphNodeBody(BaseModel):
 @router.post("/graph/nodes")
 def graph_add_node(request: Request, body: GraphNodeBody) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(body.workspace_id)
+    wid = _parse_uuid(body.dashboard_id)
     lv: datetime | None = None
     if body.last_verified and body.last_verified.strip():
         try:
@@ -166,7 +166,7 @@ def graph_add_node(request: Request, body: GraphNodeBody) -> dict:
             raise HTTPException(status_code=400, detail="last_verified must be ISO timestamp") from e
     try:
         row = memory_service.graph_node_add_for_identity(
-            workspace_id=wid,
+            dashboard_id=wid,
             kind=body.kind,
             label=body.label,
             summary=body.summary,
@@ -211,11 +211,11 @@ def graph_add_edge(request: Request, body: GraphEdgeBody) -> dict:
 
 
 @router.get("/graph/nodes")
-def graph_list_nodes(request: Request, workspace_id: str | None = None, limit: int = 100) -> dict:
+def graph_list_nodes(request: Request, dashboard_id: str | None = None, limit: int = 100) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(workspace_id)
+    wid = _parse_uuid(dashboard_id)
     try:
-        nodes = memory_service.graph_nodes_list_for_identity(workspace_id=wid, limit=limit)
+        nodes = memory_service.graph_nodes_list_for_identity(dashboard_id=wid, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     return {"ok": True, "nodes": nodes, "count": len(nodes)}
@@ -253,18 +253,18 @@ def graph_activation_log(request: Request, limit: int = 100) -> dict:
 
 class GraphProposeBody(BaseModel):
     text: str = Field(min_length=1, max_length=48_000)
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     apply: bool = False
 
 
 @router.post("/graph/propose")
 def graph_propose(request: Request, body: GraphProposeBody) -> dict:
     resolve_chat_identity(request)
-    wid = _parse_uuid(body.workspace_id)
+    wid = _parse_uuid(body.dashboard_id)
     try:
         out = memory_service.graph_propose_from_text_for_identity(
             text=body.text,
-            workspace_id=wid,
+            dashboard_id=wid,
             apply=body.apply,
         )
     except ValueError as e:

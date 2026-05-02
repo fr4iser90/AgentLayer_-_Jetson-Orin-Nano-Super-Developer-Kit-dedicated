@@ -79,10 +79,10 @@ Configure in **Admin → Interfaces** (persisted in `operator_settings`, exposed
 
 Memory can be:
 
-- global per user (`workspace_id = NULL`)
-- workspace-scoped (`workspace_id = <uuid>`)
+- global per user (`dashboard_id = NULL`)
+- dashboard-scoped (`dashboard_id = <uuid>`)
 
-Workspace-scoped facts override global facts when keys conflict.
+Dashboard-scoped facts override global facts when keys conflict.
 
 ## Contracts
 

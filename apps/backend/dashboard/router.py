@@ -1,0 +1,456 @@
+"""HTTP API for generic dashboards (``/v1/dashboards``)."""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from apps.backend.core.config import config
+from apps.backend.infrastructure.auth import get_current_user, get_user_by_email
+from apps.backend.infrastructure.db import db
+from apps.backend.infrastructure.operator_settings import (
+    effective_dashboard_upload_max_bytes,
+    effective_dashboard_upload_mime,
+)
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard import file_storage, files_db
+from apps.backend.dashboard.bootstrap import ensure_dashboard_schema, dashboard_tables_exist
+from apps.backend.dashboard.upload_bytes import normalized_content_type, sniff_image_mime
+from apps.backend.infrastructure.public_error import http_500_detail
+
+router = APIRouter(prefix="/v1/dashboards", tags=["dashboards"])
+
+
+def _require_schema() -> None:
+    if not dashboard_tables_exist():
+        raise HTTPException(
+            status_code=400,
+            detail="dashboard schema not installed; use POST /v1/dashboards/install from the UI first",
+        )
+
+
+class DashboardCreateBody(BaseModel):
+    kind: str = Field(default="custom", max_length=64)
+    title: str = Field(default="", max_length=500)
+    ui_layout: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
+
+
+class DashboardPatchBody(BaseModel):
+    title: str | None = Field(default=None, max_length=500)
+    ui_layout: dict[str, Any] | None = None
+    data: dict[str, Any] | None = None
+
+
+class DashboardMemberAddBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    role: str = Field(default="viewer", max_length=16)
+
+
+class DashboardBlockShareBody(BaseModel):
+    """Share only specific layout block ids; ``view`` = read-only, ``edit`` = patch those blocks."""
+
+    email: str = Field(..., min_length=3, max_length=254)
+    block_ids: list[str] = Field(default_factory=list)
+    permission: str = Field(default="view", max_length=8)
+
+
+class DashboardInstallBody(BaseModel):
+    """Which bundle kinds to apply ``schema_sql`` for (nothing runs until you pick)."""
+
+    kinds: list[str] = Field(default_factory=list)
+
+
+@router.get("/install-status")
+async def dashboard_install_status(request: Request):
+    """Schema state plus ``kind_catalog`` from ``dashboard/**/dashboard.kind.json``."""
+    from apps.backend.dashboard.bundle import kind_catalog, kinds_with_schema_sql, kinds_with_templates
+
+    user = await get_current_user(request)
+    installed = dashboard_tables_exist()
+    cat = kind_catalog()
+    template_kinds = kinds_with_templates()
+    installed_kinds: list[str] | None = None
+    if installed:
+        tid = db.user_tenant_id(user.id)
+        installed_kinds = dashboard_db.tenant_installed_template_kinds(tid)
+    return {
+        "ok": True,
+        "schema_installed": installed,
+        "kind_catalog": cat,
+        "schema_install_offers": kinds_with_schema_sql() if not installed else [],
+        "template_kinds": template_kinds,
+        "installed_template_kinds": installed_kinds,
+    }
+
+
+@router.post("/install")
+async def dashboard_install(request: Request, body: DashboardInstallBody):
+    """Apply ``schema_sql`` only for ``body.kinds`` — does not create dashboard rows."""
+    user = await get_current_user(request)
+    if dashboard_tables_exist():
+        return {"ok": True, "already": True}
+    kinds = [str(k).strip().lower() for k in body.kinds if str(k).strip()]
+    if not kinds:
+        raise HTTPException(
+            status_code=400,
+            detail="select at least one kind (body.kinds) to install schema for; nothing is installed by default",
+        )
+    try:
+        ensure_dashboard_schema(kinds)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
+    tid = db.user_tenant_id(user.id)
+    dashboard_db.tenant_merge_installed_template_kinds(tid, kinds)
+    return {"ok": True, "already": False}
+
+
+@router.post("/install-templates")
+async def dashboard_install_templates(request: Request, body: DashboardInstallBody):
+    """Install more template kinds for this tenant (idempotent DDL + merge). Requires base schema."""
+    _require_schema()
+    user = await get_current_user(request)
+    kinds = [str(k).strip().lower() for k in body.kinds if str(k).strip()]
+    if not kinds:
+        raise HTTPException(
+            status_code=400,
+            detail="send at least one kind in body.kinds",
+        )
+    try:
+        ensure_dashboard_schema(kinds)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
+    tid = db.user_tenant_id(user.id)
+    dashboard_db.tenant_merge_installed_template_kinds(tid, kinds)
+    merged = dashboard_db.tenant_installed_template_kinds(tid)
+    return {"ok": True, "installed_template_kinds": merged}
+
+
+@router.get("/upload-limits")
+async def dashboard_upload_limits(request: Request):
+    """Effective max size and MIME allowlist (env + operator DB overrides)."""
+    _require_schema()
+    await get_current_user(request)
+    return {
+        "ok": True,
+        "max_file_bytes": effective_dashboard_upload_max_bytes(),
+        "allowed_mime": sorted(effective_dashboard_upload_mime()),
+    }
+
+
+@router.get("/files/{file_id}/content")
+async def dashboard_file_content(request: Request, file_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    meta = files_db.file_get_with_access(file_id, user.id, tid)
+    if not meta:
+        raise HTTPException(status_code=404, detail="file not found")
+    try:
+        data = file_storage.read_bytes(config.dashboard_upload_dir(), meta["storage_relpath"])
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="file not found") from None
+    return Response(
+        content=data,
+        media_type=meta.get("content_type") or "application/octet-stream",
+    )
+
+
+@router.delete("/files/{file_id}")
+async def dashboard_file_delete(request: Request, file_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    rel = files_db.file_delete_with_access(file_id, user.id, tid)
+    if rel is None:
+        raise HTTPException(status_code=404, detail="file not found")
+    file_storage.unlink_if_exists(config.dashboard_upload_dir(), rel)
+    return {"ok": True, "deleted": True}
+
+
+@router.post("/{dashboard_id}/files")
+async def dashboard_file_upload(
+    request: Request, dashboard_id: uuid.UUID, file: UploadFile = File(...)
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    ws = dashboard_db.dashboard_get(user.id, tid, dashboard_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="dashboard not found")
+    role = ws.get("access_role")
+    if role not in ("owner", "co_owner", "editor"):
+        raise HTTPException(status_code=403, detail="upload not allowed for this role")
+
+    max_b = effective_dashboard_upload_max_bytes()
+    allowed = effective_dashboard_upload_mime()
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        block = await file.read(1024 * 64)
+        if not block:
+            break
+        total += len(block)
+        if total > max_b:
+            raise HTTPException(
+                status_code=413,
+                detail=f"file too large (max {max_b} bytes)",
+            )
+        chunks.append(block)
+    data = b"".join(chunks)
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+
+    sniff = sniff_image_mime(data[:64])
+    declared = normalized_content_type(file.content_type)
+    if sniff is None or sniff not in allowed:
+        raise HTTPException(
+            status_code=415,
+            detail="unsupported or invalid image type",
+        )
+    if declared and declared not in allowed:
+        raise HTTPException(status_code=415, detail="content type not allowed")
+    if declared and declared != sniff:
+        raise HTTPException(
+            status_code=400,
+            detail=f"content type mismatch (declared {declared}, actual {sniff})",
+        )
+
+    fid = uuid.uuid4()
+    relpath = f"{tid}/{fid}"
+    name = (file.filename or "").strip()[:500]
+    try:
+        file_storage.write_bytes(config.dashboard_upload_dir(), relpath, data)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=http_500_detail(e)) from e
+
+    try:
+        row = files_db.file_insert(
+            tenant_id=tid,
+            owner_user_id=user.id,
+            dashboard_id=dashboard_id,
+            storage_relpath=relpath,
+            content_type=sniff,
+            size_bytes=len(data),
+            original_name=name,
+        )
+    except Exception:
+        file_storage.unlink_if_exists(config.dashboard_upload_dir(), relpath)
+        raise
+
+    return {
+        "ok": True,
+        "file": {
+            "id": row["id"],
+            "dashboard_id": row["dashboard_id"],
+            "content_type": row["content_type"],
+            "size_bytes": row["size_bytes"],
+            "gallery_ref": f"wsfile:{row['id']}",
+        },
+    }
+
+
+@router.get("")
+async def list_dashboards(request: Request):
+    from apps.backend.dashboard.bundle import kind_catalog, kinds_with_schema_sql, kinds_with_templates
+
+    user = await get_current_user(request)
+    cat = kind_catalog()
+    template_kinds = kinds_with_templates()
+    if not dashboard_tables_exist():
+        return {
+            "ok": True,
+            "dashboards": [],
+            "schema_installed": False,
+            "kind_catalog": cat,
+            "schema_install_offers": kinds_with_schema_sql(),
+            "template_kinds": template_kinds,
+            "installed_template_kinds": [],
+        }
+    tid = db.user_tenant_id(user.id)
+    items = dashboard_db.dashboard_list(user.id, tid)
+    installed_kinds = dashboard_db.tenant_installed_template_kinds(tid)
+    return {
+        "ok": True,
+        "dashboards": items,
+        "schema_installed": True,
+        "kind_catalog": cat,
+        "schema_install_offers": [],
+        "template_kinds": template_kinds,
+        "installed_template_kinds": installed_kinds,
+    }
+
+
+@router.post("")
+async def create_dashboard(request: Request, body: DashboardCreateBody):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    row = dashboard_db.dashboard_create(
+        user.id,
+        tid,
+        kind=body.kind,
+        title=body.title,
+        ui_layout=body.ui_layout,
+        data=body.data,
+    )
+    return {"ok": True, "dashboard": row}
+
+
+@router.get("/{dashboard_id}/members")
+async def list_dashboard_members(request: Request, dashboard_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    acc = dashboard_db.dashboard_access(user.id, tid, dashboard_id)
+    if acc is None:
+        raise HTTPException(status_code=404, detail="dashboard not found")
+    if not dashboard_db.dashboard_can_manage_members(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can list members")
+    items = dashboard_db.members_list(user.id, tid, dashboard_id)
+    return {"ok": True, "members": items}
+
+
+@router.post("/{dashboard_id}/members")
+async def add_dashboard_member(
+    request: Request, dashboard_id: uuid.UUID, body: DashboardMemberAddBody
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not dashboard_db.dashboard_can_manage_members(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can add members")
+    target = get_user_by_email(body.email.strip().lower())
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found for this email")
+    if db.user_tenant_id(target.id) != tid:
+        raise HTTPException(status_code=400, detail="user must be in the same tenant")
+    role = (body.role or "viewer").strip().lower()
+    if role not in ("viewer", "editor", "co_owner"):
+        raise HTTPException(status_code=400, detail="role must be viewer, editor, or co_owner")
+    ok = dashboard_db.member_add(user.id, tid, dashboard_id, target.id, role)
+    if not ok:
+        raise HTTPException(status_code=400, detail="could not add member")
+    return {"ok": True, "members": dashboard_db.members_list(user.id, tid, dashboard_id)}
+
+
+@router.delete("/{dashboard_id}/members/{member_user_id}")
+async def remove_dashboard_member(
+    request: Request, dashboard_id: uuid.UUID, member_user_id: uuid.UUID
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not dashboard_db.dashboard_can_manage_members(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can remove members")
+    if not dashboard_db.member_remove(user.id, tid, dashboard_id, member_user_id):
+        raise HTTPException(status_code=404, detail="member not found")
+    return {"ok": True, "removed": True}
+
+
+@router.get("/{dashboard_id}/block-shares")
+async def list_dashboard_block_shares(request: Request, dashboard_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not dashboard_db.dashboard_can_manage_members(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can list block shares")
+    items = dashboard_db.block_share_grants_list(user.id, tid, dashboard_id)
+    return {"ok": True, "grants": items}
+
+
+@router.post("/{dashboard_id}/block-shares")
+async def upsert_dashboard_block_share(
+    request: Request, dashboard_id: uuid.UUID, body: DashboardBlockShareBody
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    target = get_user_by_email(body.email.strip().lower())
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found for this email")
+    perm = (body.permission or "view").strip().lower()
+    if perm not in ("view", "edit"):
+        raise HTTPException(status_code=400, detail="permission must be view or edit")
+    ok = dashboard_db.block_share_grant_upsert(
+        user.id,
+        tid,
+        dashboard_id,
+        viewer_user_id=target.id,
+        block_ids=body.block_ids,
+        permission=perm,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="could not save (check block ids exist in layout, not owner email, same tenant)",
+        )
+    items = dashboard_db.block_share_grants_list(user.id, tid, dashboard_id)
+    return {"ok": True, "grants": items}
+
+
+@router.delete("/{dashboard_id}/block-shares/{viewer_user_id}")
+async def delete_dashboard_block_share(
+    request: Request, dashboard_id: uuid.UUID, viewer_user_id: uuid.UUID
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not dashboard_db.dashboard_can_manage_members(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=403, detail="only owner or co-owner can remove block shares")
+    if not dashboard_db.block_share_grant_delete(user.id, tid, dashboard_id, viewer_user_id):
+        raise HTTPException(status_code=404, detail="grant not found")
+    return {"ok": True, "removed": True}
+
+
+@router.get("/{dashboard_id}")
+async def get_dashboard(request: Request, dashboard_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    row = dashboard_db.dashboard_get(user.id, tid, dashboard_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="dashboard not found")
+    return {"ok": True, "dashboard": row}
+
+
+@router.patch("/{dashboard_id}")
+async def patch_dashboard(
+    request: Request, dashboard_id: uuid.UUID, body: DashboardPatchBody
+):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    row = dashboard_db.dashboard_update(
+        user.id,
+        tid,
+        dashboard_id,
+        title=body.title,
+        ui_layout=body.ui_layout,
+        data=body.data,
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="dashboard not found")
+    return {"ok": True, "dashboard": row}
+
+
+@router.delete("/{dashboard_id}")
+async def delete_dashboard(request: Request, dashboard_id: uuid.UUID):
+    _require_schema()
+    user = await get_current_user(request)
+    tid = db.user_tenant_id(user.id)
+    if not dashboard_db.dashboard_delete(user.id, tid, dashboard_id):
+        raise HTTPException(status_code=404, detail="dashboard not found")
+    return {"ok": True, "deleted": True}

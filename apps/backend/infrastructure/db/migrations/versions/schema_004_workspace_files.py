@@ -1,4 +1,4 @@
-"""workspace_files + operator upload limits (global overrides).
+"""dashboard_files + operator upload limits (global overrides).
 
 Revision ID: schema_004
 Revises: schema_003
@@ -17,19 +17,19 @@ depends_on = None
 def upgrade() -> None:
     op.execute(
         "ALTER TABLE operator_settings ADD COLUMN IF NOT EXISTS "
-        "workspace_upload_max_file_mb INTEGER;"
+        "dashboard_upload_max_file_mb INTEGER;"
     )
     op.execute(
         "ALTER TABLE operator_settings ADD COLUMN IF NOT EXISTS "
-        "workspace_upload_allowed_mime TEXT;"
+        "dashboard_upload_allowed_mime TEXT;"
     )
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS workspace_files (
+        CREATE TABLE IF NOT EXISTS dashboard_files (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NOT NULL,
+          dashboard_id UUID NOT NULL,
           storage_relpath TEXT NOT NULL UNIQUE,
           content_type TEXT NOT NULL,
           size_bytes BIGINT NOT NULL,
@@ -39,22 +39,22 @@ def upgrade() -> None:
         """
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workspace_files_owner "
-        "ON workspace_files (owner_user_id, created_at DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_dashboard_files_owner "
+        "ON dashboard_files (owner_user_id, created_at DESC);"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_workspace_files_workspace "
-        "ON workspace_files (workspace_id);"
+        "CREATE INDEX IF NOT EXISTS idx_dashboard_files_dashboard "
+        "ON dashboard_files (dashboard_id);"
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_workspace_files_workspace;")
-    op.execute("DROP INDEX IF EXISTS idx_workspace_files_owner;")
-    op.execute("DROP TABLE IF EXISTS workspace_files;")
+    op.execute("DROP INDEX IF EXISTS idx_dashboard_files_dashboard;")
+    op.execute("DROP INDEX IF EXISTS idx_dashboard_files_owner;")
+    op.execute("DROP TABLE IF EXISTS dashboard_files;")
     op.execute(
-        "ALTER TABLE operator_settings DROP COLUMN IF EXISTS workspace_upload_allowed_mime;"
+        "ALTER TABLE operator_settings DROP COLUMN IF EXISTS dashboard_upload_allowed_mime;"
     )
     op.execute(
-        "ALTER TABLE operator_settings DROP COLUMN IF EXISTS workspace_upload_max_file_mb;"
+        "ALTER TABLE operator_settings DROP COLUMN IF EXISTS dashboard_upload_max_file_mb;"
     )

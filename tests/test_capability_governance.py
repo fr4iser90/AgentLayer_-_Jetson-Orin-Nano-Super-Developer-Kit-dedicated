@@ -76,18 +76,18 @@ class TestCapabilityGovernance(unittest.TestCase):
         {
             "AGENT_CAPABILITY_GATE_ALLOW": "",
             "AGENT_CAPABILITY_GATE_BLOCK": "",
-            "AGENT_CAPABILITY_GATE_CONFIRM": "workspace.files",
+            "AGENT_CAPABILITY_GATE_CONFIRM": "dashboard.files",
         },
         clear=False,
     )
     def test_confirm_requires_user_set(self) -> None:
-        meta = {"capabilities": ("workspace.files",)}
+        meta = {"capabilities": ("dashboard.files",)}
         err = cg.capability_gate_error_json("t", meta)
         self.assertIsNotNone(err)
         data = json.loads(err or "{}")
         self.assertEqual(data.get("code"), "capability_confirm_required")
 
-        tok = bind_capability_confirmed(frozenset({"workspace.files"}))
+        tok = bind_capability_confirmed(frozenset({"dashboard.files"}))
         try:
             self.assertIsNone(cg.capability_gate_error_json("t", meta))
         finally:

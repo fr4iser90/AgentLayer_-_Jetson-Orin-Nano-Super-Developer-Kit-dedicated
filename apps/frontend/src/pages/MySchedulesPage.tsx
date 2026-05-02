@@ -4,7 +4,7 @@ import { apiFetch } from "../lib/api";
 
 type SchedulerJobRow = {
   id: string;
-  workspace_id: string | null;
+  dashboard_id: string | null;
   execution_target: string;
   title: string | null;
   interval_minutes: number;
@@ -24,7 +24,7 @@ type SchedulerJobPreset = {
     enabled?: boolean;
     title?: string | null;
     instructions?: string;
-    workspace_id?: string | null;
+    dashboard_id?: string | null;
   };
 };
 
@@ -48,7 +48,7 @@ export function MySchedulesPage() {
   const [createEnabled, setCreateEnabled] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
   const [createInstructions, setCreateInstructions] = useState("");
-  const [createWorkspaceId, setCreateWorkspaceId] = useState("");
+  const [createDashboardId, setCreateDashboardId] = useState("");
 
   const [editJob, setEditJob] = useState<SchedulerJobRow | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -113,7 +113,7 @@ export function MySchedulesPage() {
     if (typeof j.enabled === "boolean") setCreateEnabled(j.enabled);
     if (typeof j.title === "string") setCreateTitle(j.title);
     if (typeof j.instructions === "string") setCreateInstructions(j.instructions);
-    if (typeof j.workspace_id === "string") setCreateWorkspaceId(j.workspace_id);
+    if (typeof j.dashboard_id === "string") setCreateDashboardId(j.dashboard_id);
   };
 
   const toggleEnabled = async (jobId: string, next: boolean) => {
@@ -177,7 +177,7 @@ export function MySchedulesPage() {
         enabled: createEnabled,
         title: createTitle || null,
         instructions: createInstructions,
-        workspace_id: createWorkspaceId || null,
+        dashboard_id: createDashboardId || null,
         ide_workflow: {},
       }),
     });
@@ -190,7 +190,7 @@ export function MySchedulesPage() {
     setCreatePresetId("");
     setCreateTitle("");
     setCreateInstructions("");
-    setCreateWorkspaceId("");
+    setCreateDashboardId("");
     await refresh();
   };
 
@@ -232,7 +232,7 @@ export function MySchedulesPage() {
               <th className="px-3 py-3">Target</th>
               <th className="px-3 py-3">Title</th>
               <th className="px-3 py-3">Interval</th>
-              <th className="px-3 py-3">Workspace</th>
+              <th className="px-3 py-3">Dashboard</th>
               <th className="px-3 py-3">Last run</th>
               <th className="px-3 py-3">Created</th>
               <th className="px-3 py-3">Actions</th>
@@ -262,7 +262,7 @@ export function MySchedulesPage() {
                   <td className="px-3 py-3 font-mono text-xs text-neutral-200">{j.execution_target}</td>
                   <td className="px-3 py-3 text-neutral-100">{j.title || "—"}</td>
                   <td className="px-3 py-3 text-neutral-100">{j.interval_minutes} min</td>
-                  <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.workspace_id || "global"}</td>
+                  <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.dashboard_id || "global"}</td>
                   <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.last_run_at || "—"}</td>
                   <td className="px-3 py-3 font-mono text-xs text-surface-muted">{j.created_at}</td>
                   <td className="px-3 py-3">
@@ -372,11 +372,11 @@ export function MySchedulesPage() {
                 />
               </label>
               <label className="text-xs text-surface-muted md:col-span-2">
-                Workspace id (optional UUID; blank = global)
+                Dashboard id (optional UUID; blank = global)
                 <input
                   className="mt-1 w-full rounded-md border border-surface-border bg-black/30 px-2 py-1 text-sm text-neutral-100"
-                  value={createWorkspaceId}
-                  onChange={(e) => setCreateWorkspaceId(e.target.value)}
+                  value={createDashboardId}
+                  onChange={(e) => setCreateDashboardId(e.target.value)}
                   placeholder="optional"
                 />
               </label>

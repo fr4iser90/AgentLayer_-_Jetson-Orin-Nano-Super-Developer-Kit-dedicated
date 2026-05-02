@@ -19,6 +19,7 @@ from apps.backend.infrastructure.db.friends_db import (
     friend_get,
     friends_list,
     friend_remove,
+    friend_update,
 )
 from apps.backend.infrastructure.db.db import user_tenant_id
 
@@ -130,3 +131,26 @@ async def remove_friend(request: Request, friend_user_id: str):
         raise HTTPException(status_code=404, detail="Friend not found")
 
     return {"ok": True, "removed": True}
+
+
+class FriendUpdateBody(BaseModel):
+    relation: str | None = Field(default=None, max_length=100)
+    note: str | None = Field(default=None, max_length=500)
+
+
+@router.patch("/{friend_user_id}")
+async def update_friend(request: Request, friend_user_id: str, body: FriendUpdateBody):
+    """Update friend metadata"""
+    user = await get_current_user(request)
+
+    ok = friend_update(
+        user.id,
+        friend_user_id,
+        relation=body.relation,
+        note=body.note
+    )
+    
+    if not ok:
+        raise HTTPException(status_code=404, detail="Friend not found")
+
+    return {"ok": True, "updated": True}

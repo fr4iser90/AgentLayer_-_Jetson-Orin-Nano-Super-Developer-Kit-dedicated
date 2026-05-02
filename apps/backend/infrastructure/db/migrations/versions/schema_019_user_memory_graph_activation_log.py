@@ -21,7 +21,7 @@ def upgrade() -> None:
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE SET NULL,
+          dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE SET NULL,
           node_ids BIGINT[] NOT NULL DEFAULT '{}',
           query_sha256 CHAR(64) NULL,
           meta JSONB NOT NULL DEFAULT '{}'::jsonb,

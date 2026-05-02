@@ -24,7 +24,7 @@ from apps.backend.domain.identity import get_identity
 from apps.backend.api import memory as memory_api
 from apps.backend.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from apps.backend.domain.plugin_system.registry import get_registry
-from apps.backend.workspace import db as workspace_db
+from apps.backend.dashboard import db as dashboard_db
 from apps.backend.domain.plugin_system.capability_governance import parse_user_capability_confirm
 from apps.backend.domain.plugin_system.capability_index import filter_merged_tools_by_capabilities
 from apps.backend.domain.plugin_system.tool_routing import (
@@ -52,11 +52,11 @@ from apps.backend.infrastructure.operator_settings import (
 
 logger = logging.getLogger(__name__)
 
-# Extra system text from ``workspace.data._agentlayer`` (see workspace settings UI).
-_MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS = 8000
+# Extra system text from ``dashboard.data._agentlayer`` (see dashboard settings UI).
+_MAX_DASHBOARD_AGENT_INSTRUCTIONS_CHARS = 8000
 
 
-def _workspace_data_agent_instructions(data: Any) -> str:
+def _dashboard_data_agent_instructions(data: Any) -> str:
     """Return trimmed instructions from ``data._agentlayer`` (optional)."""
     if not isinstance(data, dict):
         return ""
@@ -71,21 +71,21 @@ def _workspace_data_agent_instructions(data: Any) -> str:
     s = raw.strip()
     if not s:
         return ""
-    if len(s) > _MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS:
+    if len(s) > _MAX_DASHBOARD_AGENT_INSTRUCTIONS_CHARS:
         logger.warning(
-            "workspace agent instructions truncated from %d to %d chars",
+            "dashboard agent instructions truncated from %d to %d chars",
             len(s),
-            _MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS,
+            _MAX_DASHBOARD_AGENT_INSTRUCTIONS_CHARS,
         )
-        return s[:_MAX_WORKSPACE_AGENT_INSTRUCTIONS_CHARS]
+        return s[:_MAX_DASHBOARD_AGENT_INSTRUCTIONS_CHARS]
     return s
 
 
 # Non-empty allowlist: only these tool function names (after policy / disabled filters).
-_MAX_WORKSPACE_TOOL_ALLOWLIST_LEN = 200
+_MAX_DASHBOARD_TOOL_ALLOWLIST_LEN = 200
 
 
-def _workspace_data_tool_allowlist(data: Any) -> frozenset[str] | None:
+def _dashboard_data_tool_allowlist(data: Any) -> frozenset[str] | None:
     """Return allowed tool names from ``data._agentlayer.tool_allowlist`` or None if unset/empty."""
     if not isinstance(data, dict):
         return None
@@ -108,20 +108,20 @@ def _workspace_data_tool_allowlist(data: Any) -> frozenset[str] | None:
             return None
     else:
         return None
-    if len(names) > _MAX_WORKSPACE_TOOL_ALLOWLIST_LEN:
+    if len(names) > _MAX_DASHBOARD_TOOL_ALLOWLIST_LEN:
         logger.warning(
-            "workspace tool_allowlist truncated from %d to %d entries",
+            "dashboard tool_allowlist truncated from %d to %d entries",
             len(names),
-            _MAX_WORKSPACE_TOOL_ALLOWLIST_LEN,
+            _MAX_DASHBOARD_TOOL_ALLOWLIST_LEN,
         )
-        names = names[:_MAX_WORKSPACE_TOOL_ALLOWLIST_LEN]
+        names = names[:_MAX_DASHBOARD_TOOL_ALLOWLIST_LEN]
     return frozenset(names)
 
 
-def _workspace_tool_allowlist_from_request_context(workspace_ctx: Any) -> frozenset[str] | None:
-    if not isinstance(workspace_ctx, dict):
+def _dashboard_tool_allowlist_from_request_context(dashboard_ctx: Any) -> frozenset[str] | None:
+    if not isinstance(dashboard_ctx, dict):
         return None
-    wid_s = workspace_ctx.get("workspace_id")
+    wid_s = dashboard_ctx.get("dashboard_id")
     if not isinstance(wid_s, str) or not wid_s.strip():
         return None
     try:
@@ -132,10 +132,10 @@ def _workspace_tool_allowlist_from_request_context(workspace_ctx: Any) -> frozen
     if ident[1] is None:
         return None
     tid, uid = ident
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
         return None
-    return _workspace_data_tool_allowlist(ws.get("data"))
+    return _dashboard_data_tool_allowlist(ws.get("data"))
 
 
 class AgentChatCancelled(Exception):
@@ -263,6 +263,46 @@ def _parse_capability_hints(raw: Any) -> frozenset[str]:
     return frozenset()
 
 
+CODING_SYSTEM_PROMPT = (
+    "You are a coding agent with file read/write/edit/bash capabilities. "
+    "When the user asks you to do something that has multiple reasonable approaches, "
+    "present your options as a structured proposal using a ```json-proposal code block.\n"
+    "\n"
+    "Proposal format (use this exact JSON structure):\n"
+    "```json-proposal\n"
+    "{\n"
+    '  "title": "How should I approach this?",\n'
+    '  "options": [\n'
+    '    {"id": "1", "label": "Quick fix", "description": "Brief explanation of this approach", "actions": ["step 1", "step 2"], "confidence": 0.9},\n'
+    '    {"id": "2", "label": "Full refactor", "description": "Brief explanation", "actions": ["step 1"], "confidence": 0.7}\n'
+    "  ]\n"
+    "}\n"
+    "```\n"
+    "\n"
+    "Rules:\n"
+    "- Use proposals when there are 2-4 reasonable approaches with trade-offs\n"
+    "- Each option should have a short label, 1-2 sentence description, and optionally a list of planned actions\n"
+    "- Confidence is 0.0-1.0 reflecting how sure you are about this approach\n"
+    "- Do NOT use proposals for simple tasks or when only one reasonable approach exists\n"
+    "- The user will click an option and tell you to proceed\n"
+)
+
+
+def _inject_coding_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not messages:
+        return [{"role": "system", "content": CODING_SYSTEM_PROMPT}]
+    out = list(messages)
+    if out[0].get("role") == "system":
+        existing = out[0].get("content") or ""
+        out[0] = {
+            **out[0],
+            "content": (existing + "\n\n" + CODING_SYSTEM_PROMPT).strip() if existing else CODING_SYSTEM_PROMPT,
+        }
+    else:
+        out.insert(0, {"role": "system", "content": CODING_SYSTEM_PROMPT})
+    return out
+
+
 def _inject_system_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not config.SYSTEM_PROMPT_EXTRA:
         return messages
@@ -281,16 +321,16 @@ def _inject_system_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]
     return out
 
 
-def _inject_workspace_context(
+def _inject_dashboard_context(
     messages: list[dict[str, Any]], raw: Any
 ) -> list[dict[str, Any]]:
     """
-    Optional client hint: ``agent_workspace_context: { "workspace_id": "<uuid>" }``.
-    Resolved server-side so the model only sees workspaces the user may access.
+    Optional client hint: ``agent_dashboard_context: { "dashboard_id": "<uuid>" }``.
+    Resolved server-side so the model only sees dashboards the user may access.
     """
     if not isinstance(raw, dict):
         return messages
-    wid_s = raw.get("workspace_id")
+    wid_s = raw.get("dashboard_id")
     if not isinstance(wid_s, str) or not wid_s.strip():
         return messages
     try:
@@ -301,27 +341,27 @@ def _inject_workspace_context(
     if ident[1] is None:
         return messages
     tid, uid = ident
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
         note = (
-            "[Workspace context] The client requested a default workspace id but it is not "
-            "accessible to this user; do not assume a workspace id until tools return one."
+            "[Dashboard context] The client requested a default dashboard id but it is not "
+            "accessible to this user; do not assume a dashboard id until tools return one."
         )
     else:
         k = (ws.get("kind") or "").strip()
         title = (ws.get("title") or "").strip()
         role = (ws.get("access_role") or "").strip()
         note = (
-            f"[Workspace context] The user opened this workspace in the app. "
-            f"workspace_id={wid!s}, kind={k!r}, title={title!r}, access_role={role!r}. "
-            f"For shopping_list_* tools, use this workspace_id when the user means 'this list' "
+            f"[Dashboard context] The user opened this dashboard in the app. "
+            f"dashboard_id={wid!s}, kind={k!r}, title={title!r}, access_role={role!r}. "
+            f"For shopping_list_* tools, use this dashboard_id when the user means 'this list' "
             f"and does not clearly mean a different list; for pets_* when kind is pets, or ideas_* "
-            f"when kind is ideas, use the same id. If unsure which list, call shopping_list_workspaces; "
-            f"for pets boards pets_workspaces; for ideas boards ideas_workspaces."
+            f"when kind is ideas, use the same id. If unsure which list, call shopping_list_dashboards; "
+            f"for pets boards pets_dashboards; for ideas boards ideas_dashboards."
         )
-        extra = _workspace_data_agent_instructions(ws.get("data"))
+        extra = _dashboard_data_agent_instructions(ws.get("data"))
         if extra:
-            note = note + "\n\n[Workspace-specific agent instructions]\n" + extra
+            note = note + "\n\n[Dashboard-specific agent instructions]\n" + extra
     out = list(messages)
     if not out:
         return [{"role": "system", "content": note}]
@@ -336,7 +376,7 @@ def _inject_workspace_context(
     return out
 
 
-def _inject_user_memory_context(messages: list[dict[str, Any]], raw_workspace_ctx: Any) -> list[dict[str, Any]]:
+def _inject_user_memory_context(messages: list[dict[str, Any]], raw_dashboard_ctx: Any) -> list[dict[str, Any]]:
     """
     Inject persisted user memory (facts + semantic notes) as a system snippet.
     Writes are opt-in via tools; this is read-only retrieval.
@@ -346,8 +386,8 @@ def _inject_user_memory_context(messages: list[dict[str, Any]], raw_workspace_ct
         return messages
 
     wid: uuid.UUID | None = None
-    if isinstance(raw_workspace_ctx, dict):
-        wsid = raw_workspace_ctx.get("workspace_id")
+    if isinstance(raw_dashboard_ctx, dict):
+        wsid = raw_dashboard_ctx.get("dashboard_id")
         if isinstance(wsid, str) and wsid.strip():
             try:
                 wid = uuid.UUID(wsid.strip())
@@ -355,7 +395,7 @@ def _inject_user_memory_context(messages: list[dict[str, Any]], raw_workspace_ct
                 wid = None
 
     try:
-        snippet = memory_api.render_memory_context(workspace_id=wid, user_query=q)
+        snippet = memory_api.render_memory_context(dashboard_id=wid, user_query=q)
     except Exception:
         snippet = ""
     if not snippet:
@@ -516,8 +556,12 @@ def _log_tools_request_estimate(TOOL_LABEL: str, tools: list[Any]) -> None:
     )
 
 
-def _parse_tool_arguments(raw: str | None) -> dict[str, Any]:
-    if not raw or not raw.strip():
+def _parse_tool_arguments(raw: str | dict | None) -> dict[str, Any]:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if not raw.strip():
         return {}
     try:
         return json.loads(raw)
@@ -1043,11 +1087,12 @@ async def chat_completion(
     )
     hdr_tool_dom = (tool_domain_header or "").strip().lower()
     tool_domain = hdr_tool_dom or body_tool_dom or None
+    logger.debug("tool_domain_header=%r, body_tool_domain=%r, final tool_domain=%r", tool_domain_header, body_tool_dom, tool_domain)
 
     _cap_cf_tok = bind_capability_confirmed(
         parse_user_capability_confirm(body.pop("agent_capability_confirm", None))
     )
-    workspace_ctx = body.pop("agent_workspace_context", None)
+    dashboard_ctx = body.pop("agent_dashboard_context", None)
     _raw_max_rounds = body.pop("agent_max_tool_rounds", None)
     _raw_llm_be = body.pop("agent_llm_backend", None)
     _raw_tool_allow = body.pop("agent_tool_name_allowlist", None)
@@ -1061,12 +1106,14 @@ async def chat_completion(
                 pass
 
         messages = _inject_system_prompt(list(body.get("messages") or []))
-        messages = _inject_workspace_context(messages, workspace_ctx)
+        messages = _inject_dashboard_context(messages, dashboard_ctx)
+        if tool_domain == "coding":
+            messages = _inject_coding_prompt(messages)
         pf = body.get("tool_prefetch")
         if isinstance(pf, dict):
             _apply_tool_prefetch(messages, pf)
         messages = apply_user_persona_system(messages)
-        messages = _inject_user_memory_context(messages, workspace_ctx)
+        messages = _inject_user_memory_context(messages, dashboard_ctx)
 
         model, model_reason, profile_key, model_is_override = resolve_effective_model(
             messages=messages,
@@ -1106,26 +1153,37 @@ async def chat_completion(
         cats = classify_user_tool_categories(last_user_text(messages))
         cats = cats | extra_cats_body | extra_cats_hdr
         merged_tools = filter_merged_tools_by_categories(merged_tools, cats)
-        if tool_domain and not (config.AGENT_ROUTER_STRICT_DEFAULT and not cats):
+        logger.debug("tool_domain before check: %r", tool_domain)
+        if tool_domain and tool_domain == "coding":
+            from apps.backend.domain.plugin_system.registry import get_registry
+
+            reg = get_registry()
+            _coding_tool_names = {
+                "coding_read",
+                "coding_write",
+                "coding_edit",
+                "coding_replace",
+                "coding_search",
+                "coding_glob",
+                "coding_list",
+                "coding_bash",
+                "coding_apply_patch",
+                "coding_lsp",
+                "coding_symbols",
+                "coding_index",
+                "coding_semantic_search",
+                "coding_todo",
+                "coding_task",
+            }
+            _coding_tools = []
+            for spec in reg.chat_tool_specs:
+                n = spec.get("function", {}).get("name", "")
+                if n in _coding_tool_names:
+                    _coding_tools.append(spec)
+            merged_tools = _coding_tools
+            logger.info("coding agent: forced %d coding tools", len(merged_tools))
+        elif tool_domain:
             merged_tools = filter_merged_tools_by_domain(merged_tools, tool_domain)
-            non_intro = sum(
-                1
-                for t in merged_tools
-                if (n := _tool_spec_name(t)) is not None and n not in TOOL_INTROSPECTION
-            )
-            if non_intro == 0:
-                logger.warning(
-                    "tool domain filter %r removed all non-introspection tools; ignoring domain filter",
-                    tool_domain,
-                )
-                merged_tools = filter_merged_tools_by_categories(
-                    _merge_tools(body.get("tools")), cats
-                )
-        elif tool_domain and config.AGENT_ROUTER_STRICT_DEFAULT and not cats:
-            logger.info(
-                "skipping tool domain filter %r (AGENT_ROUTER_STRICT_DEFAULT with no categories)",
-                tool_domain,
-            )
         if cap_hints:
             merged_tools = filter_merged_tools_by_capabilities(
                 merged_tools,
@@ -1179,7 +1237,7 @@ async def chat_completion(
                     or n in TOOL_INTROSPECTION
                 ]
 
-        wl = _workspace_tool_allowlist_from_request_context(workspace_ctx)
+        wl = _dashboard_tool_allowlist_from_request_context(dashboard_ctx)
         if wl:
             before_ct = len(merged_tools)
             merged_tools = [
@@ -1189,13 +1247,13 @@ async def chat_completion(
             ]
             if len(merged_tools) < before_ct:
                 logger.info(
-                    "workspace tool allowlist: tools %d -> %d",
+                    "dashboard tool allowlist: tools %d -> %d",
                     before_ct,
                     len(merged_tools),
                 )
             if not merged_tools:
                 logger.warning(
-                    "workspace tool allowlist left no tools after filters (allowed=%r…)",
+                    "dashboard tool allowlist left no tools after filters (allowed=%r…)",
                     sorted(wl)[:24],
                 )
 

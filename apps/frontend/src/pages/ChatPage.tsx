@@ -12,15 +12,15 @@ import {
   titleFromFirstMessage,
 } from "../features/chat/chatThreadStorage";
 
-/** Workspace-linked thread: show whether other members see messages (shared) or only you (personal). */
-function WorkspaceChatVisibilityBadge({ thread }: { thread: Pick<ChatThread, "workspaceId" | "shared"> }) {
-  if (!thread.workspaceId) return null;
+/** Dashboard-linked thread: show whether other members see messages (shared) or only you (personal). */
+function DashboardChatVisibilityBadge({ thread }: { thread: Pick<ChatThread, "dashboardId" | "shared"> }) {
+  if (!thread.dashboardId) return null;
   const shared = thread.shared === true;
   if (shared) {
     return (
       <span
         className="inline-flex shrink-0 items-center rounded-full border border-amber-400/40 bg-amber-950/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100/95"
-        title="Shared workspace chat — other members can read messages in this thread."
+        title="Shared dashboard chat — other members can read messages in this thread."
       >
         Shared
       </span>
@@ -29,7 +29,7 @@ function WorkspaceChatVisibilityBadge({ thread }: { thread: Pick<ChatThread, "wo
   return (
     <span
       className="inline-flex shrink-0 items-center rounded-full border border-emerald-500/35 bg-emerald-950/45 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/90"
-      title="Personal workspace chat — only you see this thread."
+      title="Personal dashboard chat — only you see this thread."
     >
       Personal
     </span>
@@ -64,8 +64,8 @@ function wsUrl(token: string): string {
   return `${proto}//${window.location.host}/ws/v1/chat?token=${encodeURIComponent(token)}`;
 }
 
-/** `?workspace=<uuid>` — validated; server re-checks access. */
-function parseWorkspaceQueryParam(raw: string | null): string | null {
+/** `?dashboard=<uuid>` — validated; server re-checks access. */
+function parseDashboardQueryParam(raw: string | null): string | null {
   if (!raw || !raw.trim()) return null;
   const s = raw.trim();
   if (
@@ -137,17 +137,17 @@ export function ChatPage() {
   const userId = user?.id ?? "";
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const workspaceChatId = useMemo(
-    () => parseWorkspaceQueryParam(searchParams.get("workspace")),
+  const dashboardChatId = useMemo(
+    () => parseDashboardQueryParam(searchParams.get("dashboard")),
     [searchParams]
   );
-  const [workspaceChatTitle, setWorkspaceChatTitle] = useState<string | null>(null);
-  const agentWorkspacePayload = useMemo(
+  const [dashboardChatTitle, setDashboardChatTitle] = useState<string | null>(null);
+  const agentDashboardPayload = useMemo(
     () =>
-      workspaceChatId
-        ? { agent_workspace_context: { workspace_id: workspaceChatId } }
+      dashboardChatId
+        ? { agent_dashboard_context: { dashboard_id: dashboardChatId } }
         : ({} as Record<string, unknown>),
-    [workspaceChatId]
+    [dashboardChatId]
   );
 
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -159,7 +159,7 @@ export function ChatPage() {
   const [models, setModels] = useState<string[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [composerDragActive, setComposerDragActive] = useState(false);
-  const [workspaceTitles, setWorkspaceTitles] = useState<Record<string, string>>({});
+  const [dashboardTitles, setDashboardTitles] = useState<Record<string, string>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const agentHandlerRef = useRef<(ev: MessageEvent) => void>(() => {});
@@ -211,51 +211,51 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!workspaceChatId || !accessToken) {
-      setWorkspaceChatTitle(null);
+    if (!dashboardChatId || !accessToken) {
+      setDashboardChatTitle(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch(`/v1/workspaces/${workspaceChatId}`, auth);
-        const j = (await res.json()) as { workspace?: { title?: string } };
+        const res = await apiFetch(`/v1/dashboards/${dashboardChatId}`, auth);
+        const j = (await res.json()) as { dashboard?: { title?: string } };
         if (cancelled) return;
-        if (res.ok && j.workspace?.title) setWorkspaceChatTitle(j.workspace.title);
-        else setWorkspaceChatTitle(null);
+        if (res.ok && j.dashboard?.title) setDashboardChatTitle(j.dashboard.title);
+        else setDashboardChatTitle(null);
       } catch {
-        if (!cancelled) setWorkspaceChatTitle(null);
+        if (!cancelled) setDashboardChatTitle(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [workspaceChatId, accessToken, auth]);
+  }, [dashboardChatId, accessToken, auth]);
 
-  const workspaceIdsInThreads = useMemo(() => {
+  const dashboardIdsInThreads = useMemo(() => {
     const s = new Set<string>();
     for (const t of threads) {
-      if (t.workspaceId) s.add(t.workspaceId);
+      if (t.dashboardId) s.add(t.dashboardId);
     }
     return [...s].sort().join(",");
   }, [threads]);
 
   useEffect(() => {
-    if (!accessToken || !workspaceIdsInThreads) {
-      setWorkspaceTitles({});
+    if (!accessToken || !dashboardIdsInThreads) {
+      setDashboardTitles({});
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const r = await apiFetch("/v1/workspaces", auth);
+        const r = await apiFetch("/v1/dashboards", auth);
         if (!r.ok || cancelled) return;
-        const j = (await r.json()) as { workspaces?: Array<{ id?: string; title?: string }> };
+        const j = (await r.json()) as { dashboards?: Array<{ id?: string; title?: string }> };
         const map: Record<string, string> = {};
-        for (const w of j.workspaces || []) {
+        for (const w of j.dashboards || []) {
           if (w.id && typeof w.title === "string") map[w.id] = w.title;
         }
-        if (!cancelled) setWorkspaceTitles(map);
+        if (!cancelled) setDashboardTitles(map);
       } catch {
         /* ignore */
       }
@@ -263,7 +263,7 @@ export function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, workspaceIdsInThreads, auth]);
+  }, [accessToken, dashboardIdsInThreads, auth]);
 
   useEffect(() => {
     if (!accessToken || !userId) return;
@@ -463,7 +463,7 @@ export function ChatPage() {
           model: t.model,
           messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
           stream: false,
-          ...agentWorkspacePayload,
+          ...agentDashboardPayload,
           ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
         }),
       });
@@ -492,7 +492,7 @@ export function ChatPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, activeThreadId, agentWorkspacePayload, auth, draft, pendingAttachments, patchThread, threads]);
+  }, [accessToken, activeThreadId, agentDashboardPayload, auth, draft, pendingAttachments, patchThread, threads]);
 
   const ensureAgentWs = useCallback((): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
@@ -675,7 +675,7 @@ export function ChatPage() {
           body: {
             model: t.model,
             messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
-            ...agentWorkspacePayload,
+            ...agentDashboardPayload,
             ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
           },
         })
@@ -687,7 +687,7 @@ export function ChatPage() {
   }, [
     accessToken,
     activeThreadId,
-    agentWorkspacePayload,
+    agentDashboardPayload,
     appendAgentLine,
     draft,
     pendingAttachments,
@@ -776,8 +776,8 @@ export function ChatPage() {
   );
 
   const sidebarGroups = useMemo(
-    () => buildSidebarGroups(sidebarThreads, workspaceTitles),
-    [sidebarThreads, workspaceTitles]
+    () => buildSidebarGroups(sidebarThreads, dashboardTitles),
+    [sidebarThreads, dashboardTitles]
   );
 
   const canSend = useMemo(() => {
@@ -838,14 +838,14 @@ export function ChatPage() {
             Your chats
           </p>
           <p className="mb-2 px-2 text-[10px] leading-snug text-surface-muted/80">
-            Empty threads stay hidden until you open them or send a message. Workspace rows marked{" "}
+            Empty threads stay hidden until you open them or send a message. Dashboard rows marked{" "}
             <span className="text-amber-200/90">Shared</span> are older team chats (or API); new assistants are private
             by default.
           </p>
           <div className="flex flex-col gap-3">
             {sidebarGroups.map((g) => (
               <section
-                key={g.kind === "workspace" ? `ws-${g.workspaceId}` : `src-${g.source}`}
+                key={g.kind === "dashboard" ? `ws-${g.dashboardId}` : `src-${g.source}`}
                 className="min-w-0"
               >
                 <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-surface-muted/90">
@@ -866,7 +866,7 @@ export function ChatPage() {
                         >
                           <span className="flex flex-wrap items-start gap-1.5">
                             <span className="line-clamp-2 min-w-0 flex-1 text-left">{t.title}</span>
-                            <WorkspaceChatVisibilityBadge thread={t} />
+                            <DashboardChatVisibilityBadge thread={t} />
                           </span>
                           <span className="mt-0.5 block text-[10px] text-surface-muted">
                             {new Date(t.updatedAt).toLocaleString(undefined, {
@@ -935,7 +935,7 @@ export function ChatPage() {
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <p className="truncate text-sm font-medium text-white">{activeThread?.title ?? "Chat"}</p>
-              {activeThread ? <WorkspaceChatVisibilityBadge thread={activeThread} /> : null}
+              {activeThread ? <DashboardChatVisibilityBadge thread={activeThread} /> : null}
             </div>
             <label className="mt-2 block text-xs text-surface-muted">Ollama model</label>
             <select
@@ -956,43 +956,43 @@ export function ChatPage() {
             </select>
             <p className="mt-1 text-xs text-surface-muted">
               Titles from the first message. Open a shared chat: URL query <code className="text-neutral-500">?c=&lt;id&gt;</code>
-              . From Workspaces: <code className="text-neutral-500">?workspace=&lt;uuid&gt;</code> sends{" "}
-              <code className="text-neutral-500">agent_workspace_context</code> to the agent.
+              . From Dashboards: <code className="text-neutral-500">?dashboard=&lt;uuid&gt;</code> sends{" "}
+              <code className="text-neutral-500">agent_dashboard_context</code> to the agent.
             </p>
           </div>
         </div>
 
-        {workspaceChatId ? (
+        {dashboardChatId ? (
           <div className="shrink-0 border-b border-sky-900/40 bg-sky-950/25 px-6 py-2 text-sm text-sky-100/90">
-            <span className="font-medium text-sky-200">Workspace context</span>
+            <span className="font-medium text-sky-200">Dashboard context</span>
             {": "}
-            {workspaceChatTitle ?? workspaceChatId}
+            {dashboardChatTitle ?? dashboardChatId}
             <span className="ml-2 text-xs text-sky-300/80">
-              (this workspace id is passed to the agent; say &quot;add milk&quot; for this list)
+              (this dashboard id is passed to the agent; say &quot;add milk&quot; for this list)
             </span>
           </div>
         ) : null}
 
-        {activeThread?.workspaceId && activeThread.shared ? (
+        {activeThread?.dashboardId && activeThread.shared ? (
           <div
             className="shrink-0 border-b border-amber-900/45 bg-amber-950/40 px-6 py-2.5 text-sm text-amber-50/95"
             role="status"
           >
-            <span className="font-medium text-amber-200">Shared workspace chat</span>
+            <span className="font-medium text-amber-200">Shared dashboard chat</span>
             {" — "}
-            Other members who can access this workspace may see messages you send here. Do not post secrets or
+            Other members who can access this dashboard may see messages you send here. Do not post secrets or
             private data.
           </div>
         ) : null}
 
-        {activeThread?.workspaceId && activeThread.shared !== true ? (
+        {activeThread?.dashboardId && activeThread.shared !== true ? (
           <div
             className="shrink-0 border-b border-emerald-900/35 bg-emerald-950/25 px-6 py-2 text-sm text-emerald-100/90"
             role="status"
           >
-            <span className="font-medium text-emerald-200">Personal workspace chat</span>
+            <span className="font-medium text-emerald-200">Personal dashboard chat</span>
             {" — "}
-            Only your account sees this thread; it is not the shared team chat for this workspace.
+            Only your account sees this thread; it is not the shared team chat for this dashboard.
           </div>
         ) : null}
 

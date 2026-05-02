@@ -1,25 +1,25 @@
 ---
-doc_id: feature-workspaces
+doc_id: feature-dashboards
 domain: agentlayer_docs
-tags: [workspaces, ui, sharing]
+tags: [dashboards, ui, sharing]
 ---
 
 ## What it is
 
-Workspaces are generic dashboards stored as:
+Dashboards are generic dashboards stored as:
 
 - `ui_layout` (blocks + grid positions)
 - `data` (JSON payload for blocks)
 - `kind` (template kind)
 - sharing/access (`access_role`)
 
-Backend stores them in `user_workspaces` (created by `workspace/**/migrations/001_user_workspaces.sql`).
+Backend stores them in `user_dashboards` (created by `dashboard/**/migrations/001_user_dashboards.sql`).
 
 ## Backend
 
-- Router: `src/workspace/router.py`
-- CRUD: `src/workspace/db.py`
-- Template discovery: `src/workspace/bundle.py`
+- Router: `src/dashboard/router.py`
+- CRUD: `src/dashboard/db.py`
+- Template discovery: `src/dashboard/bundle.py`
 
 ### Sharing roles
 
@@ -28,13 +28,13 @@ Backend stores them in `user_workspaces` (created by `workspace/**/migrations/00
 - `editor`: can edit content
 - `viewer`: read-only
 
-Sharing UI is in `interfaces/agent-ui/src/pages/WorkspacePage.tsx` (Settings drawer).
+Sharing UI is in `interfaces/agent-ui/src/pages/DashboardPage.tsx` (Settings drawer).
 
 ## Frontend
 
-- Page: `interfaces/agent-ui/src/pages/WorkspacePage.tsx`
-- Grid: `interfaces/agent-ui/src/features/workspace/WorkspaceGridCanvas.tsx`
-- Block renderer: `interfaces/agent-ui/src/features/workspace/WorkspaceBlocks.tsx`
+- Page: `interfaces/agent-ui/src/pages/DashboardPage.tsx`
+- Grid: `interfaces/agent-ui/src/features/dashboard/DashboardGridCanvas.tsx`
+- Block renderer: `interfaces/agent-ui/src/features/dashboard/DashboardBlocks.tsx`
 
 ## Block types (current)
 
@@ -63,17 +63,17 @@ Supported:
 
 Helper functions:
 
-- `interfaces/agent-ui/src/features/workspace/workspaceDataPaths.ts` (`getPath`, `setPath`)
+- `interfaces/agent-ui/src/features/dashboard/dashboardDataPaths.ts` (`getPath`, `setPath`)
 
-## Agent tools (workspace id)
+## Agent tools (dashboard id)
 
-For built-in kinds with dedicated tools (`pets`, `ideas`, `shopping_list`), `workspace_id` may be **omitted** when the user has exactly **one** workspace of that `kind`; the server picks it automatically. If there are several, the tool returns a short list of `id` + `title` so the model can ask or pass the UUID. Logic: `src/workspace/tool_workspace_resolve.py`.
+For built-in kinds with dedicated tools (`pets`, `ideas`, `shopping_list`), `dashboard_id` may be **omitted** when the user has exactly **one** dashboard of that `kind`; the server picks it automatically. If there are several, the tool returns a short list of `id` + `title` so the model can ask or pass the UUID. Logic: `src/dashboard/tool_dashboard_resolve.py`.
 
-## Terminology: workspace vs project path
+## Terminology: dashboard vs project path
 
-In AgentLayer, a **workspace** is a UI dashboard/board stored in `user_workspaces` (identified by `workspace_id`).
+In AgentLayer, a **dashboard** is a UI dashboard/board stored in `user_dashboards` (identified by `dashboard_id`).
 
-When scheduling IDE/Git jobs, use **`project_path`** for the local filesystem path to a repository/project folder. Do not call this a "workspace path" to avoid confusion with UI workspaces.
+When scheduling IDE/Git jobs, use **`project_path`** for the local filesystem path to a repository/project folder. Do not call this a "dashboard path" to avoid confusion with UI dashboards.
 
 ## Block: schedules
 
@@ -81,17 +81,17 @@ The `schedules` block shows persisted user-defined schedules from `scheduler_job
 
 Example block props:
 
-- `scope`: `"workspace"` | `"global"` | `"both"` (default `"workspace"`)
+- `scope`: `"dashboard"` | `"global"` | `"both"` (default `"dashboard"`)
 - `executionTarget`: `"ide_agent"` | `"server_periodic"` | `"all"` (default `"all"`)
 
 ## Files / uploads
 
 Uploads produce a `wsfile:<uuid>` reference.
 
-- Upload endpoint: `POST /v1/workspaces/{workspace_id}/files`
-- Content fetch: `GET /v1/workspaces/files/{id}/content`
+- Upload endpoint: `POST /v1/dashboards/{dashboard_id}/files`
+- Content fetch: `GET /v1/dashboards/files/{id}/content`
 
 Frontend renders `wsfile:` via:
 
-- `interfaces/agent-ui/src/features/workspace/WorkspaceBlocks.tsx` (`GalleryImage`)
+- `interfaces/agent-ui/src/features/dashboard/DashboardBlocks.tsx` (`GalleryImage`)
 

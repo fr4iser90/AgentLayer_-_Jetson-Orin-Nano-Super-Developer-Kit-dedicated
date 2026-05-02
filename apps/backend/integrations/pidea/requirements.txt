@@ -1,2 +1,0 @@
-# Optional PIDEA deps — use repo root:
-#   pip install -r ../../requirements-pidea.txt && playwright install chromium

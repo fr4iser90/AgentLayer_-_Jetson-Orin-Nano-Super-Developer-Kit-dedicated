@@ -1,4 +1,4 @@
-"""Agent tools for ``kind: ideas`` workspaces — list, read, add/patch idea rows, scratchpad."""
+"""Agent tools for ``kind: ideas`` dashboards — list, read, add/patch idea rows, scratchpad."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import uuid
 from typing import Any, Callable
 
 from apps.backend.domain.identity import get_identity
-from apps.backend.workspace import db as workspace_db
-from apps.backend.workspace.tool_workspace_resolve import (
-    resolve_workspace_id_for_kind,
-    workspace_rows_for_kind,
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard.tool_dashboard_resolve import (
+    resolve_dashboard_id_for_kind,
+    dashboard_rows_for_kind,
 )
 
 __version__ = "1.0.0"
@@ -19,9 +19,9 @@ TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "ideas"
 TOOL_LABEL = "Ideas & memos"
 TOOL_DESCRIPTION = (
-    "Read and update ideas workspaces (kind ideas): idea table (title, tags, status, snippet, pinned) "
-    "and markdown scratchpad. workspace_id is optional when the user has exactly one ideas board; "
-    "if several exist, call ideas_workspaces or pass workspace_id. Prefer [Workspace context] when present. "
+    "Read and update ideas dashboards (kind ideas): idea table (title, tags, status, snippet, pinned) "
+    "and markdown scratchpad. dashboard_id is optional when the user has exactly one ideas board; "
+    "if several exist, call ideas_dashboards or pass dashboard_id. Prefer [Dashboard context] when present. "
     "Stored JSON only — no web search unless you use other tools."
 )
 TOOL_TRIGGERS = (
@@ -35,7 +35,7 @@ TOOL_TRIGGERS = (
     "brainstorm",
     "scratchpad",
 )
-TOOL_CAPABILITIES = ("workspace.ideas.read", "workspace.ideas.write")
+TOOL_CAPABILITIES = ("dashboard.ideas.read", "dashboard.ideas.write")
 
 _MAX_IDEAS = 500
 _MAX_BATCH = 30
@@ -60,7 +60,7 @@ def _identity() -> tuple[int, uuid.UUID] | None:
 
 def _ensure_ideas(ws: dict[str, Any]) -> str | None:
     if (ws.get("kind") or "").strip() != "ideas":
-        return "workspace is not an ideas kind"
+        return "dashboard is not an ideas kind"
     return None
 
 
@@ -92,34 +92,34 @@ def _normalize_idea_entry(entry: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def ideas_workspaces(arguments: dict[str, Any]) -> str:
-    """List ideas workspaces for the current user."""
+def ideas_dashboards(arguments: dict[str, Any]) -> str:
+    """List ideas dashboards for the current user."""
     del arguments
     ident = _identity()
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_rows_for_kind(uid, tid, "ideas")
+    rows = dashboard_rows_for_kind(uid, tid, "ideas")
     out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
-    return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboards": out}, ensure_ascii=False)
 
 
 def ideas_read(arguments: dict[str, Any]) -> str:
-    """Return ideas rows and scratchpad for one ideas workspace."""
+    """Return ideas rows and scratchpad for one ideas dashboard."""
     ident = _identity()
     if ident is None:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="ideas", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_ideas(ws)
     if bad:
         return _err(bad)
@@ -135,7 +135,7 @@ def ideas_read(arguments: dict[str, Any]) -> str:
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "title": ws.get("title") or "",
             "ideas": ideas,
             "scratchpad": scratch,
@@ -155,15 +155,15 @@ def ideas_add_rows(arguments: dict[str, Any]) -> str:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="ideas", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_ideas(ws)
     if bad:
         return _err(bad)
@@ -192,14 +192,14 @@ def ideas_add_rows(arguments: dict[str, Any]) -> str:
     if "scratchpad" not in data or not isinstance(data.get("scratchpad"), str):
         data["scratchpad"] = ""
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "added": len(new_rows),
             "ideas_count": len(merged),
         },
@@ -224,15 +224,15 @@ def ideas_patch_idea(arguments: dict[str, Any]) -> str:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="ideas", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_ideas(ws)
     if bad:
         return _err(bad)
@@ -284,12 +284,12 @@ def ideas_patch_idea(arguments: dict[str, Any]) -> str:
     ideas[idx] = row
     data["ideas"] = ideas
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
-        {"ok": True, "workspace_id": str(wid), "idea_index": idx, "idea_id": str(row.get("id", ""))},
+        {"ok": True, "dashboard_id": str(wid), "idea_index": idx, "idea_id": str(row.get("id", ""))},
         ensure_ascii=False,
     )
 
@@ -309,15 +309,15 @@ def ideas_patch_scratchpad(arguments: dict[str, Any]) -> str:
         return _err("No user identity — ideas tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="ideas", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="ideas", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_ideas(ws)
     if bad:
         return _err(bad)
@@ -333,18 +333,18 @@ def ideas_patch_scratchpad(arguments: dict[str, Any]) -> str:
     else:
         data["scratchpad"] = chunk
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
-        {"ok": True, "workspace_id": str(wid), "scratchpad_chars": len(data["scratchpad"])},
+        {"ok": True, "dashboard_id": str(wid), "scratchpad_chars": len(data["scratchpad"])},
         ensure_ascii=False,
     )
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "ideas_workspaces": ideas_workspaces,
+    "ideas_dashboards": ideas_dashboards,
     "ideas_read": ideas_read,
     "ideas_add_rows": ideas_add_rows,
     "ideas_patch_idea": ideas_patch_idea,
@@ -355,10 +355,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "ideas_workspaces",
+            "name": "ideas_dashboards",
             "TOOL_DESCRIPTION": (
-                "List ideas workspaces (kind ideas). Call when which board is unclear or there is no "
-                "[Workspace context] workspace_id."
+                "List ideas dashboards (kind ideas). Call when which board is unclear or there is no "
+                "[Dashboard context] dashboard_id."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -368,15 +368,15 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "ideas_read",
             "TOOL_DESCRIPTION": (
-                "Read idea rows and scratchpad markdown for one ideas workspace. "
-                "Omit workspace_id when the user has exactly one ideas board; else pass UUID or call ideas_workspaces."
+                "Read idea rows and scratchpad markdown for one ideas dashboard. "
+                "Omit dashboard_id when the user has exactly one ideas board; else pass UUID or call ideas_dashboards."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas dashboard).",
                     },
                 },
                 "required": [],
@@ -388,19 +388,19 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "ideas_add_rows",
             "TOOL_DESCRIPTION": (
-                "Add one or more ideas / memos (ideas workspace — not the task-list workspace). "
+                "Add one or more ideas / memos (ideas dashboard — not the task-list dashboard). "
                 "Each row needs title; optional tags, status "
                 "(Neu | Später | In Arbeit | Erledigt / Archiv), snippet, pinned. "
-                "Omit workspace_id when the user has exactly one ideas workspace. "
+                "Omit dashboard_id when the user has exactly one ideas dashboard. "
                 "For checkbox tasks / due dates use todo_* tools (kind todo), not this. "
                 "You MUST call this function with tool_calls — do not paste JSON or {\"rows\":[...]} as plain assistant text."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas dashboard).",
                     },
                     "rows": {
                         "type": "array",
@@ -419,14 +419,14 @@ TOOLS: list[dict[str, Any]] = [
             "TOOL_DESCRIPTION": (
                 "Update one idea: title, tags, status, snippet, and/or pinned. "
                 "Identify by idea_id (row id) or idea_index (0-based). "
-                "Omit workspace_id when the user has exactly one ideas workspace."
+                "Omit dashboard_id when the user has exactly one ideas dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas dashboard).",
                     },
                     "idea_id": {"type": "string", "TOOL_DESCRIPTION": "Row id from ideas[].id"},
                     "idea_index": {"type": "integer", "TOOL_DESCRIPTION": "Zero-based index if id unknown"},
@@ -442,14 +442,14 @@ TOOLS: list[dict[str, Any]] = [
             "name": "ideas_patch_scratchpad",
             "TOOL_DESCRIPTION": (
                 "Set (replace) or append the markdown scratchpad. "
-                "Omit workspace_id when the user has exactly one ideas workspace."
+                "Omit dashboard_id when the user has exactly one ideas dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single ideas dashboard).",
                     },
                     "mode": {"type": "string", "TOOL_DESCRIPTION": "replace or append"},
                     "text": {"type": "string", "TOOL_DESCRIPTION": "Markdown text"},

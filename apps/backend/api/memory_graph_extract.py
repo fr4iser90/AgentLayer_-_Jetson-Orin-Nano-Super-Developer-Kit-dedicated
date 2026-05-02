@@ -40,7 +40,7 @@ Do not invent secrets. Keep nodes under 12 unless the text clearly needs more.""
 def propose_graph_from_text(
     *,
     text: str,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     apply: bool,
 ) -> dict[str, Any]:
     """
@@ -119,7 +119,7 @@ def propose_graph_from_text(
             logger.warning("graph propose: embed failed for node %r: %s", label, e)
         try:
             row = db.memory_graph_node_insert(
-                workspace_id=workspace_id,
+                dashboard_id=dashboard_id,
                 kind=kind,
                 label=label,
                 summary=summary,

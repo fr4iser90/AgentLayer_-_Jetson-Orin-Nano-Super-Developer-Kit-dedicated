@@ -31,7 +31,7 @@ function normalizeSource(raw: unknown): ChatSource {
 
 /** List endpoint row (no message bodies). */
 export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
-  const ws = item.workspace_id;
+  const ws = item.dashboard_id;
   const src = normalizeSource(item.source);
   return {
     id: String(item.id ?? ""),
@@ -41,7 +41,7 @@ export function mapListItemToThread(item: Record<string, unknown>): ChatThread {
     messages: [],
     agentLog: [],
     updatedAt: Date.parse(String(item.updated_at ?? Date.now())) || Date.now(),
-    workspaceId: typeof ws === "string" && ws ? ws : undefined,
+    dashboardId: typeof ws === "string" && ws ? ws : undefined,
     shared: typeof item.shared === "boolean" ? item.shared : undefined,
     source: src,
     messageCount: typeof item.message_count === "number" ? item.message_count : undefined,
@@ -61,7 +61,7 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
   const agentLog = Array.isArray(raw.agent_log)
     ? (raw.agent_log as AgentTimelineEntry[])
     : [];
-  const ws = raw.workspace_id;
+  const ws = raw.dashboard_id;
   const src = normalizeSource(raw.source);
   return {
     id: String(raw.id ?? ""),
@@ -71,7 +71,7 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
     messages,
     agentLog,
     updatedAt: Date.parse(String(raw.updated_at ?? Date.now())) || Date.now(),
-    workspaceId: typeof ws === "string" && ws ? ws : undefined,
+    dashboardId: typeof ws === "string" && ws ? ws : undefined,
     shared: typeof raw.shared === "boolean" ? raw.shared : undefined,
     source: src,
     messageCount: messages.length,
@@ -80,11 +80,11 @@ export function mapServerToThread(raw: Record<string, unknown>): ChatThread {
 
 export async function fetchConversationList(
   auth: Pick<AuthContextValue, "accessToken" | "refresh">,
-  opts?: { workspaceId?: string }
+  opts?: { dashboardId?: string }
 ) {
   const q =
-    opts?.workspaceId && opts.workspaceId.trim()
-      ? `?workspace_id=${encodeURIComponent(opts.workspaceId.trim())}`
+    opts?.dashboardId && opts.dashboardId.trim()
+      ? `?dashboard_id=${encodeURIComponent(opts.dashboardId.trim())}`
       : "";
   const r = await apiFetch(`/v1/user/conversations${q}`, auth);
   const data = (await r.json()) as { conversations?: Record<string, unknown>[] };
@@ -110,8 +110,8 @@ export async function createConversation(
     model: string;
     messages: UiMessage[];
     agent_log: AgentTimelineEntry[];
-    workspace_id?: string;
-    /** One shared thread per workspace; all members with access see the same messages. */
+    dashboard_id?: string;
+    /** One shared thread per dashboard; all members with access see the same messages. */
     shared?: boolean;
   }
 ) {
@@ -123,7 +123,7 @@ export async function createConversation(
       model: body.model,
       messages: body.messages.map((m) => ({ role: m.role, content: serializeMessageContent(m.content) })),
       agent_log: body.agent_log,
-      ...(body.workspace_id ? { workspace_id: body.workspace_id } : {}),
+      ...(body.dashboard_id ? { dashboard_id: body.dashboard_id } : {}),
       ...(body.shared ? { shared: true } : {}),
     }),
   });

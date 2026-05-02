@@ -19,7 +19,7 @@ This folder is written for **humans** and for **RAG ingestion**.
 
 - **Architecture**: [`docs/architecture/overview.md`](./architecture/overview.md)
 - **Tool system**: [`docs/architecture/tools.md`](./architecture/tools.md)
-- **Workspaces**: [`docs/features/workspaces.md`](./features/workspaces.md)
+- **Dashboards**: [`docs/features/dashboards.md`](./features/dashboards.md)
 - **Memory**: [`docs/features/memory.md`](./features/memory.md)
 - **RAG**: [`docs/features/rag.md`](./features/rag.md)
 - **Discord**: [`docs/features/discord.md`](./features/discord.md)

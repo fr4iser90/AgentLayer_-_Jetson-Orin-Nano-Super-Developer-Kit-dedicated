@@ -23,7 +23,7 @@ Dot-separated `domain.action` strings controlling tool routing and policy gates.
 - `docs/adr/0002-tool-capabilities-convention.md`
 - `docs/adr/0003-capability-governance.md`
 
-### Workspace (Dashboard / Board)
+### Dashboard (Dashboard / Board)
 
 Generic user-owned container with:
 
@@ -31,12 +31,12 @@ Generic user-owned container with:
 - `data`: JSON storage for the blocks
 - `access_role`: owner/editor/co_owner/viewer sharing model
 
-Backend: `src/workspace/db.py`, `src/workspace/router.py`  
-Frontend: `interfaces/agent-ui/src/pages/WorkspacePage.tsx`
+Backend: `src/dashboard/db.py`, `src/dashboard/router.py`  
+Frontend: `interfaces/agent-ui/src/pages/DashboardPage.tsx`
 
 ### wsfile:
 
-Special URL prefix for workspace uploads:
+Special URL prefix for dashboard uploads:
 
 - Example: `wsfile:<uuid>`
 - Used in gallery / hero blocks to reference uploaded files.

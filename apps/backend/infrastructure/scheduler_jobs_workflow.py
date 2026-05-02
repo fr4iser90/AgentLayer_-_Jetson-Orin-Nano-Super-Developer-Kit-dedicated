@@ -7,15 +7,15 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from apps.backend.integrations.pidea.content_library_prompts import (
-    DEFAULT_TASK_MANAGEMENT_PHASE_PATHS,
-)
-from apps.backend.integrations.pidea.workflow.git_ops import (
-    git_create_branch,
-    is_git_work_tree,
-    resolve_branch_name_template,
-    validate_branch_name,
-)
+# from apps.backend.integrations.pidea.content_library_prompts import (
+#     DEFAULT_TASK_MANAGEMENT_PHASE_PATHS,
+# )
+# from apps.backend.integrations.pidea.workflow.git_ops import (
+#     git_create_branch,
+#     is_git_work_tree,
+#     resolve_branch_name_template,
+#     validate_branch_name,
+# )
 
 logger = logging.getLogger(__name__)
 
@@ -190,9 +190,9 @@ def job_context_footer(row: dict[str, Any]) -> str:
     t = (str(row.get("title") or "").strip()) or None
     if t:
         lines.append(f"Title: {t}")
-    ws = row.get("workspace_id")
+    ws = row.get("dashboard_id")
     if ws is not None:
-        lines.append(f"Workspace id: {ws}")
+        lines.append(f"Dashboard id: {ws}")
     instr = str(row.get("instructions") or "").strip()
     if instr:
         lines.append("Additional instructions:")
@@ -216,9 +216,9 @@ def compose_pidea_message(
     parts.append("[Scheduled job — scheduler_jobs / ide_agent]")
     if title:
         parts.append(f"Title: {title}")
-    ws = row.get("workspace_id")
+    ws = row.get("dashboard_id")
     if ws is not None:
-        parts.append(f"Workspace id: {ws}")
+        parts.append(f"Dashboard id: {ws}")
     parts.append("Instructions:")
     parts.append(instr[:31000])
     return "\n".join(parts).strip()

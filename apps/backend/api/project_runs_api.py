@@ -21,7 +21,7 @@ router = APIRouter(prefix="/v1/project-runs", tags=["project-runs"])
 class ProjectRunCreateBody(BaseModel):
     instructions: str = Field(..., min_length=1, max_length=32000)
     ide_workflow: dict[str, Any] | None = None
-    workspace_id: str | None = None
+    dashboard_id: str | None = None
     project_row_id: str | None = Field(default=None, max_length=200)
     project_title: str | None = Field(default=None, max_length=500)
 
@@ -37,18 +37,18 @@ async def project_run_create(request: Request, body: ProjectRunCreateBody) -> di
         raise HTTPException(status_code=400, detail="instructions is required")
 
     ws_id: uuid.UUID | None = None
-    if body.workspace_id is not None and str(body.workspace_id).strip():
+    if body.dashboard_id is not None and str(body.dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(body.workspace_id).strip())
+            ws_id = uuid.UUID(str(body.dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
 
     row = project_runs_store.insert_run(
         tenant_id=tenant_id,
         created_by_user_id=user.id,
         execution_user_id=user.id,
         scheduler_job_id=None,
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         project_row_id=(body.project_row_id or "").strip() or None,
         project_title=(body.project_title or "").strip() or None,
         execution_target="ide_agent",
@@ -63,21 +63,21 @@ async def project_run_create(request: Request, body: ProjectRunCreateBody) -> di
 @router.get("")
 async def project_run_list(
     request: Request,
-    workspace_id: str | None = None,
+    dashboard_id: str | None = None,
     project_row_id: str | None = None,
     limit: int = 50,
 ) -> dict:
     user = await require_admin(request)
     tenant_id = db.user_tenant_id(user.id)
     ws_id: uuid.UUID | None = None
-    if workspace_id is not None and str(workspace_id).strip():
+    if dashboard_id is not None and str(dashboard_id).strip():
         try:
-            ws_id = uuid.UUID(str(workspace_id).strip())
+            ws_id = uuid.UUID(str(dashboard_id).strip())
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid workspace_id") from None
+            raise HTTPException(status_code=400, detail="invalid dashboard_id") from None
     rows = project_runs_store.list_runs(
         tenant_id=tenant_id,
-        workspace_id=ws_id,
+        dashboard_id=ws_id,
         project_row_id=(project_row_id or "").strip() or None,
         limit=limit,
     )

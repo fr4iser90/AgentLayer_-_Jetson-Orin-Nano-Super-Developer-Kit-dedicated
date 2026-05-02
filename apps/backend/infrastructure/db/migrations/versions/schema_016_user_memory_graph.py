@@ -21,7 +21,7 @@ def upgrade() -> None:
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+          dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
           kind TEXT NOT NULL DEFAULT 'event',
           label TEXT NOT NULL,
           summary TEXT NOT NULL DEFAULT '',
@@ -36,7 +36,7 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_user_memory_graph_nodes_scope_updated
-          ON user_memory_graph_nodes (tenant_id, user_id, workspace_id, updated_at DESC)
+          ON user_memory_graph_nodes (tenant_id, user_id, dashboard_id, updated_at DESC)
           WHERE deleted_at IS NULL;
         """
     )

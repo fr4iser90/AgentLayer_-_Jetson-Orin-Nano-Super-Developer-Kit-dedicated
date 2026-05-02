@@ -24,7 +24,7 @@ def insert_run(
     created_by_user_id: uuid.UUID,
     execution_user_id: uuid.UUID,
     scheduler_job_id: uuid.UUID | None,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     project_row_id: str | None,
     project_title: str | None,
     execution_target: str,
@@ -38,13 +38,13 @@ def insert_run(
                 """
                 INSERT INTO project_runs (
                   tenant_id, created_by_user_id, execution_user_id,
-                  scheduler_job_id, workspace_id, project_row_id, project_title,
+                  scheduler_job_id, dashboard_id, project_row_id, project_title,
                   execution_target, instructions, ide_workflow,
                   status, updated_at
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued', now())
                 RETURNING id, tenant_id, created_by_user_id, execution_user_id, scheduler_job_id,
-                          workspace_id, project_row_id, project_title,
+                          dashboard_id, project_row_id, project_title,
                           execution_target, instructions, ide_workflow, status, error,
                           started_at, finished_at, created_at, updated_at
                 """,
@@ -53,7 +53,7 @@ def insert_run(
                     created_by_user_id,
                     execution_user_id,
                     scheduler_job_id,
-                    workspace_id,
+                    dashboard_id,
                     project_row_id,
                     project_title,
                     execution_target,
@@ -73,7 +73,7 @@ def fetch_queued_runs_ide_agent(*, limit: int = 10) -> list[dict[str, Any]]:
             cur.execute(
                 """
                 SELECT id, tenant_id, created_by_user_id, execution_user_id, scheduler_job_id,
-                       workspace_id, project_row_id, project_title,
+                       dashboard_id, project_row_id, project_title,
                        execution_target, instructions, ide_workflow, status, error,
                        started_at, finished_at, created_at, updated_at
                 FROM project_runs
@@ -92,16 +92,16 @@ def fetch_queued_runs_ide_agent(*, limit: int = 10) -> list[dict[str, Any]]:
 def list_runs(
     *,
     tenant_id: int,
-    workspace_id: uuid.UUID | None,
+    dashboard_id: uuid.UUID | None,
     project_row_id: str | None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     lim = max(1, min(200, int(limit)))
     params: list[Any] = [tenant_id]
     where = "WHERE tenant_id = %s"
-    if workspace_id is not None:
-        where += " AND workspace_id = %s"
-        params.append(workspace_id)
+    if dashboard_id is not None:
+        where += " AND dashboard_id = %s"
+        params.append(dashboard_id)
     if project_row_id is not None and project_row_id.strip():
         where += " AND project_row_id = %s"
         params.append(project_row_id.strip())
@@ -111,7 +111,7 @@ def list_runs(
             cur.execute(
                 f"""
                 SELECT id, tenant_id, created_by_user_id, execution_user_id, scheduler_job_id,
-                       workspace_id, project_row_id, project_title,
+                       dashboard_id, project_row_id, project_title,
                        execution_target, instructions, ide_workflow, status, error,
                        started_at, finished_at, created_at, updated_at
                 FROM project_runs

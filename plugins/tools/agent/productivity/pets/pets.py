@@ -1,4 +1,4 @@
-"""Agent tools for ``kind: pets`` workspaces — list, read, patch pets, notes, album photos."""
+"""Agent tools for ``kind: pets`` dashboards — list, read, patch pets, notes, album photos."""
 
 from __future__ import annotations
 
@@ -7,22 +7,22 @@ import uuid
 from typing import Any, Callable
 
 from apps.backend.domain.identity import get_identity
-from apps.backend.workspace import db as workspace_db
-from apps.backend.workspace.tool_workspace_resolve import (
-    resolve_workspace_id_for_kind,
-    workspace_rows_for_kind,
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard.tool_dashboard_resolve import (
+    resolve_dashboard_id_for_kind,
+    dashboard_rows_for_kind,
 )
 
 __version__ = "1.0.0"
 TOOL_ID = "pets"
 TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "pets"
-TOOL_LABEL = "Pets workspace"
+TOOL_LABEL = "Pets dashboard"
 TOOL_DESCRIPTION = (
-    "Read and update pets workspaces (kind pets): hero image, animals table, markdown notes, photo albums. "
-    "workspace_id is optional when the user has exactly one pets board (same rule as other workspace tools); "
-    "if several exist, pass workspace_id after listing. Prefer [Workspace context] when present. "
-    "Stored workspace JSON only — no external vet APIs. "
+    "Read and update pets dashboards (kind pets): hero image, animals table, markdown notes, photo albums. "
+    "dashboard_id is optional when the user has exactly one pets board (same rule as other dashboard tools); "
+    "if several exist, pass dashboard_id after listing. Prefer [Dashboard context] when present. "
+    "Stored dashboard JSON only — no external vet APIs. "
     "Use when the user asks about *their* animals (name, vet, photos) — they may not say the word “pet”."
 )
 # Router: lowercased substring match (OR). Avoid bare “hund” — it hits “hundert”. Prefer phrases + species words.
@@ -85,7 +85,7 @@ TOOL_TRIGGERS = (
     "aquarium",
     "terrarium",
 )
-TOOL_CAPABILITIES = ("workspace.pets.read", "workspace.pets.write")
+TOOL_CAPABILITIES = ("dashboard.pets.read", "dashboard.pets.write")
 
 _MAX_PETS = 100
 _MAX_PHOTOS_PER_ALBUM = 200
@@ -110,7 +110,7 @@ def _identity() -> tuple[int, uuid.UUID] | None:
 
 def _ensure_pets(ws: dict[str, Any]) -> str | None:
     if (ws.get("kind") or "").strip() != "pets":
-        return "workspace is not a pets kind"
+        return "dashboard is not a pets kind"
     return None
 
 
@@ -124,34 +124,34 @@ def _clip(s: str, max_len: int) -> str:
 _PET_STRING_FIELDS = ("name", "species", "birthday", "vaccinations", "deworming", "vet")
 
 
-def pets_workspaces(arguments: dict[str, Any]) -> str:
-    """List pets workspaces for the current user."""
+def pets_dashboards(arguments: dict[str, Any]) -> str:
+    """List pets dashboards for the current user."""
     del arguments
     ident = _identity()
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_rows_for_kind(uid, tid, "pets")
+    rows = dashboard_rows_for_kind(uid, tid, "pets")
     out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
-    return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboards": out}, ensure_ascii=False)
 
 
 def pets_read(arguments: dict[str, Any]) -> str:
-    """Return pets, albums, and notes for one pets workspace."""
+    """Return pets, albums, and notes for one pets dashboard."""
     ident = _identity()
     if ident is None:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -181,7 +181,7 @@ def pets_read(arguments: dict[str, Any]) -> str:
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "title": ws.get("title") or "",
             "hero": hero_out,
             "pets": pets,
@@ -207,15 +207,15 @@ def pets_patch_pet(arguments: dict[str, Any]) -> str:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -260,12 +260,12 @@ def pets_patch_pet(arguments: dict[str, Any]) -> str:
     pets[idx] = row
     data["pets"] = pets
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
-        {"ok": True, "workspace_id": str(wid), "pet_index": idx, "pet_id": str(row.get("id", ""))},
+        {"ok": True, "dashboard_id": str(wid), "pet_index": idx, "pet_id": str(row.get("id", ""))},
         ensure_ascii=False,
     )
 
@@ -277,15 +277,15 @@ def pets_add_pet(arguments: dict[str, Any]) -> str:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -309,14 +309,14 @@ def pets_add_pet(arguments: dict[str, Any]) -> str:
     pets.append(new_row)
     data["pets"] = pets
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "pet_id": new_row["id"],
             "pets_count": len(pets),
         },
@@ -342,15 +342,15 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -358,7 +358,7 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
     data = dict(ws.get("data")) if isinstance(ws.get("data"), dict) else {}
     albums_raw = data.get("albums")
     if not isinstance(albums_raw, list) or not albums_raw:
-        return _err("workspace has no albums array — add albums in the workspace UI or data first")
+        return _err("dashboard has no albums array — add albums in the dashboard UI or data first")
 
     albums: list[Any] = list(albums_raw)
     if album_index < 0 or album_index >= len(albums):
@@ -384,14 +384,14 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
     albums[album_index] = album
     data["albums"] = albums
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
     return json.dumps(
         {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "album_index": album_index,
             "photos_count": len(photos),
         },
@@ -400,7 +400,7 @@ def pets_append_photo(arguments: dict[str, Any]) -> str:
 
 
 def pets_patch_hero(arguments: dict[str, Any]) -> str:
-    """Merge url / caption / headline into data.hero (workspace hero block)."""
+    """Merge url / caption / headline into data.hero (dashboard hero block)."""
     patch = arguments.get("patch")
     if not isinstance(patch, dict) or not patch:
         return _err("patch must be a non-empty object with optional url, caption, headline")
@@ -410,15 +410,15 @@ def pets_patch_hero(arguments: dict[str, Any]) -> str:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -445,11 +445,11 @@ def pets_patch_hero(arguments: dict[str, Any]) -> str:
     base.update(allowed)
     data["hero"] = base
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
-    return json.dumps({"ok": True, "workspace_id": str(wid), "hero": base}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboard_id": str(wid), "hero": base}, ensure_ascii=False)
 
 
 def pets_patch_notes(arguments: dict[str, Any]) -> str:
@@ -467,15 +467,15 @@ def pets_patch_notes(arguments: dict[str, Any]) -> str:
         return _err("No user identity — pets tools need an authenticated chat user.")
     tid, uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        uid, tid, kind="pets", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        uid, tid, kind="pets", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(uid, tid, wid)
+    ws = dashboard_db.dashboard_get(uid, tid, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     bad = _ensure_pets(ws)
     if bad:
         return _err(bad)
@@ -491,15 +491,15 @@ def pets_patch_notes(arguments: dict[str, Any]) -> str:
     else:
         data["notes"] = chunk
 
-    updated = workspace_db.workspace_update(uid, tid, wid, data=data)
+    updated = dashboard_db.dashboard_update(uid, tid, wid, data=data)
     if updated is None:
-        return _err("could not update workspace (viewer role or conflict)")
+        return _err("could not update dashboard (viewer role or conflict)")
 
-    return json.dumps({"ok": True, "workspace_id": str(wid), "notes_chars": len(data["notes"])}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboard_id": str(wid), "notes_chars": len(data["notes"])}, ensure_ascii=False)
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "pets_workspaces": pets_workspaces,
+    "pets_dashboards": pets_dashboards,
     "pets_read": pets_read,
     "pets_patch_pet": pets_patch_pet,
     "pets_add_pet": pets_add_pet,
@@ -512,10 +512,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "pets_workspaces",
+            "name": "pets_dashboards",
             "TOOL_DESCRIPTION": (
-                "List pets workspaces the user can open (kind pets). "
-                "Call when which pets board is unclear or there is no [Workspace context] workspace_id."
+                "List pets dashboards the user can open (kind pets). "
+                "Call when which pets board is unclear or there is no [Dashboard context] dashboard_id."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -525,16 +525,16 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "pets_read",
             "TOOL_DESCRIPTION": (
-                "Read hero image fields, pets table rows, photo albums, and markdown notes for one pets workspace. "
-                "Omit workspace_id when the user has exactly one pets board (auto-selected); "
-                "if several exist, call pets_workspaces or pass workspace_id."
+                "Read hero image fields, pets table rows, photo albums, and markdown notes for one pets dashboard. "
+                "Omit dashboard_id when the user has exactly one pets board (auto-selected); "
+                "if several exist, call pets_dashboards or pass dashboard_id."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets dashboard).",
                     },
                 },
                 "required": [],
@@ -548,14 +548,14 @@ TOOLS: list[dict[str, Any]] = [
             "TOOL_DESCRIPTION": (
                 "Update one pet's string fields (name, species, birthday, vaccinations, deworming, vet). "
                 "Identify the row with pet_id (row id) or pet_index (0-based). Requires editor/co-owner/owner. "
-                "Omit workspace_id when the user has exactly one pets workspace."
+                "Omit dashboard_id when the user has exactly one pets dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if the user has exactly one pets workspace.",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if the user has exactly one pets dashboard.",
                     },
                     "pet_id": {
                         "type": "string",
@@ -580,14 +580,14 @@ TOOLS: list[dict[str, Any]] = [
             "name": "pets_add_pet",
             "TOOL_DESCRIPTION": (
                 "Add a new empty pet row with optional name (default 'Neues Tier'). "
-                "Omit workspace_id when the user has exactly one pets workspace."
+                "Omit dashboard_id when the user has exactly one pets dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets dashboard).",
                     },
                     "name": {"type": "string", "TOOL_DESCRIPTION": "Optional display name for the new pet"},
                 },
@@ -606,12 +606,12 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets dashboard).",
                     },
                     "album_index": {"type": "integer", "TOOL_DESCRIPTION": "Index into data.albums"},
-                    "url": {"type": "string", "TOOL_DESCRIPTION": "Image URL or wsfile:{uuid} from workspace upload"},
+                    "url": {"type": "string", "TOOL_DESCRIPTION": "Image URL or wsfile:{uuid} from dashboard upload"},
                     "caption": {"type": "string", "TOOL_DESCRIPTION": "Optional caption"},
                 },
                 "required": ["album_index", "url"],
@@ -623,16 +623,16 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "pets_patch_hero",
             "TOOL_DESCRIPTION": (
-                "Update the workspace hero strip (data.hero): merge url (https or wsfile:…), "
+                "Update the dashboard hero strip (data.hero): merge url (https or wsfile:…), "
                 "caption, and/or headline. Requires editor/co-owner/owner. "
-                "Omit workspace_id when the user has exactly one pets workspace."
+                "Omit dashboard_id when the user has exactly one pets dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets dashboard).",
                     },
                     "patch": {
                         "type": "object",
@@ -649,14 +649,14 @@ TOOLS: list[dict[str, Any]] = [
             "name": "pets_patch_notes",
             "TOOL_DESCRIPTION": (
                 "Set (mode=replace) or append (mode=append) the markdown notes field. "
-                "Omit workspace_id when the user has exactly one pets workspace."
+                "Omit dashboard_id when the user has exactly one pets dashboard."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets workspace).",
+                        "TOOL_DESCRIPTION": "Optional UUID; omit if unambiguous (single pets dashboard).",
                     },
                     "mode": {"type": "string", "TOOL_DESCRIPTION": "replace or append"},
                     "text": {"type": "string", "TOOL_DESCRIPTION": "Markdown text"},

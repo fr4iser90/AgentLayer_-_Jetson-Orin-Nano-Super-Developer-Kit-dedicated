@@ -15,14 +15,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Facts: structured key/value (JSONB), optionally scoped to a workspace.
+    # Facts: structured key/value (JSONB), optionally scoped to a dashboard.
     op.execute(
         """
         CREATE TABLE IF NOT EXISTS user_memory_facts (
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+          dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
           key TEXT NOT NULL,
           value_json JSONB NOT NULL,
           confidence REAL NOT NULL DEFAULT 1.0,
@@ -34,32 +34,32 @@ def upgrade() -> None:
         );
         """
     )
-    # Unique facts per scope (global vs workspace) while allowing soft-delete.
+    # Unique facts per scope (global vs dashboard) while allowing soft-delete.
     op.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS ux_user_memory_facts_global_key
           ON user_memory_facts (tenant_id, user_id, key)
-          WHERE workspace_id IS NULL AND deleted_at IS NULL;
+          WHERE dashboard_id IS NULL AND deleted_at IS NULL;
         """
     )
     op.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS ux_user_memory_facts_workspace_key
-          ON user_memory_facts (tenant_id, user_id, workspace_id, key)
-          WHERE workspace_id IS NOT NULL AND deleted_at IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_user_memory_facts_dashboard_key
+          ON user_memory_facts (tenant_id, user_id, dashboard_id, key)
+          WHERE dashboard_id IS NOT NULL AND deleted_at IS NULL;
         """
     )
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_user_memory_facts_scope_updated
-          ON user_memory_facts (tenant_id, user_id, workspace_id, updated_at DESC)
+          ON user_memory_facts (tenant_id, user_id, dashboard_id, updated_at DESC)
           WHERE deleted_at IS NULL;
         """
     )
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_user_memory_facts_scope_expires
-          ON user_memory_facts (tenant_id, user_id, workspace_id, expires_at)
+          ON user_memory_facts (tenant_id, user_id, dashboard_id, expires_at)
           WHERE deleted_at IS NULL;
         """
     )
@@ -72,7 +72,7 @@ def upgrade() -> None:
           id BIGSERIAL PRIMARY KEY,
           tenant_id BIGINT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          workspace_id UUID NULL REFERENCES user_workspaces(id) ON DELETE CASCADE,
+          dashboard_id UUID NULL REFERENCES user_dashboards(id) ON DELETE CASCADE,
           text TEXT NOT NULL,
           tags TEXT[] NOT NULL DEFAULT '{}',
           source TEXT NOT NULL DEFAULT 'user',
@@ -86,7 +86,7 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_user_memory_notes_scope_updated
-          ON user_memory_notes (tenant_id, user_id, workspace_id, updated_at DESC)
+          ON user_memory_notes (tenant_id, user_id, dashboard_id, updated_at DESC)
           WHERE deleted_at IS NULL;
         """
     )
@@ -105,7 +105,7 @@ def downgrade() -> None:
 
     op.execute("DROP INDEX IF EXISTS idx_user_memory_facts_scope_expires;")
     op.execute("DROP INDEX IF EXISTS idx_user_memory_facts_scope_updated;")
-    op.execute("DROP INDEX IF EXISTS ux_user_memory_facts_workspace_key;")
+    op.execute("DROP INDEX IF EXISTS ux_user_memory_facts_dashboard_key;")
     op.execute("DROP INDEX IF EXISTS ux_user_memory_facts_global_key;")
     op.execute("DROP TABLE IF EXISTS user_memory_facts;")
 

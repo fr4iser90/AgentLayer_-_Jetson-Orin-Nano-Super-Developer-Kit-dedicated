@@ -1,4 +1,4 @@
-"""chat_conversations.workspace_id: one persisted thread per workspace chat (optional).
+"""chat_conversations.dashboard_id: one persisted thread per dashboard chat (optional).
 
 Revision ID: schema_006
 Revises: schema_005
@@ -18,22 +18,22 @@ def upgrade() -> None:
     op.execute(
         """
         ALTER TABLE chat_conversations
-        ADD COLUMN IF NOT EXISTS workspace_id UUID REFERENCES user_workspaces(id) ON DELETE SET NULL;
+        ADD COLUMN IF NOT EXISTS dashboard_id UUID REFERENCES user_dashboards(id) ON DELETE SET NULL;
         """
     )
     op.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_conv_user_workspace
-        ON chat_conversations (user_id, workspace_id)
-        WHERE workspace_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_conv_user_dashboard
+        ON chat_conversations (user_id, dashboard_id)
+        WHERE dashboard_id IS NOT NULL;
         """
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_conv_workspace ON chat_conversations (workspace_id);"
+        "CREATE INDEX IF NOT EXISTS idx_chat_conv_dashboard ON chat_conversations (dashboard_id);"
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_chat_conv_workspace;")
-    op.execute("DROP INDEX IF EXISTS uq_chat_conv_user_workspace;")
-    op.execute("ALTER TABLE chat_conversations DROP COLUMN IF EXISTS workspace_id;")
+    op.execute("DROP INDEX IF EXISTS idx_chat_conv_dashboard;")
+    op.execute("DROP INDEX IF EXISTS uq_chat_conv_user_dashboard;")
+    op.execute("ALTER TABLE chat_conversations DROP COLUMN IF EXISTS dashboard_id;")

@@ -63,6 +63,10 @@ export function FriendsSettings() {
     notes: "",
   });
 
+  const [editingFriend, setEditingFriend] = useState<ConfirmedFriend | null>(null);
+  const [editRelation, setEditRelation] = useState("");
+  const [editNote, setEditNote] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
@@ -153,6 +157,33 @@ export function FriendsSettings() {
       setErr(e instanceof Error ? e.message : "Could not remove friend");
     }
   }, [auth, load]);
+
+  const openEditFriend = useCallback((friend: ConfirmedFriend) => {
+    setEditingFriend(friend);
+    setEditRelation(friend.relation || "");
+    setEditNote(friend.note || "");
+  }, []);
+
+  const saveEditFriend = useCallback(async () => {
+    if (!editingFriend) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/v1/friends/${editingFriend.friend_user_id}`, auth, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          relation: editRelation.trim() || null,
+          note: editNote.trim() || null,
+        }),
+      });
+      setEditingFriend(null);
+      void load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save friend");
+    } finally {
+      setSaving(false);
+    }
+  }, [auth, editingFriend, editRelation, editNote, load]);
 
   const saveKnownPeople = useCallback(async (updated: KnownPerson[]) => {
     setSaving(true);
@@ -358,13 +389,22 @@ export function FriendsSettings() {
                         <div className="text-xs text-neutral-500">{friend.email}</div>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removeFriend(friend.friend_user_id)}
-                      className="text-xs text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      Entfernen
-                    </button>
+                    <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => openEditFriend(friend)}
+                        className="text-xs text-sky-400 hover:text-sky-300"
+                      >
+                        ✏️ Bearbeiten
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeFriend(friend.friend_user_id)}
+                        className="text-xs text-red-400 hover:text-red-300"
+                      >
+                        Entfernen
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

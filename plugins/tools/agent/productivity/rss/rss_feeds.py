@@ -1,4 +1,4 @@
-"""RSS tools for `kind: feeds` workspaces — summarize enabled feed URLs into workspace data."""
+"""RSS tools for `kind: feeds` dashboards — summarize enabled feed URLs into dashboard data."""
 
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ import httpx
 from apps.backend.domain.agent import chat_completion
 from apps.backend.domain.identity import get_identity, reset_identity, set_identity
 from apps.backend.infrastructure.conversations_db import conversation_append_message, conversation_create
-from apps.backend.workspace import db as workspace_db
-from apps.backend.workspace.tool_workspace_resolve import (
-    resolve_workspace_id_for_kind,
-    workspace_rows_for_kind,
+from apps.backend.dashboard import db as dashboard_db
+from apps.backend.dashboard.tool_dashboard_resolve import (
+    resolve_dashboard_id_for_kind,
+    dashboard_rows_for_kind,
 )
 
 __version__ = "0.1.0"
@@ -26,16 +26,16 @@ TOOL_BUCKET = "productivity"
 TOOL_DOMAIN = "productivity"
 TOOL_LABEL = "RSS feeds"
 TOOL_DESCRIPTION = (
-    "Read and update RSS feed workspaces (kind feeds). Use this to fetch + summarize enabled feed URLs and "
-    "store the latest markdown summary back into the workspace (latest_summary + history)."
+    "Read and update RSS feed dashboards (kind feeds). Use this to fetch + summarize enabled feed URLs and "
+    "store the latest markdown summary back into the dashboard (latest_summary + history)."
 )
 TOOL_TRIGGERS = ("rss", "feed", "feeds", "news", "summary", "summarize feeds", "rss summary")
-TOOL_CAPABILITIES = ("workspace.feeds.read", "workspace.feeds.write")
+TOOL_CAPABILITIES = ("dashboard.feeds.read", "dashboard.feeds.write")
 TOOL_MIN_ROLE = "user"
 
 AGENT_TOOL_META_BY_NAME = {
-    "feeds_workspaces": {"min_role": "user", "capabilities": ("workspace.feeds.read",)},
-    "feeds_summarize": {"min_role": "user", "capabilities": ("workspace.feeds.write",)},
+    "feeds_dashboards": {"min_role": "user", "capabilities": ("dashboard.feeds.read",)},
+    "feeds_summarize": {"min_role": "user", "capabilities": ("dashboard.feeds.write",)},
 }
 
 _MAX_FEEDS = 200
@@ -55,16 +55,16 @@ def _identity() -> tuple[int, uuid.UUID] | None:
     return (int(tid), uid)
 
 
-def feeds_workspaces(arguments: dict[str, Any]) -> str:
-    """List feeds workspaces for the current user."""
+def feeds_dashboards(arguments: dict[str, Any]) -> str:
+    """List feeds dashboards for the current user."""
     del arguments
     ident = _identity()
     if ident is None:
         return _err("No user identity — feeds tools need an authenticated chat user.")
     tid, uid = ident
-    rows = workspace_rows_for_kind(uid, tid, "feeds")
+    rows = dashboard_rows_for_kind(uid, tid, "feeds")
     out = [{"id": str(r.get("id", "")), "title": (r.get("title") or "").strip()} for r in rows]
-    return json.dumps({"ok": True, "workspaces": out}, ensure_ascii=False)
+    return json.dumps({"ok": True, "dashboards": out}, ensure_ascii=False)
 
 
 def _coerce_feed_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -120,7 +120,7 @@ async def _summarize_one(*, title: str, url: str, content: str, language: str) -
 
 def feeds_summarize(arguments: dict[str, Any]) -> str:
     """
-    Fetch enabled RSS feeds from a feeds workspace and write results back to workspace.data.
+    Fetch enabled RSS feeds from a feeds dashboard and write results back to dashboard.data.
 
     Writes:
     - data.latest_summary: markdown
@@ -131,17 +131,17 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
         return _err("No user identity — feeds tools need an authenticated chat user.")
     tenant_id, caller_uid = ident
 
-    wid, res_err = resolve_workspace_id_for_kind(
-        caller_uid, tenant_id, kind="feeds", raw_workspace_id=arguments.get("workspace_id")
+    wid, res_err = resolve_dashboard_id_for_kind(
+        caller_uid, tenant_id, kind="feeds", raw_dashboard_id=arguments.get("dashboard_id")
     )
     if wid is None:
-        return _err(res_err or "workspace_id required")
+        return _err(res_err or "dashboard_id required")
 
-    ws = workspace_db.workspace_get(caller_uid, tenant_id, wid)
+    ws = dashboard_db.dashboard_get(caller_uid, tenant_id, wid)
     if ws is None:
-        return _err("workspace not found or no access")
+        return _err("dashboard not found or no access")
     if (ws.get("kind") or "").strip() != "feeds":
-        return _err("workspace is not a feeds kind")
+        return _err("dashboard is not a feeds kind")
 
     language = str(arguments.get("language") or "de").strip().lower()
     max_items = arguments.get("max_items_per_feed")
@@ -169,7 +169,7 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
     if enabled_only:
         feeds = [f for f in feeds if f.get("enabled")]
     if not feeds:
-        return _err("no feeds configured (add rows to data.feeds in the workspace UI)")
+        return _err("no feeds configured (add rows to data.feeds in the dashboard UI)")
 
     async def _run() -> dict[str, Any]:
         now = datetime.now(timezone.utc)
@@ -229,7 +229,7 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
         if not items_out:
             md += "_No items summarized._\n"
 
-        # Persist workspace update
+        # Persist dashboard update
         cur_data = dict(data) if isinstance(data, dict) else {}
         hist = cur_data.get("history")
         if not isinstance(hist, list):
@@ -239,9 +239,9 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
             hist2 = hist2[-_MAX_HISTORY:]
         cur_data["latest_summary"] = md
         cur_data["history"] = hist2
-        updated = workspace_db.workspace_update(caller_uid, tenant_id, wid, data=cur_data)
+        updated = dashboard_db.dashboard_update(caller_uid, tenant_id, wid, data=cur_data)
         if updated is None:
-            return {"ok": False, "error": "failed to update workspace (no write access?)"}
+            return {"ok": False, "error": "failed to update dashboard (no write access?)"}
 
         delivered = False
         conv_id_out: str | None = None
@@ -256,7 +256,7 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
                     model="",
                     messages=[],
                     agent_log=[],
-                    workspace_id=None,
+                    dashboard_id=None,
                     shared=False,
                 )
                 try:
@@ -274,7 +274,7 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
 
         return {
             "ok": True,
-            "workspace_id": str(wid),
+            "dashboard_id": str(wid),
             "items": len(items_out),
             "errors": errors,
             "delivered_to_chat": delivered,
@@ -291,7 +291,7 @@ def feeds_summarize(arguments: dict[str, Any]) -> str:
 
 
 HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "feeds_workspaces": feeds_workspaces,
+    "feeds_dashboards": feeds_dashboards,
     "feeds_summarize": feeds_summarize,
 }
 
@@ -299,8 +299,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "feeds_workspaces",
-            "TOOL_DESCRIPTION": "List your feeds workspaces (kind feeds) with ids + titles.",
+            "name": "feeds_dashboards",
+            "TOOL_DESCRIPTION": "List your feeds dashboards (kind feeds) with ids + titles.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -309,15 +309,15 @@ TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "feeds_summarize",
             "TOOL_DESCRIPTION": (
-                "Fetch + summarize enabled RSS feeds from a feeds workspace and write results back to "
-                "workspace.data.latest_summary and workspace.data.history."
+                "Fetch + summarize enabled RSS feeds from a feeds dashboard and write results back to "
+                "dashboard.data.latest_summary and dashboard.data.history."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {
+                    "dashboard_id": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Feeds workspace UUID. Optional if you only have one feeds workspace.",
+                        "TOOL_DESCRIPTION": "Feeds dashboard UUID. Optional if you only have one feeds dashboard.",
                     },
                     "max_items_per_feed": {"type": "integer", "TOOL_DESCRIPTION": "Default 10 (max 15)."},
                     "enabled_only": {"type": "boolean", "TOOL_DESCRIPTION": "Default true."},

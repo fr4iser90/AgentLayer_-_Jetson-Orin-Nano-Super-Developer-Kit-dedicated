@@ -62,7 +62,7 @@ def memory_fact_upsert(arguments: dict[str, Any]) -> str:
     value_json = arguments.get("value_json")
     if value_json is None:
         return _err("value_json is required")
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     confidence = arguments.get("confidence")
     source = arguments.get("source")
     exp_raw = arguments.get("expires_at")
@@ -76,7 +76,7 @@ def memory_fact_upsert(arguments: dict[str, Any]) -> str:
         row = memory_api.fact_upsert_for_identity(
             key=key,
             value_json=value_json,
-            workspace_id=wid,
+            dashboard_id=wid,
             confidence=float(confidence) if confidence is not None else None,
             source=str(source) if source is not None else None,
             expires_at=expires_at,
@@ -87,7 +87,7 @@ def memory_fact_upsert(arguments: dict[str, Any]) -> str:
 
 
 def memory_fact_list(arguments: dict[str, Any]) -> str:
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     prefix = arguments.get("prefix")
     try:
         limit = int(arguments.get("limit") or 50)
@@ -95,7 +95,7 @@ def memory_fact_list(arguments: dict[str, Any]) -> str:
         limit = 50
     try:
         rows = memory_api.fact_list_for_identity(
-            workspace_id=wid,
+            dashboard_id=wid,
             prefix=str(prefix) if isinstance(prefix, str) else None,
             limit=limit,
         )
@@ -108,9 +108,9 @@ def memory_fact_delete(arguments: dict[str, Any]) -> str:
     key = (arguments.get("key") or "").strip()
     if not key:
         return _err("key is required")
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     try:
-        ok = memory_api.fact_delete_for_identity(key=key, workspace_id=wid)
+        ok = memory_api.fact_delete_for_identity(key=key, dashboard_id=wid)
     except Exception as e:
         return _err(str(e))
     return json.dumps({"ok": True, "deleted": bool(ok)}, ensure_ascii=False)
@@ -120,7 +120,7 @@ def memory_note_add(arguments: dict[str, Any]) -> str:
     text = (arguments.get("text") or "").strip()
     if not text:
         return _err("text is required")
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     tags = arguments.get("tags")
     tag_list: list[str] | None = None
     if isinstance(tags, list):
@@ -129,7 +129,7 @@ def memory_note_add(arguments: dict[str, Any]) -> str:
     try:
         out = memory_api.note_add_for_identity(
             text=text,
-            workspace_id=wid,
+            dashboard_id=wid,
             tags=tag_list,
             source=str(source) if isinstance(source, str) else None,
         )
@@ -142,7 +142,7 @@ def memory_note_search(arguments: dict[str, Any]) -> str:
     q = (arguments.get("query") or "").strip()
     if not q:
         return _err("query is required")
-    wid = _parse_uuid(arguments.get("workspace_id"))
+    wid = _parse_uuid(arguments.get("dashboard_id"))
     tags = arguments.get("tags")
     tag_list: list[str] | None = None
     if isinstance(tags, list):
@@ -152,7 +152,7 @@ def memory_note_search(arguments: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         limit = 10
     try:
-        hits = memory_api.note_search_for_identity(query=q, workspace_id=wid, tags=tag_list, limit=limit)
+        hits = memory_api.note_search_for_identity(query=q, dashboard_id=wid, tags=tag_list, limit=limit)
     except Exception as e:
         return _err(str(e))
     return json.dumps({"ok": True, "hits": hits, "count": len(hits)}, ensure_ascii=False)
@@ -188,7 +188,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string", "TOOL_DESCRIPTION": "Optional workspace UUID scope"},
+                    "dashboard_id": {"type": "string", "TOOL_DESCRIPTION": "Optional dashboard UUID scope"},
                     "key": {"type": "string"},
                     "value_json": {"type": "object"},
                     "confidence": {"type": "number"},
@@ -207,7 +207,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "prefix": {"type": "string"},
                     "limit": {"type": "integer"},
                 },
@@ -223,7 +223,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "key": {"type": "string"},
                 },
                 "required": ["key"],
@@ -238,7 +238,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "text": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "source": {"type": "string"},
@@ -255,7 +255,7 @@ TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "workspace_id": {"type": "string"},
+                    "dashboard_id": {"type": "string"},
                     "query": {"type": "string"},
                     "tags": {"type": "array", "items": {"type": "string"}},
                     "limit": {"type": "integer"},

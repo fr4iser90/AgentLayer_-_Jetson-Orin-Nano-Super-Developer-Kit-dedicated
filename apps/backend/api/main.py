@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -68,25 +69,28 @@ from apps.backend.domain.plugin_system.tools_api import router as tools_router
 from apps.backend.api.chat_websocket import router as chat_ws_router
 from apps.backend.api.studio_api import router as studio_router
 from apps.backend.api.rag_api import router as rag_router
+from apps.backend.api.codebase_api import router as codebase_router
 from apps.backend.domain.plugin_system.registry import get_registry
 from apps.backend.infrastructure.user_data_api import router as user_data_router
 from apps.backend.infrastructure.memory_api import router as memory_router
 from apps.backend.infrastructure.user_secrets_api import router as user_secrets_router
 from apps.backend.api.conversations_api import router as conversations_router
-from apps.backend.workspace.router import router as workspace_router
+from apps.backend.dashboard.router import router as dashboard_router
 from apps.backend.infrastructure.log_redaction import (
     apply_http_client_log_levels,
     install_log_redaction_filters,
 )
 from apps.backend.infrastructure.public_error import http_500_detail
-from apps.backend.integrations.pidea.api_router import router as pidea_router
-from apps.backend.api.scheduler_jobs_api import router as scheduler_jobs_router
-from apps.backend.api.scheduler_jobs_admin_api import router as scheduler_jobs_admin_router
-from apps.backend.api.scheduler_job_presets_api import router as scheduler_job_presets_router
-from apps.backend.api.scheduler_jobs_user_api import router as scheduler_jobs_user_router
-from apps.backend.api.scheduler_job_presets_user_api import router as scheduler_job_presets_user_router
+# from apps.backend.integrations.pidea.api_router import router as pidea_router
+# from apps.backend.api.scheduler_jobs_api import router as scheduler_jobs_router
+# from apps.backend.api.scheduler_jobs_admin_api import router as scheduler_jobs_admin_router
+# from apps.backend.api.scheduler_job_presets_api import router as scheduler_job_presets_router
+# from apps.backend.api.scheduler_jobs_user_api import router as scheduler_jobs_user_router
+# from apps.backend.api.scheduler_job_presets_user_api import router as scheduler_job_presets_user_router
 from apps.backend.api.project_runs_api import router as project_runs_router
 from apps.backend.api.friends_api import router as friends_router
+from apps.backend.api.shares_api import router as shares_router
+from apps.backend.api.workspaces_api import router as workspaces_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -160,6 +164,47 @@ async def lifespan(_app: FastAPI):
         await asyncio.to_thread(run_startup_rag_docs_ingest)
     except Exception:
         logger.exception("RAG docs startup ingest failed (Ollama unreachable?)")
+    
+    # Deferred code index on startup (run after reactor is ready)
+    def _run_startup_index() -> None:
+        try:
+            import threading
+            from plugins.tools.agent.core.coding.coding_index_lib import get_index, _HAS_TS, _QUERY_SYMBOLS
+            from plugins.tools.agent.core.coding.coding_common import coding_root
+            
+            logger.info("=== DEBUG ===")
+            logger.info("HAS_TS: %s", _HAS_TS)
+            
+            from plugins.tools.agent.core.coding.coding_index_lib import _parse_tree, _extract_symbols, _detect_language
+            
+            root = coding_root()
+            if root and root.exists():
+                test_file = root / "plugins/tools/agent/core/coding/coding_index.py"
+                if test_file.exists():
+                    source = test_file.read_bytes()
+                    lang = _detect_language(test_file)
+                    
+                    tree = _parse_tree(source, lang)
+                    
+                    if tree:
+                        logger.info("=== DUMP ALL NODE TYPES ===")
+                        node_types = set()
+                        def dump(node):
+                            node_types.add(node.type)
+                            for c in node.children:
+                                dump(c)
+                        dump(tree.root_node)
+                        logger.info("ALL NODE TYPES: %s", sorted(node_types))
+            
+            idx = get_index()
+            stats = idx.scan(root if root and root.exists() else None, max_files=5000)
+            logger.info("index: %d files, %d symbols", idx.file_count, idx.symbol_count)
+            logger.info("=== END ===")
+        except Exception:
+            logger.exception("failed")
+    
+    threading.Thread(target=_run_startup_index, daemon=True).start()
+    
     start_cron_scheduler()
     try:
         start_scheduler_worker()
@@ -209,22 +254,24 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="agent-layer", version="0.7.7", lifespan=lifespan)
 app.include_router(user_secrets_router)
 app.include_router(conversations_router)
-app.include_router(workspace_router)
+app.include_router(dashboard_router)
 app.include_router(user_data_router)
 app.include_router(memory_router)
 app.include_router(tools_router)
 app.include_router(rag_router)
+app.include_router(codebase_router)
 app.include_router(chat_ws_router)
 app.include_router(studio_router)
-app.include_router(pidea_router)
-app.include_router(scheduler_jobs_router)
-app.include_router(scheduler_jobs_admin_router)
-app.include_router(scheduler_job_presets_router)
-app.include_router(scheduler_jobs_user_router)
-app.include_router(scheduler_job_presets_user_router)
+#app.include_router(pidea_router)
+# app.include_router(scheduler_jobs_router)
+# app.include_router(scheduler_jobs_admin_router)
+# app.include_router(scheduler_job_presets_router)
+# app.include_router(scheduler_jobs_user_router)
+# app.include_router(scheduler_job_presets_user_router)
 app.include_router(project_runs_router)
 app.include_router(friends_router)
-app.include_router(friends_router)
+app.include_router(shares_router)
+app.include_router(workspaces_router)
 
 
 # Auth Endpoints
@@ -520,6 +567,8 @@ class AdminPatchUserBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tenant_id: int | None = Field(default=None, ge=1)
+    workspace_quota: int | None = Field(default=None, ge=1, le=1000)
+    workspace_self_allowed: bool | None = None
 
 
 @app.get("/v1/admin/tenants")
@@ -546,17 +595,32 @@ async def admin_list_users(request: Request):
 
 @app.patch("/v1/admin/users/{user_id}")
 async def admin_patch_user(request: Request, user_id: uuid.UUID, body: AdminPatchUserBody):
-    """Update ``tenant_id``. Admin only."""
+    """Update ``tenant_id``, ``workspace_quota``, ``workspace_self_allowed``. Admin only."""
     await require_admin(request)
-    if body.tenant_id is None:
+    if body.tenant_id is None and body.workspace_quota is None and body.workspace_self_allowed is None:
         raise HTTPException(status_code=400, detail="no fields to patch")
     u = get_user_by_id(user_id)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
-    if not db.tenant_exists(body.tenant_id):
-        raise HTTPException(status_code=400, detail="unknown tenant_id")
-    if not update_user_tenant(user_id, body.tenant_id):
-        raise HTTPException(status_code=404, detail="user not found")
+
+    if body.tenant_id is not None:
+        if not db.tenant_exists(body.tenant_id):
+            raise HTTPException(status_code=400, detail="unknown tenant_id")
+        if not update_user_tenant(user_id, body.tenant_id):
+            raise HTTPException(status_code=404, detail="user not found")
+
+    if body.workspace_quota is not None:
+        db.query(
+            "UPDATE users SET workspace_quota = %s WHERE id = %s",
+            (body.workspace_quota, user_id),
+        )
+
+    if body.workspace_self_allowed is not None:
+        db.query(
+            "UPDATE users SET workspace_self_allowed = %s WHERE id = %s",
+            (body.workspace_self_allowed, user_id),
+        )
+
     return {
         "ok": True,
         "id": str(user_id),
@@ -600,7 +664,8 @@ if _agent_index.is_file():
         return FileResponse(_agent_index)
 
     @app.get("/app/chat")
-    @app.get("/app/workspace")
+    @app.get("/app/coding-agent")
+    @app.get("/app/dashboard")
     @app.get("/app/docs")
     @app.get("/app/login")
     @app.get("/app/settings")

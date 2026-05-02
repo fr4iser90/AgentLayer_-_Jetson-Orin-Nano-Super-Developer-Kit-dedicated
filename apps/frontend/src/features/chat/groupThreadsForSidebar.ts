@@ -2,7 +2,7 @@ import type { ChatThread } from "./chatThreadStorage";
 
 export type SidebarThreadGroup =
   | { kind: "source"; source: string; label: string; threads: ChatThread[] }
-  | { kind: "workspace"; workspaceId: string; label: string; threads: ChatThread[] };
+  | { kind: "dashboard"; dashboardId: string; label: string; threads: ChatThread[] };
 
 const byUpdated = (a: ChatThread, b: ChatThread) => b.updatedAt - a.updatedAt;
 
@@ -14,21 +14,21 @@ export function labelForChatSource(source: string): string {
 }
 
 /**
- * Groups first-party vs bridge vs workspace threads for the chat sidebar.
+ * Groups first-party vs bridge vs dashboard threads for the chat sidebar.
  * Bridge sections are keyed by ``thread.source`` (any provider string from the API).
  */
 export function buildSidebarGroups(
   threads: ChatThread[],
-  workspaceTitles: Record<string, string>
+  dashboardTitles: Record<string, string>
 ): SidebarThreadGroup[] {
   const bySource = new Map<string, ChatThread[]>();
   const byWs = new Map<string, ChatThread[]>();
 
   for (const t of threads) {
-    if (t.workspaceId) {
-      const list = byWs.get(t.workspaceId) ?? [];
+    if (t.dashboardId) {
+      const list = byWs.get(t.dashboardId) ?? [];
       list.push(t);
-      byWs.set(t.workspaceId, list);
+      byWs.set(t.dashboardId, list);
       continue;
     }
     const src = (t.source ?? "web").trim().toLowerCase() || "web";
@@ -58,11 +58,11 @@ export function buildSidebarGroups(
 
   const wsEntries = [...byWs.entries()].map(([wid, th]) => {
     th.sort(byUpdated);
-    const titled = workspaceTitles[wid]?.trim();
+    const titled = dashboardTitles[wid]?.trim();
     return {
-      kind: "workspace" as const,
-      workspaceId: wid,
-      label: titled || `Workspace ${wid.slice(0, 8)}…`,
+      kind: "dashboard" as const,
+      dashboardId: wid,
+      label: titled || `Dashboard ${wid.slice(0, 8)}…`,
       threads: th,
     };
   });

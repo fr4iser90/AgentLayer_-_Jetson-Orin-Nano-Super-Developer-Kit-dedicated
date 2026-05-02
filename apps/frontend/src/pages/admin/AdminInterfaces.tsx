@@ -19,10 +19,10 @@ type OperatorPublic = {
   telegram_bot_token_configured?: boolean;
   telegram_trigger_prefix?: string;
   telegram_chat_model?: string;
-  workspace_upload_max_file_mb?: number | null;
-  workspace_upload_allowed_mime?: string;
-  workspace_upload_effective_max_bytes?: number;
-  workspace_upload_effective_allowed_mime?: string[];
+  dashboard_upload_max_file_mb?: number | null;
+  dashboard_upload_allowed_mime?: string;
+  dashboard_upload_effective_max_bytes?: number;
+  dashboard_upload_effective_allowed_mime?: string[];
   llm_primary_backend?: "ollama" | "external";
   llm_smart_routing_enabled?: boolean;
   llm_router_ollama_model?: string;
@@ -67,6 +67,7 @@ type OperatorPublic = {
   scheduler_jobs_worker_enabled?: boolean;
   scheduler_jobs_ide_pidea_enabled?: boolean;
   scheduler_jobs_ide_pidea_timeout_sec?: number;
+  workspace_allow_self_editing?: boolean;
   detail?: unknown;
 };
 
@@ -168,6 +169,7 @@ export function AdminInterfaces() {
   const [schedulerJobsWorkerEnabled, setSchedulerJobsWorkerEnabled] = useState(true);
   const [schedulerJobsIdePideaEnabled, setSchedulerJobsIdePideaEnabled] = useState(true);
   const [schedulerJobsIdePideaTimeout, setSchedulerJobsIdePideaTimeout] = useState("300");
+  const [workspaceAllowSelfEditing, setWorkspaceAllowSelfEditing] = useState(false);
   const [adminUsers, setAdminUsers] = useState<Array<{ id: string; email?: string | null; display_name?: string | null }>>([]);
   const [extLlmModelIds, setExtLlmModelIds] = useState<string[]>([]);
   const [extLlmModelsLoading, setExtLlmModelsLoading] = useState(false);
@@ -217,17 +219,17 @@ export function AdminInterfaces() {
         typeof op.telegram_trigger_prefix === "string" ? op.telegram_trigger_prefix : "!agent "
       );
       setTgChatModel(op.telegram_chat_model ?? "");
-      const umb = op.workspace_upload_max_file_mb;
+      const umb = op.dashboard_upload_max_file_mb;
       setUploadMaxMb(umb != null && Number.isFinite(Number(umb)) ? String(umb) : "");
-      setUploadMime((op.workspace_upload_allowed_mime ?? "").trim());
+      setUploadMime((op.dashboard_upload_allowed_mime ?? "").trim());
       setUploadEffBytes(
-        typeof op.workspace_upload_effective_max_bytes === "number"
-          ? op.workspace_upload_effective_max_bytes
+        typeof op.dashboard_upload_effective_max_bytes === "number"
+          ? op.dashboard_upload_effective_max_bytes
           : null
       );
       setUploadEffMime(
-        Array.isArray(op.workspace_upload_effective_allowed_mime)
-          ? op.workspace_upload_effective_allowed_mime
+        Array.isArray(op.dashboard_upload_effective_allowed_mime)
+          ? op.dashboard_upload_effective_allowed_mime
           : []
       );
       setLlmPrimaryBackend(op.llm_primary_backend === "external" ? "external" : "ollama");
@@ -332,6 +334,7 @@ export function AdminInterfaces() {
           ? String(Math.round(Number(op.scheduler_jobs_ide_pidea_timeout_sec)))
           : "300"
       );
+      setWorkspaceAllowSelfEditing(!!op.workspace_allow_self_editing);
 
       if (uRes.ok) {
         const uData = (await uRes.json()) as { users?: Array<{ id: string; email?: string | null; display_name?: string | null }> };
@@ -482,20 +485,20 @@ export function AdminInterfaces() {
       };
       const mbStr = uploadMaxMb.trim();
       if (mbStr === "") {
-        patch.workspace_upload_max_file_mb = null;
+        patch.dashboard_upload_max_file_mb = null;
       } else {
         const n = Number(mbStr);
         if (!Number.isFinite(n) || n < 1) {
           setSaveMsg({
             ok: false,
-            text: "Workspace upload: max file MB must be empty (use env) or an integer ≥ 1.",
+            text: "Dashboard upload: max file MB must be empty (use env) or an integer ≥ 1.",
           });
           return;
         }
-        patch.workspace_upload_max_file_mb = Math.min(512, Math.floor(n));
+        patch.dashboard_upload_max_file_mb = Math.min(512, Math.floor(n));
       }
       const mimeStr = uploadMime.trim();
-      patch.workspace_upload_allowed_mime = mimeStr === "" ? null : mimeStr;
+      patch.dashboard_upload_allowed_mime = mimeStr === "" ? null : mimeStr;
       patch.llm_primary_backend = llmPrimaryBackend;
       const confMin = Number(llmRouterConfMin.trim());
       const rtSec = Number(llmRouterTimeoutSec.trim());
@@ -608,6 +611,7 @@ export function AdminInterfaces() {
       patch.scheduler_jobs_worker_enabled = schedulerJobsWorkerEnabled;
       patch.scheduler_jobs_ide_pidea_enabled = schedulerJobsIdePideaEnabled;
       patch.scheduler_jobs_ide_pidea_timeout_sec = sjTimeout;
+      patch.workspace_allow_self_editing = workspaceAllowSelfEditing;
       const mgHops = Number(memGraphMaxHops.trim());
       const mgScore = Number(memGraphMinScore.trim());
       const mgBullets = Number(memGraphMaxBullets.trim());
@@ -800,11 +804,11 @@ export function AdminInterfaces() {
           </section>
 
           <section className="mt-8 rounded-xl border border-surface-border bg-surface-raised p-5">
-            <h2 className="text-sm font-medium text-white">Workspace uploads</h2>
+            <h2 className="text-sm font-medium text-white">Dashboard uploads</h2>
             <p className="mt-2 text-xs text-surface-muted">
               Globale Grenzen für Galerie-Uploads (JPEG/PNG/GIF/WebP). Leer = Umgebungsvariablen{" "}
-              <span className="font-mono text-neutral-400">AGENT_WORKSPACE_UPLOAD_MAX_MB</span> /{" "}
-              <span className="font-mono text-neutral-400">AGENT_WORKSPACE_UPLOAD_ALLOWED_MIME</span>
+              <span className="font-mono text-neutral-400">AGENT_DASHBOARD_UPLOAD_MAX_MB</span> /{" "}
+              <span className="font-mono text-neutral-400">AGENT_DASHBOARD_UPLOAD_ALLOWED_MIME</span>
               .
             </p>
             {uploadEffBytes != null ? (
@@ -1833,6 +1837,26 @@ export function AdminInterfaces() {
               onChange={(e) => setSchedulerJobsIdePideaTimeout(e.target.value)}
               disabled={!schedulerJobsWorkerEnabled || !schedulerJobsIdePideaEnabled}
             />
+          </section>
+
+          <section className="mt-6 rounded-lg border border-surface-border p-4">
+            <h3 className="text-sm font-medium text-white">Workspaces</h3>
+            <p className="mt-1 text-xs text-surface-muted">
+              Project workspaces for the Coding Agent.
+            </p>
+            <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-white">
+              <input
+                type="checkbox"
+                className="rounded border-surface-border"
+                checked={workspaceAllowSelfEditing}
+                onChange={(e) => setWorkspaceAllowSelfEditing(e.target.checked)}
+              />
+              Erlaube Bearbeitung von AgentLayer selbst (Workspace "AgentLayer (self)")
+            </label>
+            <p className="mt-2 text-xs text-surface-muted">
+              Wenn aktiviert, erscheint in der Coding Agent Page ein zusätzlicher Workspace der auf das
+              AgentLayer-Verzeichnis (/app) zeigt. Der Agent kann dann das eigene Projekt bearbeiten.
+            </p>
           </section>
 
           <div className="mt-6 flex flex-wrap gap-2">

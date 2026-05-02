@@ -74,7 +74,7 @@ def project_run_create(arguments: dict[str, Any]) -> str:
         created_by_user_id=caller_uid,
         execution_user_id=exec_uid,
         scheduler_job_id=None,
-        workspace_id=None,
+        dashboard_id=None,
         project_row_id=None,
         project_title=None,
         execution_target="ide_agent",

@@ -13,8 +13,22 @@ __version__ = "1.0.0"
 TOOL_ID = "get_friend_info"
 TOOL_BUCKET = "core"
 TOOL_DOMAIN = "friends"
-TOOL_TRIGGERS = ()
-TOOL_CAPABILITIES = ("friends.user",)
+TOOL_TRIGGERS = (
+    "wer ist",
+    "wer ist das",
+    "information über",
+    "kontakt von",
+    "email von",
+    "telefonnummer von",
+    "bekannte person",
+    "@",
+    ".com",
+    ".de",
+    "@gmail.com",
+    "@outlook.com",
+    "@hotmail.com",
+)
+TOOL_CAPABILITIES = ("friends.user", "default")
 
 
 def get_friend_info(arguments: dict[str, Any]) -> Any:
@@ -34,7 +48,8 @@ def get_friend_info(arguments: dict[str, Any]) -> Any:
         prof = db.user_agent_profile_get(uid)
         known_people = prof.get("known_people", []) if prof else []
 
-        name_query = arguments.get("name")
+        # First check for auto filled entity parameter from trigger system, then fall back to name
+        name_query = arguments.get("entity") or arguments.get("name")
         if not name_query:
             return {
                 "friends": friends,
@@ -95,6 +110,12 @@ TOOLS: list[dict[str, Any]] = [
                             "Name of the person to get information about. If empty, returns all known people."
                         ),
                     },
+                    "entity": {
+                        "type": "string",
+                        "TOOL_DESCRIPTION": (
+                            "Auto filled by trigger system. Contains the extracted name/email from user message."
+                        ),
+                    }
                 },
             },
         },

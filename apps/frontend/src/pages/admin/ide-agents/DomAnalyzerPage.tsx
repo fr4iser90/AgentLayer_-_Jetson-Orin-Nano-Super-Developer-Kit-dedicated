@@ -21,7 +21,7 @@ type StatusPayload = {
   document_title?: string | null;
   active_page_url?: string | null;
   navigator_user_agent?: string | null;
-  workspace_hints?: unknown;
+  dashboard_hints?: unknown;
   last_refresh?: string;
   error?: string;
 };
@@ -678,7 +678,7 @@ export function DomAnalyzerPage() {
               <dd className="text-amber-200/90">{status?.error || "—"}</dd>
             </dl>
             <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-black/40 p-2 text-xs text-neutral-400">
-              {JSON.stringify(status?.workspace_hints ?? {}, null, 2)}
+              {JSON.stringify(status?.dashboard_hints ?? {}, null, 2)}
             </pre>
           </section>
         )}
