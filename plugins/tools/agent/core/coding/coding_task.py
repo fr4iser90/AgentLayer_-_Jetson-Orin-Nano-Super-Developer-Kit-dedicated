@@ -73,7 +73,9 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_task",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Delegate a subtask to run in an isolated subagent session. "
+            "The subagent gets its own context and can use coding tools independently. "
+            "Returns a task_id for tracking and resuming.",
             "parameters": {
                 "type": "object",
                 "properties": {

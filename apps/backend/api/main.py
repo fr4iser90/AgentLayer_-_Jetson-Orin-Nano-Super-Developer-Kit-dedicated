@@ -91,6 +91,7 @@ from apps.backend.api.project_runs_api import router as project_runs_router
 from apps.backend.api.friends_api import router as friends_router
 from apps.backend.api.shares_api import router as shares_router
 from apps.backend.api.workspaces_api import router as workspaces_router
+from apps.backend.api.agents_api import router as agents_router
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 install_log_redaction_filters()
@@ -165,41 +166,17 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("RAG docs startup ingest failed (Ollama unreachable?)")
     
-    # Deferred code index on startup (run after reactor is ready)
+    # Deferred code index on startup (run after indexer is ready)
     def _run_startup_index() -> None:
         try:
-            import threading
-            from plugins.tools.agent.core.coding.coding_index_lib import get_index, _HAS_TS, _QUERY_SYMBOLS
+            from plugins.tools.agent.core.coding.coding_index_lib import get_index
             from plugins.tools.agent.core.coding.coding_common import coding_root
             
-            logger.info("=== DEBUG ===")
-            logger.info("HAS_TS: %s", _HAS_TS)
-            
-            from plugins.tools.agent.core.coding.coding_index_lib import _parse_tree, _extract_symbols, _detect_language
-            
             root = coding_root()
-            if root and root.exists():
-                test_file = root / "plugins/tools/agent/core/coding/coding_index.py"
-                if test_file.exists():
-                    source = test_file.read_bytes()
-                    lang = _detect_language(test_file)
-                    
-                    tree = _parse_tree(source, lang)
-                    
-                    if tree:
-                        logger.info("=== DUMP ALL NODE TYPES ===")
-                        node_types = set()
-                        def dump(node):
-                            node_types.add(node.type)
-                            for c in node.children:
-                                dump(c)
-                        dump(tree.root_node)
-                        logger.info("ALL NODE TYPES: %s", sorted(node_types))
-            
             idx = get_index()
-            stats = idx.scan(root if root and root.exists() else None, max_files=5000)
-            logger.info("index: %d files, %d symbols", idx.file_count, idx.symbol_count)
-            logger.info("=== END ===")
+            stats = idx.scan(root, max_files=5000) if root and root.exists() else None
+            if stats:
+                logger.info("Indexed %d files, %d symbols", idx.file_count, idx.symbol_count)
         except Exception:
             logger.exception("failed")
     
@@ -269,6 +246,7 @@ app.include_router(studio_router)
 # app.include_router(scheduler_jobs_user_router)
 # app.include_router(scheduler_job_presets_user_router)
 app.include_router(project_runs_router)
+app.include_router(agents_router)
 app.include_router(friends_router)
 app.include_router(shares_router)
 app.include_router(workspaces_router)

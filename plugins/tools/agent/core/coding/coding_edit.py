@@ -171,7 +171,10 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_edit",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Edit a file by replacing old_string with new_string. "
+            "Uses multiple fallback strategies: exact match, line-trimmed, block-anchor, "
+            "whitespace-normalized, indentation-flexible. "
+            "Unlike coding_replace, this is more forgiving with whitespace differences.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -181,15 +184,15 @@ TOOLS: list[dict[str, Any]] = [
                     },
                     "old_string": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Text to replace (matched with flexible strategies)",
+                        "TOOL_DESCRIPTION": "The text to replace (matched with flexible strategies)",
                     },
                     "new_string": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Replacement text (may be empty to delete)",
+                        "TOOL_DESCRIPTION": "The replacement text (may be empty to delete)",
                     },
                     "replace_all": {
                         "type": "boolean",
-                        "TOOL_DESCRIPTION": "Replace all occurrences (default false)",
+                        "TOOL_DESCRIPTION": "Replace all occurrences (default false = require single match)",
                     },
                 },
                 "required": ["path", "old_string"],

@@ -22,6 +22,7 @@ import httpx
 from apps.backend.core.config import config
 from apps.backend.domain.identity import get_identity
 from apps.backend.api import memory as memory_api
+from apps.backend.domain.agent_registry import get_agent_registry
 from apps.backend.infrastructure.ollama_gate import ollama_post_chat_completions, ollama_post_json
 from apps.backend.domain.plugin_system.registry import get_registry
 from apps.backend.dashboard import db as dashboard_db
@@ -212,6 +213,7 @@ _BODY_KEYS_STRIP_FROM_OLLAMA = frozenset(
         "agent_max_tool_rounds",
         "agent_llm_backend",
         "agent_tool_name_allowlist",
+        "agent_id",
     }
 )
 
@@ -263,43 +265,28 @@ def _parse_capability_hints(raw: Any) -> frozenset[str]:
     return frozenset()
 
 
-CODING_SYSTEM_PROMPT = (
-    "You are a coding agent with file read/write/edit/bash capabilities. "
-    "When the user asks you to do something that has multiple reasonable approaches, "
-    "present your options as a structured proposal using a ```json-proposal code block.\n"
-    "\n"
-    "Proposal format (use this exact JSON structure):\n"
-    "```json-proposal\n"
-    "{\n"
-    '  "title": "How should I approach this?",\n'
-    '  "options": [\n'
-    '    {"id": "1", "label": "Quick fix", "description": "Brief explanation of this approach", "actions": ["step 1", "step 2"], "confidence": 0.9},\n'
-    '    {"id": "2", "label": "Full refactor", "description": "Brief explanation", "actions": ["step 1"], "confidence": 0.7}\n'
-    "  ]\n"
-    "}\n"
-    "```\n"
-    "\n"
-    "Rules:\n"
-    "- Use proposals when there are 2-4 reasonable approaches with trade-offs\n"
-    "- Each option should have a short label, 1-2 sentence description, and optionally a list of planned actions\n"
-    "- Confidence is 0.0-1.0 reflecting how sure you are about this approach\n"
-    "- Do NOT use proposals for simple tasks or when only one reasonable approach exists\n"
-    "- The user will click an option and tell you to proceed\n"
-)
-
-
-def _inject_coding_prompt(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _inject_agent_system_prompt(messages: list[dict[str, Any]], agent_id: str | None) -> list[dict[str, Any]]:
+    """Inject agent-specific system prompt from registry."""
+    if not agent_id:
+        return messages
+    agent = get_agent_registry().get_agent(agent_id)
+    if not agent:
+        logger.debug("agent %r not found, skipping system prompt injection", agent_id)
+        return messages
+    system_prompt = agent.get("system_prompt", "")
+    if not system_prompt:
+        return messages
     if not messages:
-        return [{"role": "system", "content": CODING_SYSTEM_PROMPT}]
+        return [{"role": "system", "content": system_prompt}]
     out = list(messages)
     if out[0].get("role") == "system":
         existing = out[0].get("content") or ""
         out[0] = {
             **out[0],
-            "content": (existing + "\n\n" + CODING_SYSTEM_PROMPT).strip() if existing else CODING_SYSTEM_PROMPT,
+            "content": (existing + "\n\n" + system_prompt).strip() if existing else system_prompt,
         }
     else:
-        out.insert(0, {"role": "system", "content": CODING_SYSTEM_PROMPT})
+        out.insert(0, {"role": "system", "content": system_prompt})
     return out
 
 
@@ -1096,6 +1083,9 @@ async def chat_completion(
     _raw_max_rounds = body.pop("agent_max_tool_rounds", None)
     _raw_llm_be = body.pop("agent_llm_backend", None)
     _raw_tool_allow = body.pop("agent_tool_name_allowlist", None)
+    agent_id = body.pop("agent_id", None)
+    if isinstance(agent_id, str):
+        agent_id = agent_id.strip() or None
     try:
 
         max_tool_rounds_eff = config.MAX_TOOL_ROUNDS
@@ -1107,8 +1097,8 @@ async def chat_completion(
 
         messages = _inject_system_prompt(list(body.get("messages") or []))
         messages = _inject_dashboard_context(messages, dashboard_ctx)
-        if tool_domain == "coding":
-            messages = _inject_coding_prompt(messages)
+        if agent_id:
+            messages = _inject_agent_system_prompt(messages, agent_id)
         pf = body.get("tool_prefetch")
         if isinstance(pf, dict):
             _apply_tool_prefetch(messages, pf)
@@ -1153,35 +1143,27 @@ async def chat_completion(
         cats = classify_user_tool_categories(last_user_text(messages))
         cats = cats | extra_cats_body | extra_cats_hdr
         merged_tools = filter_merged_tools_by_categories(merged_tools, cats)
-        logger.debug("tool_domain before check: %r", tool_domain)
-        if tool_domain and tool_domain == "coding":
-            from apps.backend.domain.plugin_system.registry import get_registry
-
-            reg = get_registry()
-            _coding_tool_names = {
-                "coding_read",
-                "coding_write",
-                "coding_edit",
-                "coding_replace",
-                "coding_search",
-                "coding_glob",
-                "coding_list",
-                "coding_bash",
-                "coding_apply_patch",
-                "coding_lsp",
-                "coding_symbols",
-                "coding_index",
-                "coding_semantic_search",
-                "coding_todo",
-                "coding_task",
-            }
-            _coding_tools = []
-            for spec in reg.chat_tool_specs:
-                n = spec.get("function", {}).get("name", "")
-                if n in _coding_tool_names:
-                    _coding_tools.append(spec)
-            merged_tools = _coding_tools
-            logger.info("coding agent: forced %d coding tools", len(merged_tools))
+        logger.debug("tool_domain before check: %r, agent_id=%r", tool_domain, agent_id)
+        if agent_id:
+            agent = get_agent_registry().get_agent(agent_id)
+            if agent:
+                tool_domain_agent = agent.get("tool_domain")
+                tool_names_agent = agent.get("tool_names", [])
+                if tool_domain_agent:
+                    merged_tools = filter_merged_tools_by_domain(merged_tools, tool_domain_agent)
+                if tool_names_agent:
+                    reg = get_registry()
+                    allowed_tool_names = frozenset(tool_names_agent)
+                    filtered = []
+                    for spec in reg.chat_tool_specs:
+                        n = spec.get("function", {}).get("name", "")
+                        if n in allowed_tool_names:
+                            filtered.append(spec)
+                    merged_tools = filtered
+                logger.info("agent %s: %d tools (domain=%s, explicit_names=%s)",
+                           agent_id, len(merged_tools), tool_domain_agent, bool(tool_names_agent))
+            else:
+                logger.warning("agent_id %r not found in registry, falling back to tool_domain", agent_id)
         elif tool_domain:
             merged_tools = filter_merged_tools_by_domain(merged_tools, tool_domain)
         if cap_hints:

@@ -123,7 +123,8 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_read_file",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Read a UTF-8 text file within the coding workspace. "
+            "Paths are relative to the coding root. Supports start_line and limit_lines for large files.",
             "parameters": {
                 "type": "object",
                 "properties": {

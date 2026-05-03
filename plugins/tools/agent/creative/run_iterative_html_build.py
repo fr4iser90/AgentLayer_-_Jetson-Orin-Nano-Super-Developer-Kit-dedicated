@@ -124,7 +124,13 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_iterative_html_build",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Runs a multi-round local-LLM loop: generate one self-contained HTML5 page from your goal, "
+            "validate, then revise until pass or max rounds (same limit as AGENT_MAX_TOOL_ROUNDS). "
+            "Output is written under workflows/creative/output/iterative-html/<timestamp>/. "
+            "If the user attached PNG/JPEG/WebP/GIF images in the same chat turn, they are saved under "
+            "uploads/ with their original filenames (e.g. hero.png) automatically — do not base64 them "
+            "into the tool arguments unless you need extra assets beyond the chat uploads. "
+            "Optional ``assets`` in parameters: small images as base64 when not from chat.",
             "parameters": {
                 "type": "object",
                 "required": ["goal"],

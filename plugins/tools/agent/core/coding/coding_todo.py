@@ -86,7 +86,9 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_todo",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Create, update, and track a todo list for the current coding session. "
+            "Each todo has content, status (pending/in_progress/completed/cancelled), and priority (high/medium/low). "
+            "Call with the full updated todo list — the tool replaces the entire list.",
             "parameters": {
                 "type": "object",
                 "properties": {

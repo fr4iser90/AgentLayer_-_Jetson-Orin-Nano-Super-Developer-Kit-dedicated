@@ -1,5 +1,25 @@
 import type { AuthContextValue } from "../auth/AuthContext";
 
+export type AgentDefinition = {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  system_prompt: string;
+  tool_domain: string | null;
+  tool_names: string[];
+  requires_workspace: boolean;
+  execution_context: string;
+  min_role: string;
+  model_profile: string | null;
+};
+
+export async function fetchAgents(auth: Pick<AuthContextValue, "accessToken" | "refresh">): Promise<AgentDefinition[]> {
+  const r = await apiFetch("/v1/agents", auth);
+  if (!r.ok) return [];
+  return r.json() as Promise<AgentDefinition[]>;
+}
+
 /**
  * Authenticated fetch with one retry after POST /auth/refresh on 401.
  */

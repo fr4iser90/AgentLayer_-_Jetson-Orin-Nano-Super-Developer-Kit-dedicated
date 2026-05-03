@@ -113,7 +113,11 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_index",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Build or refresh the code index for the coding workspace. "
+            "Uses tree-sitter to parse symbols (functions, classes, imports) from source files. "
+            f"Supported languages: {', '.join(sorted(set(_SUPPORTED_LANGUAGES.values())))}. "
+            "Index enables fast symbol lookup, search, and code navigation. "
+            "Symbols are also stored in Qdrant for semantic search.",
             "parameters": {
                 "type": "object",
                 "properties": {

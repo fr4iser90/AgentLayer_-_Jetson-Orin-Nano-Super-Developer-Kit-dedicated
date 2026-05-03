@@ -33,7 +33,6 @@ import { IdeAgentPage } from "./pages/IdeAgentPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { MySchedulesPage } from "./pages/MySchedulesPage";
-import { CodingAgentPage } from "./pages/CodingAgentPage";
 
 export function App() {
   return (
@@ -45,7 +44,6 @@ export function App() {
           <Route element={<RequireSession />}>
             <Route path="/" element={<HomePage />} />
             <Route path="chat" element={<ChatPage />} />
-            <Route path="coding-agent" element={<CodingAgentPage />} />
             <Route path="ide-agent" element={<IdeAgentPage />} />
             <Route path="studio" element={<StudioPage />} />
             <Route path="dashboard" element={<DashboardPage />} />

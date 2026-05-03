@@ -14,8 +14,9 @@ _KIND_MARKER = "dashboard.kind.json"
 
 
 def dashboard_tree_root() -> Path:
-    """Plug-and-play dashboard bundles: ``plugins/dashboard/<domain>/``."""
-    return Path(__file__).resolve().parents[3] / "plugins" / "dashboard"
+    """Plug-and-play dashboard bundles: ``PLUGINS_DIR/dashboards/<domain>/``."""
+    from apps.backend.core.config import PLUGINS_DIR
+    return PLUGINS_DIR / "dashboards"
 
 
 def _safe_relative_file(bundle_dir: Path, rel: str, label: str) -> Path:

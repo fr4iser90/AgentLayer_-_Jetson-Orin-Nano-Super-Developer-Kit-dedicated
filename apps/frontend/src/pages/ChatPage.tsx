@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { apiFetch } from "../lib/api";
+import { apiFetch, fetchAgents, type AgentDefinition } from "../lib/api";
 import {
   NEW_CHAT_TITLE,
   type AgentTimelineEntry,
-  type ChatMode,
   type ChatThread,
   type UiMessage,
   exportThreadJson,
@@ -160,6 +159,11 @@ export function ChatPage() {
   const [hydrated, setHydrated] = useState(false);
   const [composerDragActive, setComposerDragActive] = useState(false);
   const [dashboardTitles, setDashboardTitles] = useState<Record<string, string>>({});
+  const [agents, setAgents] = useState<AgentDefinition[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("general");
+
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string; path: string }[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const agentHandlerRef = useRef<(ev: MessageEvent) => void>(() => {});
@@ -181,7 +185,7 @@ export function ChatPage() {
   );
 
   const messages = activeThread?.messages ?? [];
-  const mode: ChatMode = activeThread?.mode ?? "chat";
+  const mode: ChatMode = activeThread?.mode ?? "agent";
   const model = activeThread?.model ?? "";
   const agentLog: AgentTimelineEntry[] = activeThread?.agentLog ?? [];
 
@@ -209,6 +213,59 @@ export function ChatPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const ags = await fetchAgents(auth);
+        if (cancelled) return;
+        setAgents(ags);
+        if (ags.length > 0) {
+          const general = ags.find((a) => a.id === "general");
+          if (general) setSelectedAgentId("general");
+          else setSelectedAgentId(ags[0].id);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth]);
+
+  useEffect(() => {
+    if (!selectedAgentId || !accessToken) {
+      setWorkspaces([]);
+      setSelectedWorkspaceId(null);
+      return;
+    }
+    const agent = agents.find((a) => a.id === selectedAgentId);
+    if (!agent?.requires_workspace) {
+      setWorkspaces([]);
+      setSelectedWorkspaceId(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await apiFetch("/v1/workspaces", auth);
+        if (!r.ok || cancelled) return;
+        const j = (await r.json()) as { workspaces?: { id: string; name: string; path: string }[] };
+        if (cancelled) return;
+        setWorkspaces(j.workspaces ?? []);
+        if ((j.workspaces?.length ?? 0) > 0) {
+          setSelectedWorkspaceId(j.workspaces![0].id);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgentId, accessToken, auth, agents]);
 
   useEffect(() => {
     if (!dashboardChatId || !accessToken) {
@@ -669,12 +726,15 @@ export function ChatPage() {
     try {
       const ws = await ensureAgentWs();
       const disabledTools = getDisabledToolNames();
+      const agent = agents.find((a) => a.id === selectedAgentId);
       ws.send(
         JSON.stringify({
           type: "chat",
           body: {
             model: t.model,
             messages: nextMessages.map((m) => ({ role: m.role, content: toApiContent(m.content) })),
+            agent_id: selectedAgentId,
+            ...(selectedWorkspaceId ? { workspace_id: selectedWorkspaceId } : {}),
             ...agentDashboardPayload,
             ...(disabledTools.length ? { agent_disabled_tools: disabledTools } : {}),
           },
@@ -695,18 +755,20 @@ export function ChatPage() {
     patchThread,
     threads,
     auth,
+    selectedAgentId,
+    selectedWorkspaceId,
+    agents,
   ]);
 
   const onSend = () => {
-    if (mode === "chat") void runChatHttp();
-    else void runAgentWs();
+    void runAgentWs();
   };
 
   const startNewChat = async () => {
     try {
       const t = await createConversation(auth, {
         title: NEW_CHAT_TITLE,
-        mode: "chat",
+        mode: "agent",
         model: defaultModel,
         messages: [],
         agent_log: [],
@@ -804,32 +866,8 @@ export function ChatPage() {
           >
             + New chat
           </button>
-          <div className="mt-3 mb-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
-            Mode (this chat)
-          </div>
-          <div className="flex rounded-lg border border-surface-border bg-black/30 p-0.5">
-            <button
-              type="button"
-              className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium ${
-                mode === "chat" ? "bg-white/15 text-white" : "text-surface-muted hover:text-neutral-200"
-              }`}
-              onClick={() => setMode("chat")}
-            >
-              Chat
-            </button>
-            <button
-              type="button"
-              className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium ${
-                mode === "agent" ? "bg-white/15 text-white" : "text-surface-muted hover:text-neutral-200"
-              }`}
-              onClick={() => setMode("agent")}
-            >
-              Agent
-            </button>
-          </div>
           <p className="mt-2 text-[11px] leading-snug text-surface-muted">
-            <strong className="text-neutral-400">Chat:</strong> HTTP completion.{" "}
-            <strong className="text-neutral-400">Agent:</strong> WebSocket. Chats sync to the server.
+            Agent: WebSocket mit mehreren Runden. Chats sync zum Server.
           </p>
         </div>
 
@@ -937,7 +975,49 @@ export function ChatPage() {
               <p className="truncate text-sm font-medium text-white">{activeThread?.title ?? "Chat"}</p>
               {activeThread ? <DashboardChatVisibilityBadge thread={activeThread} /> : null}
             </div>
-            <label className="mt-2 block text-xs text-surface-muted">Ollama model</label>
+            <label className="mt-2 block text-xs text-surface-muted">Agent</label>
+            <select
+              className="mt-1 rounded-lg border border-surface-border bg-[#1a1a1a] px-3 py-2 text-sm text-neutral-100"
+              value={selectedAgentId}
+              onChange={(e) => setSelectedAgentId(e.target.value)}
+              disabled={!agents.length}
+            >
+              {!agents.length ? (
+                <option>Loading agents…</option>
+              ) : (
+                agents.map((ag) => (
+                  <option key={ag.id} value={ag.id}>
+                    {ag.icon} {ag.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {(() => {
+              const agent = agents.find((a) => a.id === selectedAgentId);
+              if (!agent?.requires_workspace) return null;
+              return (
+                <>
+                  <label className="mt-2 block text-xs text-surface-muted">Workspace</label>
+                  <select
+                    className="mt-1 rounded-lg border border-surface-border bg-[#1a1a1a] px-3 py-2 text-sm text-neutral-100"
+                    value={selectedWorkspaceId ?? ""}
+                    onChange={(e) => setSelectedWorkspaceId(e.target.value || null)}
+                    disabled={!workspaces.length}
+                  >
+                    {!workspaces.length ? (
+                      <option>No workspaces</option>
+                    ) : (
+                      workspaces.map((ws) => (
+                        <option key={ws.id} value={ws.id}>
+                          {ws.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </>
+              );
+            })()}
+            <label className="mt-2 block text-xs text-surface-muted">Model</label>
             <select
               className="mt-1 rounded-lg border border-surface-border bg-[#1a1a1a] px-3 py-2 text-sm text-neutral-100"
               value={model || defaultModel}
@@ -1013,9 +1093,7 @@ export function ChatPage() {
                   Hello, {displayName}
                 </h1>
                 <p className="mt-2 max-w-md text-sm text-surface-muted">
-                  {mode === "chat"
-                    ? "One completion per send. History is stored on the server. Attach images or text files below."
-                    : "Agent: WebSocket with multiple rounds; activity on the right."}
+                  Agent: WebSocket with multiple rounds; activity on the right.
                 </p>
               </div>
             ) : (

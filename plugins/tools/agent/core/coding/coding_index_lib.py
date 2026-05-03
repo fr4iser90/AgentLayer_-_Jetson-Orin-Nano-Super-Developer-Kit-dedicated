@@ -161,37 +161,23 @@ def _detect_language(file_path: Path) -> str | None:
 
 def _parse_tree(source: bytes, language: str) -> Tree | None:
     if not _HAS_TS:
-        logger.info("_parse_tree: _HAS_TS is False, skipping")
         return None
     try:
         import tree_sitter_language_pack as tslp
         
-        logger.info("_parse_tree: 1. getting language %s", language)
         lang = tslp.get_language(language)
         if lang is None:
-            logger.info("_parse_tree: get_language(%s) returned None", language)
             return None
         
-        logger.info("_parse_tree: 2. creating parser with lang")
-        # tree-sitter 0.23+ API: Pass language to constructor directly
         parser = Parser(lang)
-        
-        logger.info("_parse_tree: 3. calling parse, source=%d bytes", len(source))
         result = parser.parse(source)
         
-        logger.info("_parse_tree: 4. result=%s", result)
-        
         if result is None:
-            logger.info("_parse_tree: result is None!")
             return None
             
-        logger.info("_parse_tree: 5. result.root_node=%s", result.root_node)
         return result
         
-    except Exception as e:
-        logger.info("_parse_tree EXCEPTION: %s", e)
-        import traceback
-        logger.info(traceback.format_exc())
+    except Exception:
         return None
 
 
@@ -210,16 +196,12 @@ def _extract_symbols(tree: Tree, source: bytes, language: str) -> tuple[list[Sym
         if lang is None:
             return [], []
         
-        # Try tree-sitter-language-pack's native query
         try:
             query = lang.query(_QUERY_SYMBOLS[language])
-        except Exception as e:
-            logger.debug("lang.query failed, trying Query: %s", e)
-            # Fallback: use tree_sitter.Query directly
+        except:
             from tree_sitter import Query as TSQuery
             query = TSQuery(lang, _QUERY_SYMBOLS[language])
-    except Exception as e:
-        logger.debug("query setup failed for %s: %s", language, e)
+    except:
         return [], []
     
     symbols: list[Symbol] = []
@@ -229,17 +211,11 @@ def _extract_symbols(tree: Tree, source: bytes, language: str) -> tuple[list[Sym
     
     try:
         captures = query.captures(tree.root_node)
-    except Exception as e:
-        logger.debug("query.captures failed: %s", e)
+    except:
         captures = []
     
-    # If query captured nothing, try direct tree walk fallback
     if not captures:
-        logger.debug("query returned 0 captures, trying walk as fallback")
         try:
-            text = source.decode("utf-8", errors="replace")
-            lines = text.split('\n')
-            
             def walk(node):
                 syms = []
                 imps = []

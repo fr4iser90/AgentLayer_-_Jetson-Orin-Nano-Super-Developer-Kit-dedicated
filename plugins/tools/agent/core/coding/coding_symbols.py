@@ -111,7 +111,10 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_symbols",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Query symbols from the code index: lookup by name, search, list files. "
+            "Operations: lookup (exact name), search (partial match), file (get file details), "
+            "list (list all indexed files). "
+            "Run coding_index first to build the index.",
             "parameters": {
                 "type": "object",
                 "properties": {

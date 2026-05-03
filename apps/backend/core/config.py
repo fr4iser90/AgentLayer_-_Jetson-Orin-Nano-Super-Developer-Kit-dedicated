@@ -5,6 +5,12 @@ from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
+_PLUGINS_DIR_RAW = os.environ.get("AGENT_PLUGINS_DIR", "").strip()
+if _PLUGINS_DIR_RAW:
+    PLUGINS_DIR = Path(_PLUGINS_DIR_RAW)
+else:
+    PLUGINS_DIR = Path(__file__).resolve().parents[3] / "plugins"
+
 
 def tools_backup_directory() -> Path:
     raw = (os.environ.get("AGENT_TOOLS_BACKUP_DIR") or "").strip()
@@ -191,10 +197,9 @@ def tool_scan_directories() -> list[Path]:
             add(Path(part.strip()).expanduser())
         return out
 
-    # Repository root: apps/backend/core/config.py → parents[3].
-    _root = Path(__file__).resolve().parents[3]
-    add(_root / "plugins" / "tools")
-    add(_root / "plugins" / "workflows")
+    # Repository root: use central PLUGINS_DIR.
+    add(PLUGINS_DIR / "tools")
+    add(PLUGINS_DIR / "workflows")
     if TOOLS_EXTRA_DIR:
         add(Path(TOOLS_EXTRA_DIR).expanduser())
     return out

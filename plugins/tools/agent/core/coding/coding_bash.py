@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
@@ -45,12 +46,57 @@ _BLOCKED_COMMANDS = frozenset({
     "ufw",
 })
 
+_BLOCKED_PATTERNS = [
+    r"rm\s+-rf\s+/",           # rm -rf anything at root
+    r"rm\s+-rf\s+\*",         # rm -rf *
+    r"rm\s+-R\s+/",          # rm -R recursive
+    r"wget\s+.*\|\s*sh",      # wget | sh (remote execution)
+    r"curl\s+.*\|\s*sh",      # curl | sh
+    r":\(\)\s*:",             # fork bomb :(){:|:&};:
+    r"fork\(\)",               # fork()
+    r"\$\s*\(\s*\$\s*\)",   # $() subshell loops
+    r"dd\s+if=/dev/zero",     # disk wipe
+    r"dd\s+if=/dev/urandom",  # random disk write
+    r">\s*/dev/sd[a-z]",     # write to disk device
+    r"chmod\s+-R\s+777",    # chmod 777 recursive
+    r"chown\s+-R",           # chown recursive
+    r"mv\s+/.*\s+/bin",    # move to bin
+    r"cp\s+.*\s+/bin",    # copy to bin
+    r"ln\s+-s",            # symlink attack
+    r":\|",                 # pipe fork bomb pattern
+    r"while\s+.*do\s+.*done", # infinite loop potential
+]
+
+_BLOCKED_REGEX = [re.compile(p, re.IGNORECASE) for p in _BLOCKED_PATTERNS]
+
+_VALIDATION_COMMANDS = frozenset({
+    "ruff",
+    "python -m py_compile",
+    "pip check",
+    "npm test",
+    "npm run",
+    "npm run build",
+    "npm run lint",
+    "npm run typecheck",
+    "npm run type-check",
+    "npx",
+    "pnpm",
+    "yarn",
+    "pip install",
+    "pip uninstall",
+})
+
 
 def _is_blocked(command: str) -> str | None:
     lower = command.lower().strip()
     for blocked in _BLOCKED_COMMANDS:
         if blocked in lower:
-            return f"command blocked: '{blocked}' is not allowed"
+            return f"command blocked: '{blocked}' is not allowed (1)"
+    
+    for i, regex in enumerate(_BLOCKED_REGEX):
+        if regex.search(lower):
+            return f"command blocked: matches dangerous pattern '{_BLOCKED_PATTERNS[i]}' (2)"
+    
     return None
 
 
@@ -160,7 +206,7 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_bash",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Run a shell command within the coding workspace. ",
             "parameters": {
                 "type": "object",
                 "properties": {

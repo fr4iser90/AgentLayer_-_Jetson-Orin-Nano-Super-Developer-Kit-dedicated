@@ -91,7 +91,8 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_list_dir",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "List files and subdirectories within the coding workspace. "
+            "Paths are relative to the coding root. Truncates after many entries.",
             "parameters": {
                 "type": "object",
                 "properties": {

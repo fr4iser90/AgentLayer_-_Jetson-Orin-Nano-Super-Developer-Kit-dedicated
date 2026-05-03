@@ -233,7 +233,10 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_apply_patch",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Apply a unified diff patch to a file within the coding workspace. "
+            "Patch must be in standard unified diff format (diff --git or ---/<insert> headers). "
+            "Path in the patch header is resolved relative to the coding root. "
+            "Useful for applying code review suggestions or generated patches.",
             "parameters": {
                 "type": "object",
                 "properties": {

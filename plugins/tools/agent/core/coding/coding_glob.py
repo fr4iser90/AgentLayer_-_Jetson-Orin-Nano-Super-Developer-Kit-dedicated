@@ -25,9 +25,8 @@ TOOL_TRIGGERS = ("coding glob", "find files", "glob pattern", "file pattern")
 TOOL_CAPABILITIES = ("coding.read",)
 TOOL_LABEL = "Coding: Glob"
 TOOL_DESCRIPTION = (
-    "Find files matching a glob pattern within the coding workspace. "
-    "Supports ** recursive patterns. Results sorted by modification time (newest first). "
-    "Truncated after 100 files."
+    "Find files in the coding workspace using glob pattern (like **/*.py). "
+    "Results sorted by modification time."
 )
 
 MAX_FILES = _global_config.WORKSPACE_MAX_GLOB_FILES
@@ -36,7 +35,14 @@ MAX_FILES = _global_config.WORKSPACE_MAX_GLOB_FILES
 def coding_glob(arguments: dict[str, Any]) -> str:
     pattern = (arguments.get("pattern") or "").strip()
     if not pattern:
-        return json.dumps({"ok": False, "error": "pattern is required"}, ensure_ascii=False)
+        path_given = arguments.get("path")
+        if path_given and isinstance(path_given, str) and path_given.strip():
+            pattern = path_given.strip()
+        else:
+            return json.dumps({
+                "ok": False,
+                "error": "pattern is required. Use glob like **/*.py"
+            }, ensure_ascii=False)
     root = coding_root()
     if root is None:
         return _no_root_error()
@@ -112,17 +118,17 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_glob",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "description": TOOL_DESCRIPTION,
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pattern": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Glob pattern, e.g. **/*.py, src/**/*.ts",
+                        "description": "Glob pattern, e.g. **/*.py or src/**/*.ts",
                     },
                     "path": {
                         "type": "string",
-                        "TOOL_DESCRIPTION": "Base directory (default: coding root)",
+                        "description": "Base directory",
                     },
                 },
                 "required": ["pattern"],

@@ -14,8 +14,8 @@ router = APIRouter(prefix="/v1/admin/scheduler-job-presets", tags=["scheduler-jo
 
 
 def _presets_dir() -> Path:
-    repo_root = Path(__file__).resolve().parents[3]
-    return repo_root / "plugins" / "schedules" / "presets"
+    from apps.backend.core.config import PLUGINS_DIR
+    return PLUGINS_DIR / "schedules" / "presets"
 
 
 @router.get("")

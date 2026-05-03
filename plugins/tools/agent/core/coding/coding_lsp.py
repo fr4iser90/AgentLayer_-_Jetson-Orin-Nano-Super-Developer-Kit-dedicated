@@ -169,7 +169,10 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_lsp",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "LSP operations: goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, "
+            "diagnostics, completion, signatureHelp, rename. Supports Python, Go, Rust, TypeScript, "
+            "JavaScript, Java, Ruby, PHP, C#, Dart, Elixir, Haskell, Lua, Terraform, SQL. "
+            "Server auto-detected from PATH. Workspace root found via project markers (go.mod, pyproject.toml, etc.).",
             "parameters": {
                 "type": "object",
                 "properties": {

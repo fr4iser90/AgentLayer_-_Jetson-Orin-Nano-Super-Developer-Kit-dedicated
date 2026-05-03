@@ -71,7 +71,9 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_write_file",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Create or overwrite a text file within the coding workspace. "
+            "Paths are relative to the coding root; cannot escape to system or tool directories. "
+            "Creates parent directories automatically. Use coding_replace for surgical edits.",
             "parameters": {
                 "type": "object",
                 "properties": {

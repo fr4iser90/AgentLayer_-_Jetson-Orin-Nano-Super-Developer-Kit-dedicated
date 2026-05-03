@@ -149,17 +149,18 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_search",
-            "description": TOOL_DESCRIPTION,
+            "description": "Search file contents (literal substring or regex) within the coding workspace. "
+            "Skips binary and oversized files. Match and file limits apply.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Literal substring unless regex is true",
+                        "description": "The query to search for (literal substring unless regex is true)",
                     },
                     "regex": {
                         "type": "boolean",
-                        "description": "If true, query is a Python regex",
+                        "description": "If true, the query is a Python regex",
                     },
                     "path_prefix": {
                         "type": "string",

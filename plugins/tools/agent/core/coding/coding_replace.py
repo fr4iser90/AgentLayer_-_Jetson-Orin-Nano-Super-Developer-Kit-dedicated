@@ -112,7 +112,9 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "coding_replace",
-            "TOOL_DESCRIPTION": TOOL_DESCRIPTION,
+            "TOOL_DESCRIPTION": "Replace old_string with new_string in a file within the coding workspace. "
+            "Unless replace_all is true, old_string must match exactly once. "
+            "Use coding_write_file to create or overwrite entire files.",
             "parameters": {
                 "type": "object",
                 "properties": {
