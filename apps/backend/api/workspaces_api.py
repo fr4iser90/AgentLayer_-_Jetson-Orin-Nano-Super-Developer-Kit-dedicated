@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -22,8 +24,6 @@ def _get_workspace_base_path() -> Path:
     base = os.environ.get("AGENTLAYER_WORKSPACE_PATH", "/workspace")
     return Path(base)
 
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -91,43 +91,24 @@ def _ensure_self_workspace(user) -> dict[str, Any] | None:
     if not _is_self_editing_allowed():
         logger.info("self workspace: _is_self_editing_allowed() = False")
         return None
-    logger.info("self workspace: _is_self_editing_allowed() = True")
     
     if not _user_can_access_self_workspace(user):
         logger.info("self workspace: _user_can_access_self_workspace() = False")
         return None
-    logger.info("self workspace: _user_can_access_self_workspace() = True")
 
-    source = _clone_source_repo()
-    if not source:
-        logger.info("self workspace: no source repo found")
+    source_path = Path("/workspace/AgentLayer")
+    if not source_path.exists():
+        logger.warning("self workspace: source path does not exist: %s", source_path)
         return None
-    logger.info("self workspace: source repo = %s", source)
 
     base_path = _get_workspace_base_path()
-    user_workspace_dir = base_path / str(user.id) / "agentlayer-self"
-    logger.info("self workspace: target dir = %s", user_workspace_dir)
-
-    if not user_workspace_dir.exists():
-        user_workspace_dir.parent.mkdir(parents=True, exist_ok=True)
-        import subprocess
-
-        logger.info("cloning git repo to %s", user_workspace_dir)
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", str(source), str(user_workspace_dir)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.error("git clone failed: %s", result.stderr)
-            return None
-
-        logger.info("creating branch self-edit/%s", user.id)
-        subprocess.run(
-            ["git", "checkout", "-b", f"self-edit/{user.id}"],
-            cwd=user_workspace_dir,
-            capture_output=True,
-        )
+    target_path = base_path / str(user.id) / "agentlayer-self"
+    
+    if not target_path.exists():
+        logger.info("self workspace: copying local repo to %s", target_path)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_path, target_path)
+        logger.info("self workspace: copy complete")
 
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -151,10 +132,10 @@ def _ensure_self_workspace(user) -> dict[str, Any] | None:
                     (
                         user.id,
                         "agentlayer-self",
-                        str(user_workspace_dir),
-                        "self",
+                        str(target_path),
+                        "manual",
                         None,
-                        f"self-edit/{user.id}",
+                        "main",
                     ),
                 )
                 row = cur.fetchone()
