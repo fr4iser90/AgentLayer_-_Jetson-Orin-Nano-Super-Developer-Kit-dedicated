@@ -1086,6 +1086,37 @@ async def chat_completion(
     agent_id = body.pop("agent_id", None)
     if isinstance(agent_id, str):
         agent_id = agent_id.strip() or None
+    
+    from apps.backend.domain.identity import set_workspace
+    workspace_id = body.pop("workspace_id", None)
+    workspace = None
+    workspace_token = None
+    if workspace_id:
+        try:
+            from apps.backend.infrastructure.db import db
+            from apps.backend.api.workspaces_api import _get_workspace_base_path
+            with db.pool().connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, name, path, source, git_url, git_branch, access_role, owner_user_id FROM project_workspaces WHERE id = %s",
+                        (str(workspace_id),),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        workspace = {
+                            "id": str(row[0]),
+                            "name": row[1],
+                            "path": row[2],
+                            "source": row[3],
+                            "git_url": row[4],
+                            "git_branch": row[5],
+                            "access_role": row[6],
+                            "owner_user_id": str(row[7]),
+                        }
+        except Exception:
+            pass
+    workspace_token = set_workspace(workspace)
+    
     try:
 
         max_tool_rounds_eff = config.MAX_TOOL_ROUNDS
@@ -1671,3 +1702,6 @@ async def chat_completion(
         return data
     finally:
         reset_capability_confirmed(_cap_cf_tok)
+        from apps.backend.domain.identity import reset_workspace
+        if workspace_token:
+            reset_workspace(workspace_token)

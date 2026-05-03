@@ -23,16 +23,25 @@ def _get_workspace_base_path() -> Path:
     return Path(base)
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def _is_self_editing_allowed() -> bool:
     try:
         settings = public_dict()
-        return bool(settings.get("workspace_allow_self_editing", False))
-    except Exception:
+        allowed = bool(settings.get("workspace_allow_self_editing", False))
+        logger.debug("workspace_allow_self_editing = %s", allowed)
+        return allowed
+    except Exception as e:
+        logger.warning("failed to check workspace_allow_self_editing: %s", e)
         return False
 
 
 def _user_can_access_self_workspace(user) -> bool:
     if user.role == "admin":
+        logger.debug("user %s is admin, self workspace allowed", user.id)
         return True
     with db.pool().connection() as conn:
         with conn.cursor() as cur:
@@ -41,26 +50,132 @@ def _user_can_access_self_workspace(user) -> bool:
                 (user.id,),
             )
             row = cur.fetchone()
-            return bool(row[0]) if row else False
+            allowed = bool(row[0]) if row else False
+            logger.debug("user %s workspace_self_allowed = %s", user.id, allowed)
+            return allowed
+
+
+def _is_git_repo(path: Path) -> bool:
+    return (path / ".git").is_dir()
+
+
+def _clone_source_repo() -> Path | None:
+    # 1. Local mount bevorzugt
+    local_path = Path("/workspace/AgentLayer")
+    if _is_git_repo(local_path):
+        logger.info("using local mount /workspace/AgentLayer as source")
+        return local_path
+    
+    # 2. Container /app fallback
+    app_path = Path("/app")
+    if _is_git_repo(app_path):
+        logger.info("using container /app as source")
+        return app_path
+    
+    # 3. Remote fallback (from operator settings)
+    try:
+        settings = public_dict()
+        remote_url = settings.get("agentlayer_git_repo_url")
+        if remote_url:
+            logger.info("would use remote %s (not implemented yet)", remote_url)
+    except Exception:
+        pass
+    
+    logger.warning("no git source found (tried: /workspace/AgentLayer, /app)")
+    return None
+
+
+def _ensure_self_workspace(user) -> dict[str, Any] | None:
+    logger.info("checking self workspace for user %s", user.id)
+    
+    if not _is_self_editing_allowed():
+        logger.info("self workspace: _is_self_editing_allowed() = False")
+        return None
+    logger.info("self workspace: _is_self_editing_allowed() = True")
+    
+    if not _user_can_access_self_workspace(user):
+        logger.info("self workspace: _user_can_access_self_workspace() = False")
+        return None
+    logger.info("self workspace: _user_can_access_self_workspace() = True")
+
+    source = _clone_source_repo()
+    if not source:
+        logger.info("self workspace: no source repo found")
+        return None
+    logger.info("self workspace: source repo = %s", source)
+
+    base_path = _get_workspace_base_path()
+    user_workspace_dir = base_path / str(user.id) / "agentlayer-self"
+    logger.info("self workspace: target dir = %s", user_workspace_dir)
+
+    if not user_workspace_dir.exists():
+        user_workspace_dir.parent.mkdir(parents=True, exist_ok=True)
+        import subprocess
+
+        logger.info("cloning git repo to %s", user_workspace_dir)
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", str(source), str(user_workspace_dir)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            logger.error("git clone failed: %s", result.stderr)
+            return None
+
+        logger.info("creating branch self-edit/%s", user.id)
+        subprocess.run(
+            ["git", "checkout", "-b", f"self-edit/{user.id}"],
+            cwd=user_workspace_dir,
+            capture_output=True,
+        )
+
+    with db.pool().connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, path, source, git_url, git_branch, access_role, created_at, updated_at
+                FROM project_workspaces 
+                WHERE owner_user_id = %s AND name = %s
+                """,
+                (user.id, "agentlayer-self"),
+            )
+            row = cur.fetchone()
+
+            if not row:
+                cur.execute(
+                    """
+                    INSERT INTO project_workspaces (owner_user_id, name, path, source, git_url, git_branch, access_role)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'editor')
+                    RETURNING id, owner_user_id, name, path, source, git_url, git_branch, access_role, created_at, updated_at
+                    """,
+                    (
+                        user.id,
+                        "agentlayer-self",
+                        str(user_workspace_dir),
+                        "self",
+                        None,
+                        f"self-edit/{user.id}",
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+
+    return {
+        "id": str(row[0]),
+        "owner_user_id": str(row[1]),
+        "name": row[2],
+        "path": row[3],
+        "source": row[4],
+        "git_url": row[5],
+        "git_branch": row[6],
+        "access_role": row[7],
+        "created_at": row[8].isoformat() if row[8] else None,
+        "updated_at": row[9].isoformat() if row[9] else None,
+    }
 
 
 def _get_self_workspace(user) -> dict[str, Any] | None:
-    if not _is_self_editing_allowed():
-        return None
-    if not _user_can_access_self_workspace(user):
-        return None
-    return {
-        "id": "__agentlayer_self__",
-        "owner_user_id": "__system__",
-        "name": "AgentLayer (self)",
-        "path": "/app",
-        "source": "builtin",
-        "git_url": None,
-        "git_branch": "main",
-        "access_role": "editor",
-        "created_at": None,
-        "updated_at": None,
-    }
+    return _ensure_self_workspace(user)
 
 
 class WorkspaceCreateBody(BaseModel):

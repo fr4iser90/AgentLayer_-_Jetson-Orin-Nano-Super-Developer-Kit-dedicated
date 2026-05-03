@@ -420,30 +420,53 @@ def ollama_generate_module(
 ) -> tuple[str | None, str | None]:
     system = (
         "You output ONE complete Python 3.11 module only. No markdown fences. No prose before or after.\n\n"
-        "The module MUST:\n"
-        "- start with: from __future__ import annotations\n"
-        "- import json\n"
-        "- from typing import Any, Callable\n"
-        '- set __version__ = "0.1.0"\n'
-        f'- set TOOL_ID = "{registered_tool_function_name}"\n'
-        f"- define def {registered_tool_function_name}(arguments: dict[str, Any]) -> str that returns json.dumps(...) "
-        "with UTF-8-safe strings\n"
-        f'- HANDLERS = {{"{registered_tool_function_name}": {registered_tool_function_name}}}\n'
-        "- TOOLS must be a list with EXACTLY this nesting (name goes INSIDE \"function\", never at top level):\n"
+        "The module MUST include ALL of these module-level variables (each is a string unless noted):\n\n"
+        "1. __version__ = \"0.1.0\"  (string)\n"
+        "2. TOOL_ID = \"...\"  (same as function name)\n"
+        "3. TOOL_BUCKET = \"productivity\"  (admin UI category: files, network, knowledge, secrets, comms, verticals, meta, media, productivity, unsorted)\n"
+        "4. TOOL_DOMAIN = \"...\"  (router category, used for domain-based tool routing)\n"
+        "5. TOOL_LABEL = \"...\"  (human-readable label for UI)\n"
+        "6. TOOL_DESCRIPTION = \"...\"  (what the tool does for the router, NOT the OpenAI function description)\n"
+        "7. TOOL_TRIGGERS = (\"trigger1\", \"trigger2\", ...)  (words that activate this tool in the router - lowercase, tuple of strings)\n"
+        "8. TOOL_CAPABILITIES = (\"meta.author\",)  (optional - for permission system)\n\n"
+        "Example complete module structure:\n"
+        "```python\n"
+        'from __future__ import annotations\n\n'
+        "import json\n"
+        "from typing import Any, Callable\n\n"
+        '__version__ = \"0.1.0\"\n'
+        f'TOOL_ID = \"{registered_tool_function_name}\"\n'
+        'TOOL_BUCKET = \"productivity\"\n'
+        'TOOL_DOMAIN = \"my_domain\"\n'
+        'TOOL_LABEL = \"My Tool Name\"\n'
+        'TOOL_DESCRIPTION = \"What this tool does for the LLM router\"\n'
+        'TOOL_TRIGGERS = (\"do thing\", \"thing do\", \"action name\")\n'
+        'TOOL_CAPABILITIES = ()\n\n'
+        "def my_tool(arguments: dict[str, Any]) -> str:\n"
+        "    # your code here\n"
+        "    return json.dumps({\"ok\": True, \"result\": \"done\"})\n\n"
+        "HANDLERS = {\"my_tool\": my_tool}\n\n"
         "TOOLS = [\n"
         "    {\n"
-        '        "type": "function",\n'
-        '        "function": {\n'
-        f'            "name": "{registered_tool_function_name}",\n'
-        '            "TOOL_DESCRIPTION": "…",\n'
-        '            "parameters": {\n'
-        '                "type": "object",\n'
-        '                "properties": { ... },\n'
-        '                "required": [],\n'
+        '        \"type\": \"function\",\n'
+        '        \"function\": {\n'
+        '            \"name\": \"my_tool\",\n'
+        '            \"description\": \"OpenAI function description for users\",\n'
+        '            \"parameters\": {\n'
+        '                \"type\": \"object\",\n'
+        '                \"properties\": {\"arg\": {\"type\": \"string\", \"description\": \"...\"}},\n'
+        '                \"required\": [\"arg\"],\n'
         "            },\n"
         "        },\n"
         "    },\n"
-        "]\n\n"
+        "]\n"
+        "```\n\n"
+        "IMPORTANT:\n"
+        "- TOOL_TRIGGERS MUST be a tuple of lowercase trigger phrases (e.g., \"run test\", \"execute test\")\n"
+        "- TOOL_DESCRIPTION is for the LLM router, NOT for OpenAI - include what situations should use this tool\n"
+        "- TOOL_BUCKET must be one of: files, network, knowledge, secrets, comms, verticals, meta, media, productivity, unsorted\n"
+        "- Include at least 3-5 relevant triggers in TOOL_TRIGGERS for good router activation\n"
+        "- All module variables are required except TOOL_CAPABILITIES\n\n"
         "Rules:\n"
         f"- Exactly one TOOLS entry; HANDLERS has exactly one key \"{registered_tool_function_name}\".\n"
     )

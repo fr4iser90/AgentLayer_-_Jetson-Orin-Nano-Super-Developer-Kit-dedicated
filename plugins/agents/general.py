@@ -29,7 +29,6 @@ RULES:
 - The user will click an option and tell you to proceed
 """
 AGENT_TOOL_DOMAIN = None
-AGENT_TOOL_NAMES = []
 AGENT_REQUIRES_WORKSPACE = False
 AGENT_EXECUTION_CONTEXT = "auto"
 AGENT_MIN_ROLE = "user"

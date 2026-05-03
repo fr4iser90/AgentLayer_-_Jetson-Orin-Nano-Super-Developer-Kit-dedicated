@@ -70,6 +70,8 @@ services:
       - pidea_pip_cache:/root/.cache/pip
       # Coding workspace -> mount the actual source code
       - .:/code:ro
+      # Self-editing workspace (Hybrid: local bevorzugt)
+      - .:/workspace/AgentLayer:ro
       # Backups (replace_tool/update_tool): Default /data/tool_backups liegt NICHT auf diesem Mount →
       # in .env setzen: AGENT_TOOLS_BACKUP_DIR=/data/tools/.tool_backups (Ordner erscheint unter ./plugins/tools/agent/agent_created/.tool_backups)
     # Optional read-only:  - ./plugins/tools/agent/agent_created:/data/tools:ro

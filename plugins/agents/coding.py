@@ -41,23 +41,6 @@ Rules:
 - The user will click an option and tell you to proceed
 """
 AGENT_TOOL_DOMAIN = "coding"
-AGENT_TOOL_NAMES = [
-    "coding_read",
-    "coding_write",
-    "coding_edit",
-    "coding_replace",
-    "coding_search",
-    "coding_glob",
-    "coding_list",
-    "coding_bash",
-    "coding_apply_patch",
-    "coding_lsp",
-    "coding_symbols",
-    "coding_index",
-    "coding_semantic_search",
-    "coding_todo",
-    "coding_task",
-]
 AGENT_REQUIRES_WORKSPACE = True
 AGENT_EXECUTION_CONTEXT = "container"
 AGENT_MIN_ROLE = "user"
